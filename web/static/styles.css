@@ -299,12 +299,92 @@ input {
   gap: 12px;
 }
 
+.settings-panel-head,
 .participate-settings-head {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 16px;
-  margin-bottom: 18px;
+  margin-bottom: 20px;
+}
+
+.settings-panel-intro {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-panel-intro .section-desc,
+.participate-settings-desc {
+  margin-top: 8px;
+  line-height: 1.7;
+  max-width: 720px;
+}
+
+.llm-settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 20px 22px;
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(196, 111, 82, 0.04), transparent 72%),
+    var(--bg-elevated);
+  border: 1px solid var(--border-soft);
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.settings-field-full {
+  width: 100%;
+}
+
+.settings-field-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.settings-field-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.field-tag {
+  flex-shrink: 0;
+  padding: 2px 10px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--foreground-muted);
+  background: var(--surface-soft);
+  border: 1px solid var(--border-soft);
+}
+
+.field-tag.required {
+  color: var(--accent-hover);
+  background: var(--accent-soft);
+  border-color: rgba(196, 111, 82, 0.18);
+}
+
+.settings-panel-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 4px;
+}
+
+.participate-settings-foot {
+  margin-top: 12px;
+  padding-top: 0;
 }
 
 .participate-settings-desc {
@@ -322,7 +402,7 @@ input {
 
 .field-label {
   display: block;
-  margin: 0 0 8px;
+  margin: 0;
   font-size: 13px;
   font-weight: 600;
   color: var(--foreground-muted);
@@ -352,39 +432,18 @@ input {
   justify-content: space-between;
   align-items: center;
   gap: 12px;
+}
+
+.participate-settings-foot {
   margin-top: 12px;
+  padding-top: 0;
 }
 
-.llm-settings-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-  margin-bottom: 18px;
-}
-
-.llm-settings-desc {
-  margin-top: 8px;
-  line-height: 1.7;
-  max-width: 720px;
-}
-
-.llm-settings-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.field-block {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
+.llm-settings-head,
+.llm-settings-grid,
+.llm-settings-foot,
 .field-optional {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--foreground-muted);
+  display: none;
 }
 
 .field-help {
@@ -416,14 +475,6 @@ input {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
-}
-
-.llm-settings-foot {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  margin-top: 18px;
 }
 
 .setup-checklist {
@@ -1598,14 +1649,14 @@ body.modal-open {
     border-top: 1px solid var(--border-soft);
   }
 
+  .settings-panel-head,
   .participate-settings-head {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .llm-settings-head {
-    flex-direction: column;
-    align-items: stretch;
+  .settings-field-row {
+    grid-template-columns: 1fr;
   }
 
   .log-dock {

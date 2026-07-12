@@ -132,32 +132,43 @@
             </article>
 
             <article class="panel llm-settings">
-              <div class="llm-settings-head">
-                <div>
+              <div class="settings-panel-head">
+                <div class="settings-panel-intro">
                   <h2 class="section-title">LLM 配置</h2>
-                  <p class="section-desc llm-settings-desc">用于解析<strong>转发抽奖</strong>动态正文（奖品、开奖时间、参与条件等）。互动与预约抽奖不消耗 LLM。建议使用便宜的文本生成模型，推荐 <strong>DeepSeek-V4-Flash</strong>。</p>
+                  <p class="section-desc">解析<strong>转发抽奖</strong>动态正文，提取奖品与开奖时间。互动 / 预约抽奖不消耗 LLM，推荐使用 <strong>DeepSeek-V4-Flash</strong>。</p>
                 </div>
                 <button type="button" class="btn btn-secondary btn-pill" id="reset-llm-settings">恢复默认</button>
               </div>
-              <div class="llm-settings-grid">
-                <div class="field-block">
-                  <label class="field-label" for="llm-api-key-input">API Key</label>
-                  <p class="field-help">服务商提供的密钥。保存后仅以掩码显示，页面不会展示完整字符。</p>
+              <div class="llm-settings-body">
+                <div class="settings-field settings-field-full">
+                  <div class="settings-field-top">
+                    <label class="field-label" for="llm-api-key-input">API Key</label>
+                    <span class="field-tag required">必填</span>
+                  </div>
+                  <p class="field-help">服务商密钥，保存后仅显示掩码，不会明文展示。</p>
                   <input type="password" id="llm-api-key-input" class="form-input" autocomplete="new-password" placeholder="请输入 API Key" />
                   <p class="caption field-hint" id="llm-api-key-hint"></p>
                 </div>
-                <div class="field-block">
-                  <label class="field-label" for="llm-base-url-input">接口地址 <span class="field-optional">选填</span></label>
-                  <p class="field-help">仅在使用自定义 API 服务时填写；留空则使用内置默认地址。</p>
-                  <input type="text" id="llm-base-url-input" class="form-input" autocomplete="off" placeholder="请输入 BASE URL" />
-                </div>
-                <div class="field-block">
-                  <label class="field-label" for="llm-model-name-input">模型名称</label>
-                  <p class="field-help">文本模型标识，推荐 DeepSeek-V4-Flash。</p>
-                  <input type="text" id="llm-model-name-input" class="form-input" placeholder="DeepSeek-V4-Flash" />
+                <div class="settings-field-row">
+                  <div class="settings-field">
+                    <div class="settings-field-top">
+                      <label class="field-label" for="llm-base-url-input">接口地址</label>
+                      <span class="field-tag">选填</span>
+                    </div>
+                    <p class="field-help">自定义 API 时填写，留空使用内置默认。</p>
+                    <input type="text" id="llm-base-url-input" class="form-input" autocomplete="off" placeholder="请输入 BASE URL" />
+                  </div>
+                  <div class="settings-field">
+                    <div class="settings-field-top">
+                      <label class="field-label" for="llm-model-name-input">模型名称</label>
+                      <span class="field-tag required">必填</span>
+                    </div>
+                    <p class="field-help">文本模型标识，推荐 DeepSeek-V4-Flash。</p>
+                    <input type="text" id="llm-model-name-input" class="form-input" placeholder="DeepSeek-V4-Flash" />
+                  </div>
                 </div>
               </div>
-              <div class="llm-settings-foot">
+              <div class="settings-panel-foot">
                 <span class="caption" id="llm-settings-status">需先登录，再保存 LLM 配置</span>
                 <button type="button" class="btn btn-primary btn-pill" id="save-llm-settings">保存配置</button>
               </div>

@@ -77,8 +77,8 @@ function renderSetupChecklist() {
   const llmOk = isLlmConfigured();
   return `
     <div class="setup-checklist">
-      <span class="setup-pill ${loggedIn ? "ok" : "warn"}">① 账号${loggedIn ? "已登录" : "未登录"}</span>
-      <span class="setup-pill ${llmOk ? "ok" : "warn"}">② LLM${llmOk ? "已配置" : "未配置"}</span>
+      <span class="setup-pill ${loggedIn ? "ok" : "warn"}">账号${loggedIn ? "已登录" : "未登录"}</span>
+      <span class="setup-pill ${llmOk ? "ok" : "warn"}">LLM${llmOk ? "已配置" : "未配置"}</span>
       ${isSetupComplete() ? '<span class="setup-pill ready">可以开始使用</span>' : ""}
     </div>`;
 }
@@ -430,7 +430,7 @@ async function saveLlmSettings() {
     return;
   }
   const result = await fetchJSON("/api/settings/llm", {
-    method: "PUT",
+    method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       api_key: document.getElementById("llm-api-key-input")?.value || "",

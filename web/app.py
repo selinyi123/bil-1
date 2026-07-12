@@ -116,6 +116,7 @@ def api_settings() -> dict[str, Any]:
 
 
 @app.put("/api/settings/llm")
+@app.post("/api/settings/llm")
 def api_update_llm_settings(request: LlmSettingsRequest) -> dict[str, Any]:
     account = get_account_profile()
     if not account.get("logged_in"):
