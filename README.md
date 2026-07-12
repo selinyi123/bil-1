@@ -74,4 +74,5 @@ MIT（可按需调整）
 ## Star History
 
 <!-- star-history:start -->
+<p align="center"><em>Star 趋势图由 GitHub Actions 自动生成（需配置 <code>GH_PAT</code> 密钥后运行 workflow）</em></p>
 <!-- star-history:end -->
