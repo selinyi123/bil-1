@@ -54,19 +54,27 @@ function isLlmConfigured() {
   return Boolean(state.settings?.llm?.configured);
 }
 
+function isLlmTested() {
+  return Boolean(state.settings?.llm?.test_passed);
+}
+
 function isSetupComplete() {
-  return isLoggedIn() && isLlmConfigured();
+  return isLoggedIn() && isLlmConfigured() && isLlmTested();
 }
 
 function requireSetup(action) {
   if (action === "login") return true;
   if (!LOGIN_REQUIRED_ACTIONS.has(action)) return true;
   if (!isLoggedIn()) {
-    showToast("请先扫码登录", "info", "完成登录与 LLM 配置后才能使用项目功能");
+    showToast("请先扫码登录", "info", "完成登录、保存 LLM 配置并通过连接测试后才能使用项目功能");
     return false;
   }
   if (!isLlmConfigured()) {
-    showToast("请先配置 LLM", "info", "在概览页填写 API Key、接口地址与模型名并保存");
+    showToast("请先配置 LLM", "info", "在概览页填写 API Key 与模型名称并保存");
+    return false;
+  }
+  if (!isLlmTested()) {
+    showToast("请先测试 LLM 连接", "info", "保存配置后点击「测试连接」，通过后才能使用项目功能");
     return false;
   }
   return true;
@@ -75,10 +83,12 @@ function requireSetup(action) {
 function renderSetupChecklist() {
   const loggedIn = isLoggedIn();
   const llmOk = isLlmConfigured();
+  const llmTested = isLlmTested();
   return `
     <div class="setup-checklist">
       <span class="setup-pill ${loggedIn ? "ok" : "warn"}">账号${loggedIn ? "已登录" : "未登录"}</span>
       <span class="setup-pill ${llmOk ? "ok" : "warn"}">LLM${llmOk ? "已配置" : "未配置"}</span>
+      <span class="setup-pill ${llmTested ? "ok" : "warn"}">连接${llmTested ? "已通过" : "未测试"}</span>
       ${isSetupComplete() ? '<span class="setup-pill ready">可以开始使用</span>' : ""}
     </div>`;
 }
@@ -305,7 +315,7 @@ function renderAccountViews(account) {
           <h3>未登录</h3>
           <p>${escapeHtml(account.message || "请使用侧边栏扫码登录")}</p>
           ${renderSetupChecklist()}
-          <span class="account-status warn">需完成登录与 LLM 配置</span>
+          <span class="account-status warn">需完成登录、LLM 配置与连接测试</span>
         </div>
       </div>`;
     if (accountHero) accountHero.innerHTML = emptyHtml;
@@ -336,7 +346,7 @@ function renderAccountViews(account) {
         <div class="account-stat"><span class="account-stat-value">${account.unread_messages ?? "—"}</span><span class="account-stat-label">私信未读</span></div>
       </div>
       ${renderSetupChecklist()}
-      <span class="account-status ${isSetupComplete() ? "ok" : "warn"}">${isSetupComplete() ? "已就绪" : account.expired ? "需重新扫码登录" : "请完成 LLM 配置"}</span>
+      <span class="account-status ${isSetupComplete() ? "ok" : "warn"}">${isSetupComplete() ? "已就绪" : account.expired ? "需重新扫码登录" : !isLlmTested() && isLlmConfigured() ? "请完成 LLM 连接测试" : "请完成 LLM 配置"}</span>
     </div>`;
   if (accountHero) accountHero.innerHTML = heroHtml;
 
@@ -438,7 +448,9 @@ function renderLlmSettingsForm(settings) {
       status.textContent = llm.configured
         ? "已从本地配置文件读取，登录后可修改并保存"
         : "需先登录，再保存 LLM 配置";
-    } else if (llm.configured) status.textContent = "LLM 已配置，保存后立即生效";
+    } else if (llm.configured && !llm.test_passed) {
+      status.textContent = "配置已保存，请先测试连接通过后再使用项目功能";
+    } else if (llm.configured) status.textContent = "LLM 已配置且测试通过";
     else status.textContent = "请填写 API Key 与模型名称并保存，完成后才能使用项目功能";
   }
 }
@@ -501,6 +513,13 @@ async function testLlmSettings() {
       body: JSON.stringify(getLlmFormValues()),
       timeoutMs: 60000,
     });
+    state.settings = {
+      ...(state.settings || {}),
+      llm: result.llm,
+      setup_complete: result.setup_complete,
+    };
+    renderLlmSettingsForm(state.settings);
+    if (state.account) renderAccountViews(state.account);
     showToast("LLM 连接正常", "success", result.message || "");
   } finally {
     if (button) {
@@ -716,6 +735,8 @@ async function startJob(action, params = {}) {
     const message = sanitizeUserText(error.message || error);
     if (message.includes("请先扫码登录")) {
       showToast("请先扫码登录", "info", "完成登录与 LLM 配置后才能使用项目功能");
+    } else if (message.includes("连接测试") || message.includes("测试")) {
+      showToast("请先测试 LLM 连接", "info", "保存配置后点击「测试连接」，通过后才能使用项目功能");
     } else if (message.includes("配置 LLM")) {
       showToast("请先配置 LLM", "info", "在概览页填写并保存 LLM 配置");
     } else {

@@ -12,7 +12,9 @@ from src.bilibili_login import QR_IMAGE_PATH
 from src.llm_settings import (
     build_llm_config_from_inputs,
     get_llm_settings_public,
-    is_llm_configured,
+    is_llm_ready,
+    load_llm_values,
+    mark_llm_test_passed,
     save_llm_settings,
 )
 from src.user_settings import DEFAULT_PARTICIPATE_TEXT, get_participate_text, set_participate_text
@@ -79,8 +81,8 @@ def api_start_job(request: JobRequest) -> dict[str, Any]:
         account = get_account_profile()
         if not account.get("logged_in"):
             raise HTTPException(status_code=401, detail="请先扫码登录后再执行此操作")
-        if not is_llm_configured():
-            raise HTTPException(status_code=401, detail="请先在概览页配置 LLM 后再执行此操作")
+        if not is_llm_ready():
+            raise HTTPException(status_code=401, detail="请先保存 LLM 配置并通过连接测试后再执行此操作")
     if not runner.start(request.action, request.params or {}):
         raise HTTPException(status_code=409, detail="已有任务正在运行")
     return {"ok": True, "job": runner.get_status().to_dict()}
@@ -106,7 +108,7 @@ def _build_settings_payload() -> dict[str, Any]:
         "participate_text": get_participate_text(),
         "default_participate_text": DEFAULT_PARTICIPATE_TEXT,
         "llm": llm,
-        "setup_complete": logged_in and bool(llm.get("configured")),
+        "setup_complete": logged_in and bool(llm.get("ready")),
     }
 
 
@@ -122,7 +124,7 @@ def api_get_llm_settings() -> dict[str, Any]:
     logged_in = bool(account.get("logged_in"))
     return {
         "llm": llm,
-        "setup_complete": logged_in and bool(llm.get("configured")),
+        "setup_complete": logged_in and bool(llm.get("ready")),
     }
 
 
@@ -132,17 +134,32 @@ def api_test_llm_settings(request: LlmSettingsRequest) -> dict[str, Any]:
     if not account.get("logged_in"):
         raise HTTPException(status_code=401, detail="请先扫码登录后再测试 LLM")
     try:
+        saved = load_llm_values()
+        test_key = request.api_key.strip() or saved.get("LLM_API_KEY", "").strip()
+        test_base = (request.base_url or "").strip().rstrip("/")
+        test_model = request.model_name.strip() or saved.get("LLM_MODEL_NAME", "").strip()
         config = build_llm_config_from_inputs(
-            api_key=request.api_key.strip() or None,
-            base_url=request.base_url,
-            model_name=request.model_name,
+            api_key=test_key,
+            base_url=test_base,
+            model_name=test_model,
         )
         endpoint = test_llm_connection(config)
+        llm = mark_llm_test_passed(
+            api_key=test_key,
+            base_url=test_base,
+            model_name=test_model,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"ok": True, "message": f"连接成功：{endpoint}"}
+    logged_in = bool(account.get("logged_in"))
+    return {
+        "ok": True,
+        "message": f"连接成功：{endpoint}",
+        "llm": llm,
+        "setup_complete": logged_in and bool(llm.get("ready")),
+    }
 
 
 @app.put("/api/settings/llm")
@@ -159,7 +176,11 @@ def api_update_llm_settings(request: LlmSettingsRequest) -> dict[str, Any]:
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"llm": llm, "setup_complete": True}
+    logged_in = bool(account.get("logged_in"))
+    return {
+        "llm": llm,
+        "setup_complete": logged_in and bool(llm.get("ready")),
+    }
 
 
 @app.put("/api/settings/participate-text")
