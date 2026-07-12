@@ -406,7 +406,7 @@ function renderLlmSettingsForm(settings) {
   const keyInput = document.getElementById("llm-api-key-input");
   const keyHint = document.getElementById("llm-api-key-hint");
   const status = document.getElementById("llm-settings-status");
-  if (baseInput) baseInput.value = llm.base_url || defaults.base_url || "";
+  if (baseInput) baseInput.value = llm.base_url_customized ? llm.base_url || "" : "";
   if (modelInput) modelInput.value = llm.model_name || defaults.model_name || "";
   if (keyInput) {
     keyInput.value = "";
@@ -452,9 +452,9 @@ async function resetLlmSettings() {
   const defaults = state.settings?.llm_defaults || {};
   const baseInput = document.getElementById("llm-base-url-input");
   const modelInput = document.getElementById("llm-model-name-input");
-  if (baseInput) baseInput.value = defaults.base_url || "https://www.autodl.art/api/v1";
+  if (baseInput) baseInput.value = "";
   if (modelInput) modelInput.value = defaults.model_name || "DeepSeek-V4-Flash";
-  showToast("已恢复默认地址与模型", "info", "API Key 需重新填写后保存");
+  showToast("已恢复默认模型", "info", "接口地址已清空，使用内置默认");
 }
 
 async function saveParticipateText() {

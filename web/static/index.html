@@ -143,18 +143,18 @@
                 <div class="field-block">
                   <label class="field-label" for="llm-api-key-input">API Key</label>
                   <p class="field-help">服务商提供的密钥。保存后仅以掩码显示，页面不会展示完整字符。</p>
-                  <input type="password" id="llm-api-key-input" class="input input-block" autocomplete="new-password" placeholder="请输入 API Key" />
+                  <input type="password" id="llm-api-key-input" class="form-input" autocomplete="new-password" placeholder="请输入 API Key" />
                   <p class="caption field-hint" id="llm-api-key-hint"></p>
                 </div>
                 <div class="field-block">
-                  <label class="field-label" for="llm-base-url-input">接口地址</label>
-                  <p class="field-help">OpenAI 兼容 API 根地址，末尾无需加斜杠。</p>
-                  <input type="url" id="llm-base-url-input" class="input input-block" placeholder="https://www.autodl.art/api/v1" />
+                  <label class="field-label" for="llm-base-url-input">接口地址 <span class="field-optional">选填</span></label>
+                  <p class="field-help">仅在使用自定义 API 服务时填写；留空则使用内置默认地址。</p>
+                  <input type="text" id="llm-base-url-input" class="form-input" autocomplete="off" placeholder="请输入 BASE URL" />
                 </div>
                 <div class="field-block">
                   <label class="field-label" for="llm-model-name-input">模型名称</label>
                   <p class="field-help">文本模型标识，推荐 DeepSeek-V4-Flash。</p>
-                  <input type="text" id="llm-model-name-input" class="input input-block" placeholder="DeepSeek-V4-Flash" />
+                  <input type="text" id="llm-model-name-input" class="form-input" placeholder="DeepSeek-V4-Flash" />
                 </div>
               </div>
               <div class="llm-settings-foot">

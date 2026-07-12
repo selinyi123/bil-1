@@ -43,17 +43,21 @@ def is_llm_configured() -> bool:
     values = _read_values()
     return bool(
         values.get("LLM_API_KEY", "").strip()
-        and values.get("LLM_BASE_URL", "").strip()
         and values.get("LLM_MODEL_NAME", "").strip()
     )
+
+
+def _resolve_base_url(raw: str) -> str:
+    cleaned = (raw or "").strip().rstrip("/")
+    return cleaned or DEFAULT_LLM_BASE_URL
 
 
 def get_llm_config() -> LlmConfig | None:
     values = _read_values()
     api_key = values.get("LLM_API_KEY", "").strip()
-    base_url = values.get("LLM_BASE_URL", "").strip().rstrip("/")
+    base_url = _resolve_base_url(values.get("LLM_BASE_URL", ""))
     model_name = values.get("LLM_MODEL_NAME", "").strip()
-    if not api_key or not base_url or not model_name:
+    if not api_key or not model_name:
         return None
     return LlmConfig(api_key=api_key, base_url=base_url, model_name=model_name)
 
@@ -61,14 +65,15 @@ def get_llm_config() -> LlmConfig | None:
 def get_llm_settings_public() -> dict[str, str | bool]:
     values = _read_values()
     api_key = values.get("LLM_API_KEY", "").strip()
-    base_url = values.get("LLM_BASE_URL", "").strip() or DEFAULT_LLM_BASE_URL
+    base_url = values.get("LLM_BASE_URL", "").strip()
     model_name = values.get("LLM_MODEL_NAME", "").strip() or DEFAULT_LLM_MODEL_NAME
-    configured = bool(api_key and base_url and model_name)
+    configured = bool(api_key and model_name)
     return {
         "configured": configured,
         "base_url": base_url,
         "model_name": model_name,
-        "api_key_hint": mask_api_key(api_key) if configured else "",
+        "api_key_hint": mask_api_key(api_key) if api_key else "",
+        "base_url_customized": bool(base_url),
     }
 
 
@@ -89,7 +94,7 @@ def save_llm_settings(
     next_key = (api_key or "").strip()
     if not next_key:
         next_key = current.get("LLM_API_KEY", "").strip()
-    next_base = (base_url or "").strip() or DEFAULT_LLM_BASE_URL
+    next_base = (base_url or "").strip().rstrip("/")
     next_model = (model_name or "").strip() or DEFAULT_LLM_MODEL_NAME
     if not next_key:
         raise ValueError("请填写 LLM API Key")
@@ -98,7 +103,7 @@ def save_llm_settings(
     path.parent.mkdir(parents=True, exist_ok=True)
     lines = [
         f"LLM_API_KEY={next_key}",
-        f"LLM_BASE_URL={next_base.rstrip('/')}",
+        f"LLM_BASE_URL={next_base}",
         f"LLM_MODEL_NAME={next_model}",
         "",
     ]

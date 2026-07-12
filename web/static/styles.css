@@ -370,14 +370,21 @@ input {
 }
 
 .llm-settings-grid {
-  display: grid;
-  gap: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 }
 
 .field-block {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
+}
+
+.field-optional {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--foreground-muted);
 }
 
 .field-help {
@@ -389,10 +396,26 @@ input {
 
 .field-hint {
   margin: 2px 0 0;
+  min-height: 18px;
 }
 
-.input-block {
+.form-input {
   width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 11px 14px;
+  min-height: 42px;
+  background: var(--bg-elevated);
+  font: inherit;
+  line-height: 1.4;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .llm-settings-foot {
@@ -407,7 +430,7 @@ input {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin: 12px 0 10px;
+  margin: 14px 0 10px;
 }
 
 .setup-pill {
@@ -582,9 +605,13 @@ input {
 }
 
 .account-avatar-lg {
+  flex-shrink: 0;
+}
+
+.account-avatar.account-avatar-lg,
+.account-avatar-fallback.account-avatar-lg {
   width: 312px;
   height: 312px;
-  flex-shrink: 0;
   border-radius: 50%;
   object-fit: cover;
   border: 3px solid var(--border-soft);
@@ -781,6 +808,12 @@ input {
   border-radius: 50%;
   object-fit: cover;
   border: 2px solid var(--border-soft);
+  flex-shrink: 0;
+}
+
+.account-hero-body .account-status {
+  width: fit-content;
+  max-width: 100%;
 }
 
 .account-avatar-fallback {
@@ -1536,7 +1569,8 @@ body.modal-open {
     padding: 32px 28px;
   }
 
-  .account-avatar-lg {
+  .account-avatar.account-avatar-lg,
+  .account-avatar-fallback.account-avatar-lg {
     width: 220px;
     height: 220px;
   }
@@ -1549,7 +1583,8 @@ body.modal-open {
     padding: 28px 24px;
   }
 
-  .account-avatar-lg {
+  .account-avatar.account-avatar-lg,
+  .account-avatar-fallback.account-avatar-lg {
     width: 176px;
     height: 176px;
   }
