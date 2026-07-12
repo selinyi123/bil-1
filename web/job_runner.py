@@ -6,7 +6,9 @@ import traceback
 from dataclasses import dataclass
 from typing import Any, Callable, Literal
 
+from src.bilibili_login import LoginCancelledError
 from web.actions import run_action
+from web.user_messages import JOB_ACTION_LABELS, friendly_error, sanitize_log
 
 JobState = Literal["idle", "running", "success", "error"]
 ProgressCallback = Callable[..., None]
@@ -42,17 +44,11 @@ class JobStatus:
         }
 
 
-ACTION_LABELS: dict[str, str] = {
-    "login": "扫码登录",
-    "refresh_all": "一键更新活动链接",
-    "participate": "参与活动",
-}
-
-
 class JobRunner:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._status = JobStatus()
+        self._cancel_event: threading.Event | None = None
 
     def get_status(self) -> JobStatus:
         with self._lock:
@@ -79,10 +75,11 @@ class JobRunner:
         with self._lock:
             if self._status.state == "running":
                 return False
-            label = ACTION_LABELS.get(action, action)
+            label = JOB_ACTION_LABELS.get(action, action)
             if action == "participate" and params.get("dynamic_id"):
                 label = f"{label} {params['dynamic_id']}"
 
+            self._cancel_event = threading.Event()
             self._status = JobStatus(
                 state="running",
                 action=action,
@@ -99,6 +96,14 @@ class JobRunner:
         thread.start()
         return True
 
+    def cancel(self) -> bool:
+        with self._lock:
+            if self._status.state != "running":
+                return False
+            if self._cancel_event:
+                self._cancel_event.set()
+            return True
+
     def _make_progress_callback(self) -> ProgressCallback:
         def on_progress(
             *,
@@ -106,6 +111,7 @@ class JobRunner:
             total: int,
             message: str,
             log_append: str | None = None,
+            qrcode_refreshed_at: int | None = None,
         ) -> None:
             with self._lock:
                 self._status.progress_step = step
@@ -115,28 +121,45 @@ class JobRunner:
                 if log_append:
                     current = self._status.log.strip()
                     self._status.log = f"{current}\n{log_append}".strip() if current else log_append
+                if qrcode_refreshed_at is not None:
+                    result = dict(self._status.result or {})
+                    result["qrcode_refreshed_at"] = qrcode_refreshed_at
+                    self._status.result = result
 
         return on_progress
 
     def _run_worker(self, action: str, params: dict[str, Any]) -> None:
         on_progress = self._make_progress_callback()
+        cancel_event = self._cancel_event
         try:
-            payload = run_action(action, params, on_progress=on_progress)
+            payload = run_action(
+                action,
+                params,
+                on_progress=on_progress,
+                cancel_event=cancel_event,
+            )
             with self._lock:
                 self._status.state = "success" if payload.get("ok", True) else "error"
                 self._status.finished_at = int(time.time())
                 self._status.message = str(payload.get("message") or "完成")
                 if payload.get("log"):
-                    self._status.log = str(payload.get("log"))
+                    self._status.log = sanitize_log(str(payload.get("log")))
                 self._status.result = payload.get("result")
                 if self._status.progress_total:
                     self._status.progress_step = self._status.progress_total
+        except LoginCancelledError:
+            with self._lock:
+                self._status.state = "idle"
+                self._status.finished_at = int(time.time())
+                self._status.message = "已取消扫码登录"
+                self._status.log = "登录流程已结束"
+                self._status.result = None
         except Exception as exc:
             with self._lock:
                 self._status.state = "error"
                 self._status.finished_at = int(time.time())
-                self._status.message = str(exc)
-                self._status.log = traceback.format_exc()
+                self._status.message = friendly_error(exc)
+                self._status.log = sanitize_log(traceback.format_exc()) or friendly_error(exc)
 
 
 runner = JobRunner()

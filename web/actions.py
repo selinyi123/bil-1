@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import io
+import threading
+import time
 from contextlib import redirect_stderr, redirect_stdout
 from typing import Any, Callable
 
@@ -8,12 +10,13 @@ from src.bilibili_client import BilibiliClient
 from src.bilibili_login import login_with_qrcode
 from src.classify_links import classify_merged_links, save_classified
 from src.fetch_activity_info import fetch_activity_info, save_enriched
-from src.lottery_actions import ACTION_LABELS, DEFAULT_PARTICIPATE_TEXT
+from src.user_settings import get_participate_text
 from src.merge_links import merge_activity_links, save_merged
 from src.participation import participate_activity
 from src.sources import ds1_xiaozhuli, ds2_fanqiao, ds3_gongjuren, ds4_junming, ds5_hudong
 
 from web.activity_service import lookup_lottery_type
+from web.user_messages import format_participation_log, sanitize_log
 
 DS_HANDLERS: list[tuple[str, Callable[..., Any], Callable[[Any], Any]]] = [
     ("DS-1", ds1_xiaozhuli.check_update, ds1_xiaozhuli.save_result),
@@ -31,22 +34,6 @@ def _noop_progress(**_kwargs: Any) -> None:
     return None
 
 
-def _format_participation_log(payload: dict[str, Any]) -> str:
-    lines: list[str] = []
-    for item in payload.get("actions") or []:
-        if not isinstance(item, dict):
-            continue
-        action = str(item.get("action") or "")
-        label = ACTION_LABELS.get(action, action)
-        mark = "✓" if item.get("ok") else "✗"
-        detail = str(item.get("detail") or "").strip()
-        lines.append(f"{mark} {label}{f' · {detail}' if detail else ''}")
-    message = str(payload.get("message") or "").strip()
-    if message:
-        lines.append(message)
-    return "\n".join(lines).strip()
-
-
 def _capture_output(func: Callable[..., Any], *args: Any, **kwargs: Any) -> tuple[Any, str]:
     buffer = io.StringIO()
     with redirect_stdout(buffer), redirect_stderr(buffer):
@@ -59,18 +46,41 @@ def run_action(
     params: dict[str, Any] | None = None,
     *,
     on_progress: ProgressCallback | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> dict[str, Any]:
     params = params or {}
     progress = on_progress or _noop_progress
     log_lines: list[str] = []
 
     if action == "login":
-        progress(step=1, total=1, message="等待扫码登录…")
-        _, log = _capture_output(login_with_qrcode)
+        qrcode_refresh_count = 0
+
+        def on_qrcode_ready() -> None:
+            nonlocal qrcode_refresh_count
+            qrcode_refresh_count += 1
+            if qrcode_refresh_count == 1:
+                progress(step=1, total=1, message="请使用哔哩哔哩 App 扫码登录", log_append="已生成登录二维码")
+            else:
+                progress(
+                    step=1,
+                    total=1,
+                    message="二维码已刷新，请重新扫码",
+                    log_append="二维码已自动刷新",
+                    qrcode_refreshed_at=int(time.time()),
+                )
+
+        progress(step=1, total=1, message="正在生成登录二维码…")
+        _, log = _capture_output(
+            login_with_qrcode,
+            open_image=False,
+            auto_refresh_on_expire=True,
+            cancel_event=cancel_event,
+            on_qrcode_ready=on_qrcode_ready,
+        )
         return {
             "ok": True,
-            "message": "登录成功，Cookie 已保存到 config/cookies.txt",
-            "log": log,
+            "message": "登录成功，账号已就绪",
+            "log": sanitize_log(log) or "登录成功",
         }
 
     if action == "refresh_all":
@@ -200,7 +210,7 @@ def run_action(
                 "active_total": enrich_result.counts.get("active", 0),
                 "total_count": enrich_result.total_count,
             },
-            "log": "\n".join(log_lines).strip(),
+            "log": sanitize_log("\n".join(log_lines).strip()),
         }
 
     if action == "participate":
@@ -220,7 +230,7 @@ def run_action(
                     client,
                     dynamic_id=dynamic_id,
                     lottery_type=lottery_type,
-                    action_text=DEFAULT_PARTICIPATE_TEXT,
+                    action_text=get_participate_text(),
                     dry_run=False,
                     persist=True,
                     on_step=on_step,
@@ -229,10 +239,10 @@ def run_action(
 
         payload, _ = _capture_output(_participate)
         ok = payload.get("status") == "joined"
-        action_log = _format_participation_log(payload)
+        action_log = format_participation_log(payload)
         return {
             "ok": ok,
-            "message": payload.get("message") or ("参与成功" if ok else "参与失败"),
+            "message": payload.get("message") or ("参与成功" if ok else "参与未完成，请查看步骤结果"),
             "result": payload,
             "log": action_log,
         }

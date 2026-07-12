@@ -11,7 +11,7 @@ from src.sources.common import opus_link
 
 ActionName = Literal["like", "follow", "favorite", "repost", "comment", "reserve"]
 
-DEFAULT_PARTICIPATE_TEXT = "@神奇聪聪聪 抽我！"
+DEFAULT_PARTICIPATE_TEXT = "好运连连！"
 
 LIKE_URL = "https://api.bilibili.com/x/dynamic/feed/dyn/thumb"
 FOLLOW_URL = "https://api.bilibili.com/x/relation/modify"

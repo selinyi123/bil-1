@@ -4,14 +4,20 @@ const state = {
   filters: { q: "", type: "", status: "", draw: "active" },
   polling: null,
   logDockOpen: false,
+  qrcodeDismissed: false,
+  lastQrcodeRefresh: 0,
+  account: null,
 };
 
-const jobPill = document.getElementById("job-pill");
 const jobMessage = document.getElementById("job-message");
 const jobLog = document.getElementById("job-log");
 const statsGrid = document.getElementById("stats-grid");
 const sourceGrid = document.getElementById("source-grid");
-const accountCard = document.getElementById("account-card");
+const accountHero = document.getElementById("account-hero");
+const sidebarAccountCard = document.getElementById("sidebar-account-card");
+const sidebarLoginBtn = document.getElementById("sidebar-login");
+const sidebarLogoutBtn = document.getElementById("sidebar-logout");
+const sidebarRefreshBtn = document.getElementById("sidebar-refresh-account");
 const activitiesBody = document.getElementById("activities-body");
 const pagination = document.getElementById("pagination");
 const qrcodeModal = document.getElementById("qrcode-modal");
@@ -37,6 +43,40 @@ const ACTION_LABELS = {
   comment: "评论",
   reserve: "预约",
 };
+const LOGIN_REQUIRED_ACTIONS = new Set(["refresh_all", "participate"]);
+
+function isLoggedIn() {
+  return Boolean(state.account?.logged_in && !state.account?.expired);
+}
+
+function requireLogin(action) {
+  if (action === "login" || !LOGIN_REQUIRED_ACTIONS.has(action)) return true;
+  if (isLoggedIn()) return true;
+  showToast("请先扫码登录", "info", "登录后才能执行此操作");
+  return false;
+}
+
+function sanitizeUserText(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return "";
+  if (/traceback|nameerror|\.py\b|line \d+/i.test(raw)) {
+    return "任务执行时发生内部错误，请稍后重试";
+  }
+  return raw
+    .replace(/[A-Za-z]:\\[^\s"']+/g, "[本地文件]")
+    .replace(/→\s*\S+/g, "→ 已保存");
+}
+
+function formatToastDetail(job) {
+  if (!job?.log) return "";
+  const lines = sanitizeUserText(job.log)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 3);
+  return lines.join(" · ");
+}
+
 const TOAST_META = {
   success: { title: "执行成功", icon: "✓" },
   error: { title: "执行失败", icon: "!" },
@@ -81,7 +121,14 @@ async function fetchJSON(url, options = {}) {
     const response = await fetch(url, { ...fetchOptions, signal: controller.signal });
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(text || response.statusText);
+      let message = text || response.statusText;
+      try {
+        const payload = JSON.parse(text);
+        if (payload?.detail) message = String(payload.detail);
+      } catch {
+        // 非 JSON 响应，保留原始文本
+      }
+      throw new Error(message);
     }
     return response.json();
   } catch (error) {
@@ -103,32 +150,61 @@ function showToast(message, type = "info", detail = "") {
       <p class="toast-title">${escapeHtml(meta.title)}</p>
       <p class="toast-message">${escapeHtml(message)}</p>
       ${detail ? `<p class="toast-detail">${escapeHtml(detail)}</p>` : ""}
-    </div>`;
+    </div>
+    <button type="button" class="toast-close" aria-label="关闭">×</button>
+    <div class="toast-progress" aria-hidden="true"></div>`;
+  const duration = type === "error" ? 6000 : type === "running" ? 2400 : 4200;
+  const progress = toast.querySelector(".toast-progress");
+  progress.style.animationDuration = `${duration}ms`;
+  toast.querySelector(".toast-close")?.addEventListener("click", () => toast.remove());
   toastStack.appendChild(toast);
   window.setTimeout(() => {
     toast.classList.add("toast-hide");
-    window.setTimeout(() => toast.remove(), 280);
-  }, type === "error" ? 5200 : 3800);
+    window.setTimeout(() => toast.remove(), 320);
+  }, duration);
 }
 
 function showQrcodeModal() {
-  if (!qrcodeModal) return;
+  if (!qrcodeModal || state.qrcodeDismissed) return;
   qrcodeModal.hidden = false;
   document.body.classList.add("modal-open");
   if (qrcodeStatus) qrcodeStatus.textContent = "等待扫码…";
   if (qrcodeImg) qrcodeImg.src = `/api/login/qrcode?t=${Date.now()}`;
 }
 
-function hideQrcodeModal() {
+function hideQrcodeModal(manual = false) {
   if (!qrcodeModal) return;
+  if (manual) {
+    state.qrcodeDismissed = true;
+    cancelLoginJob();
+  }
   qrcodeModal.hidden = true;
   document.body.classList.remove("modal-open");
+}
+
+async function cancelLoginJob() {
+  try {
+    const job = await fetchJSON("/api/jobs/current");
+    if (job.state === "running" && job.action === "login") {
+      await fetchJSON("/api/jobs/cancel", { method: "POST" });
+      if (state.polling) {
+        window.clearInterval(state.polling);
+        state.polling = null;
+      }
+      setButtonsDisabled(false);
+      updateJobUI({ state: "idle", message: "已取消扫码登录", log: "登录流程已结束" });
+      showToast("已取消扫码登录", "info");
+    }
+  } catch (error) {
+    showToast(sanitizeUserText(error.message || error), "error");
+  }
 }
 
 function setLogDockOpen(open) {
   state.logDockOpen = open;
   if (!logDockPanel || !logDockToggle) return;
   logDockPanel.hidden = !open;
+  logDockToggle.hidden = open;
   logDockToggle.setAttribute("aria-expanded", String(open));
   logDock?.classList.toggle("open", open);
 }
@@ -187,33 +263,138 @@ function renderStats(summary) {
     .join("");
 }
 
-function renderAccount(account) {
-  if (!account.logged_in) {
-    accountCard.innerHTML = `
-      <div class="account-meta">
-        <h3>未登录</h3>
-        <p>${escapeHtml(account.message || "请先扫码登录")}</p>
-        <span class="account-status warn">需重新扫码登录</span>
+function renderAccountViews(account) {
+  state.account = account;
+  const loggedIn = Boolean(account.logged_in);
+
+  if (sidebarLoginBtn) sidebarLoginBtn.hidden = loggedIn;
+  if (sidebarLogoutBtn) sidebarLogoutBtn.hidden = !loggedIn;
+
+  if (!loggedIn) {
+    const emptyHtml = `
+      <div class="account-empty">
+        <div class="account-avatar account-avatar-fallback account-avatar-lg"></div>
+        <div>
+          <h3>未登录</h3>
+          <p>${escapeHtml(account.message || "请使用侧边栏扫码登录")}</p>
+          <span class="account-status warn">需登录后参与活动</span>
+        </div>
       </div>`;
+    if (accountHero) accountHero.innerHTML = emptyHtml;
+    if (sidebarAccountCard) {
+      sidebarAccountCard.innerHTML = `
+        <div class="sidebar-account-mini">
+          <div class="account-avatar account-avatar-fallback"></div>
+          <div>
+            <p class="sidebar-account-name">未登录</p>
+            <p class="sidebar-account-sub">扫码登录后开始</p>
+          </div>
+        </div>`;
+    }
     return;
   }
 
   const avatar = account.face
-    ? `<img class="account-avatar" src="${escapeHtml(account.face)}" alt="头像" referrerpolicy="no-referrer" crossorigin="anonymous" />`
-    : `<div class="account-avatar account-avatar-fallback"></div>`;
-  accountCard.innerHTML = `
+    ? `<img class="account-avatar account-avatar-lg" src="${escapeHtml(account.face)}" alt="头像" referrerpolicy="no-referrer" crossorigin="anonymous" />`
+    : `<div class="account-avatar account-avatar-fallback account-avatar-lg"></div>`;
+  const heroHtml = `
     ${avatar}
-    <div class="account-meta">
-      <h3>${escapeHtml(account.uname || "B站用户")}</h3>
-      <p>关注 ${account.following ?? "—"} · 动态 ${account.dynamic_count ?? "—"} · 私信 ${account.unread_messages ?? "—"}</p>
+    <div class="account-hero-body">
+      <p class="eyebrow">当前账号</p>
+      <h2 class="account-hero-name">${escapeHtml(account.uname || "B站用户")}</h2>
+      <div class="account-hero-stats">
+        <div class="account-stat"><span class="account-stat-value">${account.following ?? "—"}</span><span class="account-stat-label">关注</span></div>
+        <div class="account-stat"><span class="account-stat-value">${account.dynamic_count ?? "—"}</span><span class="account-stat-label">动态</span></div>
+        <div class="account-stat"><span class="account-stat-value">${account.unread_messages ?? "—"}</span><span class="account-stat-label">私信未读</span></div>
+      </div>
       <span class="account-status ${account.expired ? "warn" : "ok"}">${account.expired ? "需重新扫码登录" : "已登录"}</span>
     </div>`;
+  if (accountHero) accountHero.innerHTML = heroHtml;
+
+  const sidebarAvatar = account.face
+    ? `<img class="account-avatar" src="${escapeHtml(account.face)}" alt="头像" referrerpolicy="no-referrer" crossorigin="anonymous" />`
+    : `<div class="account-avatar account-avatar-fallback"></div>`;
+  if (sidebarAccountCard) {
+    sidebarAccountCard.innerHTML = `
+      <div class="sidebar-account-mini">
+        ${sidebarAvatar}
+        <div>
+          <p class="sidebar-account-name">${escapeHtml(account.uname || "B站用户")}</p>
+          <p class="sidebar-account-sub">UID ${escapeHtml(account.mid || "—")}</p>
+        </div>
+      </div>`;
+  }
 }
 
 async function loadAccount() {
   const account = await fetchJSON("/api/account", { timeoutMs: 20000 });
-  renderAccount(account);
+  renderAccountViews(account);
   return account;
+}
+
+async function logoutAccount() {
+  const response = await fetch("/api/logout", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || "退出登录失败");
+  }
+  try {
+    await loadAccount();
+  } catch (error) {
+    renderAccountViews({
+      logged_in: false,
+      expired: true,
+      message: "请重新扫码登录",
+      uname: "",
+      face: "",
+      mid: null,
+      following: null,
+      dynamic_count: null,
+      unread_messages: null,
+    });
+  }
+  showToast("已退出登录", "success", "本地 Cookie 已清除，请重新扫码登录");
+}
+
+async function loadSettings() {
+  const settings = await fetchJSON("/api/settings");
+  const input = document.getElementById("participate-text-input");
+  if (input) input.value = settings.participate_text || settings.default_participate_text || "好运连连！";
+  return settings;
+}
+
+async function saveParticipateText() {
+  if (!isLoggedIn()) {
+    showToast("请先扫码登录", "info", "登录后才能修改参与文案");
+    return;
+  }
+  const input = document.getElementById("participate-text-input");
+  const value = input?.value?.trim() || "";
+  const result = await fetchJSON("/api/settings/participate-text", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ participate_text: value }),
+  });
+  if (input) input.value = result.participate_text;
+  showToast("参与文案已保存", "success", result.participate_text);
+}
+
+async function resetParticipateText() {
+  if (!isLoggedIn()) {
+    showToast("请先扫码登录", "info", "登录后才能修改参与文案");
+    return;
+  }
+  const result = await fetchJSON("/api/settings/participate-text", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ participate_text: "好运连连！" }),
+  });
+  const input = document.getElementById("participate-text-input");
+  if (input) input.value = result.participate_text;
+  showToast("已恢复默认文案", "success", result.participate_text);
 }
 
 function renderSources(sources) {
@@ -253,7 +434,7 @@ function renderActivities(payload) {
     activitiesBody.innerHTML = items
       .map((item) => {
         const participateBtn = item.can_participate
-          ? `<button class="btn btn-primary btn-compact" data-action="participate" data-dynamic-id="${escapeHtml(item.dynamic_id)}">参与</button>`
+          ? `<button class="btn btn-primary btn-compact btn-pill" data-action="participate" data-dynamic-id="${escapeHtml(item.dynamic_id)}">参与</button>`
           : `<span class="caption">—</span>`;
         const lastNote = item.last_participation
           ? `<div class="last-result ${escapeHtml(item.last_participation.status || "")}">上次：${escapeHtml(formatLastParticipation(item.last_participation))}</div>`
@@ -313,19 +494,14 @@ function updateProgressUI(job) {
 }
 
 function updateJobUI(job) {
-  const label = job.state === "running" ? `运行中 · ${job.label}` : job.label || "空闲";
-  jobPill.textContent = label;
-  jobPill.className = `job-pill ${job.state || "idle"}`;
-  jobMessage.textContent = job.message || "暂无任务";
-  jobLog.textContent = job.log || "";
+  jobMessage.textContent = sanitizeUserText(job.message) || "暂无任务";
+  jobLog.textContent = sanitizeUserText(job.log) || "";
   if (logDockBadge) {
     const running = job.state === "running";
     logDockBadge.hidden = !running;
     logDockBadge.textContent = running ? "运行中" : "";
   }
-  if (job.state === "running") {
-    toggleLogDock(true);
-  }
+  if (job.state === "running") toggleLogDock(true);
   setButtonsDisabled(job.state === "running");
   updateProgressUI(job);
 }
@@ -355,10 +531,10 @@ function bindNavigation() {
   document.getElementById("sidebar-toggle")?.addEventListener("click", () => {
     document.getElementById("sidebar")?.classList.toggle("open");
   });
-  logDockToggle?.addEventListener("click", () => toggleLogDock());
+  logDockToggle?.addEventListener("click", () => toggleLogDock(true));
   document.getElementById("log-dock-collapse")?.addEventListener("click", () => toggleLogDock(false));
-  document.getElementById("qrcode-close")?.addEventListener("click", hideQrcodeModal);
-  document.getElementById("qrcode-backdrop")?.addEventListener("click", hideQrcodeModal);
+  document.getElementById("qrcode-close")?.addEventListener("click", () => hideQrcodeModal(true));
+  document.getElementById("qrcode-backdrop")?.addEventListener("click", () => hideQrcodeModal(true));
 }
 
 async function loadSummary() {
@@ -382,15 +558,30 @@ async function loadActivities() {
 }
 
 async function startJob(action, params = {}) {
+  if (!requireLogin(action)) return;
   const actionNames = { login: "扫码登录", refresh_all: "一键更新", participate: "参与活动" };
-  showToast(`正在启动${actionNames[action] || action}…`, "running");
+  showToast(`正在启动${actionNames[action] || action}`, "running", "任务日志已展开，可查看实时进度");
   toggleLogDock(true);
-  await fetchJSON("/api/jobs", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action, params }),
-  });
-  if (action === "login") showQrcodeModal();
+  try {
+    await fetchJSON("/api/jobs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, params }),
+    });
+  } catch (error) {
+    const message = sanitizeUserText(error.message || error);
+    if (message.includes("请先扫码登录")) {
+      showToast("请先扫码登录", "info", "登录后才能执行此操作");
+    } else {
+      showToast(message, "error");
+    }
+    throw error;
+  }
+  if (action === "login") {
+    state.qrcodeDismissed = false;
+    state.lastQrcodeRefresh = 0;
+    showQrcodeModal();
+  }
   updateJobUI(await fetchJSON("/api/jobs/current"));
   startPolling();
 }
@@ -425,18 +616,30 @@ function startPolling() {
     const job = await fetchJSON("/api/jobs/current");
     updateJobUI(job);
     if (job.state === "running") {
-      if (job.action === "login") {
+      if (job.action === "login" && !state.qrcodeDismissed) {
         showQrcodeModal();
-        if (qrcodeStatus) qrcodeStatus.textContent = job.message || "等待扫码确认…";
+        if (qrcodeStatus) qrcodeStatus.textContent = sanitizeUserText(job.message) || "等待扫码确认…";
+        const refreshedAt = Number(job.result?.qrcode_refreshed_at) || 0;
+        if (refreshedAt && refreshedAt !== state.lastQrcodeRefresh) {
+          state.lastQrcodeRefresh = refreshedAt;
+          if (qrcodeImg) qrcodeImg.src = `/api/login/qrcode?t=${refreshedAt}`;
+        }
       }
+      return;
+    }
+    if (job.state === "idle" && job.action === "login") {
+      window.clearInterval(state.polling);
+      state.polling = null;
+      setButtonsDisabled(false);
+      hideQrcodeModal(false);
+      updateJobUI(job);
       return;
     }
     const finishedDynamicId = job.action === "participate" ? job.result?.dynamic_id : null;
     if (job.state === "success") {
-      const detail = job.log ? job.log.split("\n").slice(0, 4).join(" · ") : "";
-      showToast(job.message || "任务完成", "success", detail);
+      showToast(sanitizeUserText(job.message) || "任务完成", "success", formatToastDetail(job));
     } else if (job.state === "error") {
-      showToast(job.message || "任务失败", "error", job.log || "");
+      showToast(sanitizeUserText(job.message) || "任务失败", "error", formatToastDetail(job));
     }
     window.clearInterval(state.polling);
     state.polling = null;
@@ -455,7 +658,7 @@ function startPolling() {
         }
       });
     }
-    if (job.action === "login") hideQrcodeModal();
+    if (job.action === "login") hideQrcodeModal(false);
   }, 900);
 }
 
@@ -490,19 +693,45 @@ function bindFilterPills() {
   });
 }
 
-document.getElementById("refresh-account").addEventListener("click", async () => {
-  const button = document.getElementById("refresh-account");
-  const originalText = button.textContent;
-  button.disabled = true;
-  button.textContent = "刷新中…";
+document.getElementById("save-participate-text")?.addEventListener("click", async () => {
+  try {
+    await saveParticipateText();
+  } catch (error) {
+    showToast(String(error.message || error), "error");
+  }
+});
+
+document.getElementById("reset-participate-text")?.addEventListener("click", async () => {
+  try {
+    await resetParticipateText();
+  } catch (error) {
+    showToast(String(error.message || error), "error");
+  }
+});
+
+sidebarRefreshBtn?.addEventListener("click", async () => {
+  const originalText = sidebarRefreshBtn.textContent;
+  sidebarRefreshBtn.disabled = true;
+  sidebarRefreshBtn.textContent = "刷新中…";
   try {
     await loadAccount();
     showToast("账号信息已更新", "success");
   } catch (error) {
     showToast(String(error.message || error), "error");
   } finally {
-    button.disabled = false;
-    button.textContent = originalText;
+    sidebarRefreshBtn.disabled = false;
+    sidebarRefreshBtn.textContent = originalText;
+  }
+});
+
+sidebarLogoutBtn?.addEventListener("click", async () => {
+  sidebarLogoutBtn.disabled = true;
+  try {
+    await logoutAccount();
+  } catch (error) {
+    showToast(String(error.message || error), "error");
+  } finally {
+    sidebarLogoutBtn.disabled = false;
   }
 });
 
@@ -511,6 +740,7 @@ async function init() {
   bindFilterPills();
   bindActionButtons();
   await loadAccount();
+  await loadSettings();
   const job = await loadSummary();
   await loadActivities();
   if (job?.state === "running") startPolling();
@@ -518,5 +748,4 @@ async function init() {
 
 init().catch((error) => {
   showToast(String(error.message || error), "error");
-  jobPill.className = "job-pill error";
 });

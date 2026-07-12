@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from src.bilibili_client import BilibiliClient
+from src.bilibili_login import COOKIE_PATH
 
 NAV_URL = "https://api.bilibili.com/x/web-interface/nav"
 NAV_STAT_URL = "https://api.bilibili.com/x/web-interface/nav/stat"
@@ -14,6 +16,17 @@ def _api_code(payload: dict[str, Any]) -> int:
     if code is None:
         return -1
     return int(code)
+
+
+def clear_login_cookie() -> None:
+    COOKIE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if COOKIE_PATH.exists():
+        try:
+            COOKIE_PATH.unlink()
+        except OSError:
+            COOKIE_PATH.write_text("", encoding="utf-8")
+    else:
+        COOKIE_PATH.write_text("", encoding="utf-8")
 
 
 def get_account_profile() -> dict[str, Any]:

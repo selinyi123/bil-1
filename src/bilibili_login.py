@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import threading
 import time
 import urllib.parse
 from http.cookies import SimpleCookie
 from pathlib import Path
+from typing import Callable
 
 import httpx
 
@@ -30,6 +32,10 @@ ESSENTIAL_KEYS = ("SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "bu
 
 
 class BilibiliLoginError(Exception):
+    pass
+
+
+class LoginCancelledError(BilibiliLoginError):
     pass
 
 
@@ -135,11 +141,21 @@ def _collect_login_cookies(client: httpx.Client, poll: httpx.Response, body: dic
     return cookies
 
 
-def login_with_qrcode(*, timeout: float = 180.0) -> str:
+def login_with_qrcode(
+    *,
+    timeout: float = 180.0,
+    open_image: bool = True,
+    auto_refresh_on_expire: bool = False,
+    cancel_event: threading.Event | None = None,
+    on_qrcode_ready: Callable[[], None] | None = None,
+) -> str:
     client = httpx.Client(headers=PASSPORT_HEADERS, follow_redirects=True, timeout=20.0)
-    try:
-        client.get("https://www.bilibili.com")
 
+    def _check_cancelled() -> None:
+        if cancel_event and cancel_event.is_set():
+            raise LoginCancelledError("登录已取消")
+
+    def _issue_qrcode() -> tuple[str, str]:
         gen = client.get(
             "https://passport.bilibili.com/x/passport-login/web/qrcode/generate",
             params={"source": "main-fe-header"},
@@ -148,26 +164,35 @@ def login_with_qrcode(*, timeout: float = 180.0) -> str:
         gen_data = gen.json()
         if gen_data.get("code") != 0:
             raise BilibiliLoginError(f"获取二维码失败: {gen_data.get('message')}")
-
         qrcode_url = gen_data["data"]["url"]
         qrcode_key = gen_data["data"]["qrcode_key"]
-
-        print("请使用哔哩哔哩手机 App 扫描下方二维码登录：")
-        print(qrcode_url)
-
+        if open_image:
+            print("请使用哔哩哔哩手机 App 扫描下方二维码登录：")
+            print(qrcode_url)
         if _generate_qrcode_image(qrcode_url, QR_IMAGE_PATH):
-            print(f"\n二维码图片已保存: {QR_IMAGE_PATH}")
-            try:
-                import os
-                os.startfile(QR_IMAGE_PATH)
-            except OSError:
-                pass
-        else:
-            print("\n（未安装 qrcode 库，请安装: pip install qrcode[pil]）")
+            if open_image:
+                print(f"\n二维码图片已保存: {QR_IMAGE_PATH}")
+                try:
+                    import os
 
-        print("\n等待扫码确认", end="", flush=True)
+                    os.startfile(QR_IMAGE_PATH)
+                except OSError:
+                    pass
+        elif open_image:
+            print("\n（未安装 qrcode 库，请安装: pip install qrcode[pil]）")
+        if on_qrcode_ready:
+            on_qrcode_ready()
+        return qrcode_url, qrcode_key
+
+    try:
+        client.get("https://www.bilibili.com")
+        _, qrcode_key = _issue_qrcode()
+
+        if open_image:
+            print("\n等待扫码确认", end="", flush=True)
         deadline = time.time() + timeout
         while time.time() < deadline:
+            _check_cancelled()
             poll = client.get(
                 "https://passport.bilibili.com/x/passport-login/web/qrcode/poll",
                 params={"qrcode_key": qrcode_key, "source": "main-fe-header"},
@@ -177,34 +202,36 @@ def login_with_qrcode(*, timeout: float = 180.0) -> str:
             status = _poll_status(body)
 
             if status == POLL_SUCCESS:
-                print("\n登录成功！")
+                if open_image:
+                    print("\n登录成功！")
                 cookies = _collect_login_cookies(client, poll, body)
                 if "SESSDATA" not in cookies:
-                    raise BilibiliLoginError(
-                        "未能提取 SESSDATA。"
-                        "请重新运行 python scripts/bili_login.py 再扫一次。"
-                    )
+                    raise BilibiliLoginError("登录未完成，请重新扫码")
                 essential = {k: v for k, v in cookies.items() if k in ESSENTIAL_KEYS}
                 cookie_str = cookies_to_header(essential or cookies)
                 save_cookies(cookie_str)
                 return cookie_str
 
             if status == POLL_EXPIRED:
-                raise BilibiliLoginError("二维码已过期，请重新运行登录脚本")
+                if auto_refresh_on_expire:
+                    _, qrcode_key = _issue_qrcode()
+                    time.sleep(1)
+                    continue
+                raise BilibiliLoginError("二维码已过期，请重新发起登录")
 
             if status == POLL_SCANNED:
-                print(".", end="", flush=True)
+                if open_image:
+                    print(".", end="", flush=True)
                 time.sleep(1)
                 continue
 
             if status == POLL_WAITING:
-                print(".", end="", flush=True)
+                if open_image:
+                    print(".", end="", flush=True)
                 time.sleep(2)
                 continue
 
-            raise BilibiliLoginError(
-                f"未知扫码状态 data.code={status} message={body.get('message')}"
-            )
+            raise BilibiliLoginError("扫码状态异常，请重试")
 
         raise BilibiliLoginError(f"登录超时（{int(timeout)} 秒），请重试")
     finally:

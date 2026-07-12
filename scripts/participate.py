@@ -14,7 +14,7 @@ if str(ROOT) not in sys.path:
 from src.bilibili_client import BilibiliClient
 from src.classify_links import CLASSIFIED_OUTPUT_PATH
 from src.fetch_activity_info import ENRICHED_OUTPUT_PATH
-from src.lottery_actions import DEFAULT_PARTICIPATE_TEXT
+from src.user_settings import get_participate_text
 from src.participation import participate_activity
 from src.sources.common import load_previous_output
 
@@ -61,7 +61,7 @@ def main() -> int:
             client,
             dynamic_id=args.dynamic_id,
             lottery_type=lottery_type,
-            action_text=DEFAULT_PARTICIPATE_TEXT,
+            action_text=get_participate_text(),
             dry_run=False,
             persist=True,
         )

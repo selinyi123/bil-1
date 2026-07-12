@@ -1,6 +1,7 @@
 # 本地配置（含敏感信息）
 config/cookies.txt
 config/llm.env
+config/participate_settings.json
 
 # 运行时数据
 data/

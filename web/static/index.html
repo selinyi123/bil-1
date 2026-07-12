@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Binggo — B站抽奖活动发现与参与助手" />
+  <meta name="description" content="Binggo — 聚合 B 站抽奖 UP 合集，增量发现活动、本地管理参与状态，Web 控制台一键参与。" />
   <title>Binggo · B站抽奖助手</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -33,7 +33,7 @@
       <button type="button" class="qrcode-close" id="qrcode-close" aria-label="关闭">×</button>
       <p class="qrcode-eyebrow">扫码登录</p>
       <h2 class="qrcode-title" id="qrcode-title">使用哔哩哔哩 App 扫码</h2>
-      <p class="qrcode-desc">扫码确认后窗口将自动关闭</p>
+      <p class="qrcode-desc">扫码确认后窗口将自动关闭；关闭窗口将取消本次登录</p>
       <div class="qrcode-frame">
         <img id="qrcode-img" alt="登录二维码" />
       </div>
@@ -53,7 +53,7 @@
           <p class="log-dock-title">任务日志</p>
           <p class="log-dock-message" id="job-message">暂无任务</p>
         </div>
-        <button type="button" class="log-dock-collapse" id="log-dock-collapse" aria-label="收起">收起</button>
+        <button type="button" class="btn btn-secondary btn-compact btn-pill log-dock-collapse" id="log-dock-collapse" aria-label="收起">收起</button>
       </div>
       <pre class="log-box" id="job-log"></pre>
     </div>
@@ -75,8 +75,15 @@
         <button type="button" class="nav-item" data-section="activities">活动</button>
       </nav>
 
-      <div class="sidebar-footer">
-        <div class="job-pill" id="job-pill">空闲</div>
+      <div class="sidebar-account" id="sidebar-account">
+        <div class="sidebar-account-card" id="sidebar-account-card">
+          <p class="caption">加载账号…</p>
+        </div>
+        <div class="sidebar-account-actions">
+          <button class="btn btn-primary btn-compact btn-block" id="sidebar-login" data-action="login">扫码登录</button>
+          <button class="btn btn-secondary btn-compact btn-block" id="sidebar-logout" hidden>退出登录</button>
+          <button class="btn btn-secondary btn-compact btn-block" id="sidebar-refresh-account">刷新账号</button>
+        </div>
       </div>
     </aside>
 
@@ -92,27 +99,65 @@
 
       <main class="content-area">
         <section class="view-section active" id="section-overview" data-title="概览" data-subtitle="账号状态、活动统计与快捷操作。">
-          <div class="overview-layout">
-            <div class="overview-main">
-              <div class="stats-grid" id="stats-grid"></div>
-              <div class="quick-actions panel">
-                <h2 class="section-title">快捷操作</h2>
-                <div class="action-row">
-                  <button class="btn btn-primary" data-action="refresh_all">一键更新活动链接</button>
-                  <button class="btn btn-secondary" data-section-jump="activities">查看活动列表</button>
+          <div class="overview-stack">
+            <article class="panel account-hero" id="account-hero">
+              <p class="caption">加载账号信息中…</p>
+            </article>
+
+            <div class="stats-grid" id="stats-grid"></div>
+
+            <article class="panel quick-actions">
+              <h2 class="section-title">快捷操作</h2>
+              <p class="section-desc quick-actions-desc">增量更新活动链接，或直接进入活动列表参与抽奖。</p>
+              <div class="action-row quick-actions-row">
+                <button class="btn btn-primary btn-pill" data-action="refresh_all">一键更新活动链接</button>
+                <button class="btn btn-secondary btn-pill" data-section-jump="activities">查看活动列表</button>
+              </div>
+            </article>
+
+            <article class="panel participate-settings">
+              <div class="participate-settings-head">
+                <div>
+                  <h2 class="section-title">参与文案</h2>
+                  <p class="section-desc participate-settings-desc">用于转发与评论，建议格式：<strong>@好友昵称 + 一句话</strong>。例如 <code>@小明 好运连连！</code></p>
+                </div>
+                <button type="button" class="btn btn-secondary btn-pill" id="reset-participate-text">恢复默认</button>
+              </div>
+              <label class="field-label" for="participate-text-input">当前文案</label>
+              <textarea id="participate-text-input" class="textarea" rows="2" maxlength="233" placeholder="好运连连！"></textarea>
+              <div class="participate-settings-foot">
+                <span class="caption" id="participate-text-hint">最多 233 字</span>
+                <button type="button" class="btn btn-primary btn-pill" id="save-participate-text">保存文案</button>
+              </div>
+            </article>
+
+            <article class="panel project-showcase">
+              <div class="project-showcase-grid">
+                <div class="project-showcase-main">
+                  <p class="eyebrow">Open Source</p>
+                  <h2 class="project-showcase-title">bilibinggo</h2>
+                  <p class="project-showcase-desc">聚合 B 站抽奖 UP 合集，增量发现活动、本地管理参与状态，Web 控制台一键参与互动 / 转发 / 预约抽奖。</p>
+                  <div class="project-showcase-actions">
+                    <a class="btn btn-primary btn-pill project-btn" href="https://github.com/luovicter-collab/bilibinggo" target="_blank" rel="noopener">访问 GitHub 仓库</a>
+                    <a class="btn btn-secondary btn-pill project-btn" href="https://github.com/luovicter-collab" target="_blank" rel="noopener">作者 victor</a>
+                  </div>
+                </div>
+                <div class="project-showcase-side">
+                  <div class="project-info-card">
+                    <span class="project-info-label">Repository</span>
+                    <span class="project-info-value">luovicter-collab / bilibinggo</span>
+                  </div>
+                  <div class="project-info-card">
+                    <span class="project-info-label">Author</span>
+                    <span class="project-info-value">victor</span>
+                  </div>
+                  <div class="project-info-card">
+                    <span class="project-info-label">License</span>
+                    <span class="project-info-value">MIT</span>
+                  </div>
                 </div>
               </div>
-            </div>
-            <aside class="overview-side panel account-panel">
-              <h2 class="section-title">账号</h2>
-              <div class="account-card" id="account-card">
-                <p class="caption">加载账号信息中…</p>
-              </div>
-              <div class="action-row account-actions">
-                <button class="btn btn-primary" data-action="login">扫码登录</button>
-                <button class="btn btn-secondary" id="refresh-account">刷新账号</button>
-              </div>
-            </aside>
+            </article>
           </div>
         </section>
 

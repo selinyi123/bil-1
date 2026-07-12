@@ -1,6 +1,8 @@
 # bilibili_binggo (Binggo)
 
-B 站抽奖活动发现与参与工具。从五个 UP 合集增量拉取活动链接，本地 Web 控制台查看状态并一键参与。
+聚合 B 站抽奖 UP 合集，增量发现活动、本地管理参与状态，Web 控制台一键参与互动 / 转发 / 预约抽奖。
+
+[![Star History Chart](https://api.star-history.com/svg?repos=luovicter-collab/bilibinggo&type=Date)](https://star-history.com/#luovicter-collab/bilibinggo&Date)
 
 ## 快速开始
 
