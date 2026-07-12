@@ -39,7 +39,7 @@ python scripts/run_dashboard.py
 
 ```env
 LLM_API_KEY=你的_API_Key
-LLM_BASE_URL=https://www.autodl.art/api/v1
+LLM_BASE_URL=你的_BASE_URL
 LLM_MODEL_NAME=DeepSeek-V4-Flash
 ```
 

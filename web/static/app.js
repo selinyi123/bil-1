@@ -7,6 +7,7 @@ const state = {
   qrcodeDismissed: false,
   lastQrcodeRefresh: 0,
   account: null,
+  settings: null,
 };
 
 const jobMessage = document.getElementById("job-message");
@@ -49,11 +50,37 @@ function isLoggedIn() {
   return Boolean(state.account?.logged_in && !state.account?.expired);
 }
 
-function requireLogin(action) {
-  if (action === "login" || !LOGIN_REQUIRED_ACTIONS.has(action)) return true;
-  if (isLoggedIn()) return true;
-  showToast("请先扫码登录", "info", "登录后才能执行此操作");
-  return false;
+function isLlmConfigured() {
+  return Boolean(state.settings?.llm?.configured);
+}
+
+function isSetupComplete() {
+  return isLoggedIn() && isLlmConfigured();
+}
+
+function requireSetup(action) {
+  if (action === "login") return true;
+  if (!LOGIN_REQUIRED_ACTIONS.has(action)) return true;
+  if (!isLoggedIn()) {
+    showToast("请先扫码登录", "info", "完成登录与 LLM 配置后才能使用项目功能");
+    return false;
+  }
+  if (!isLlmConfigured()) {
+    showToast("请先配置 LLM", "info", "在概览页填写 API Key、接口地址与模型名并保存");
+    return false;
+  }
+  return true;
+}
+
+function renderSetupChecklist() {
+  const loggedIn = isLoggedIn();
+  const llmOk = isLlmConfigured();
+  return `
+    <div class="setup-checklist">
+      <span class="setup-pill ${loggedIn ? "ok" : "warn"}">① 账号${loggedIn ? "已登录" : "未登录"}</span>
+      <span class="setup-pill ${llmOk ? "ok" : "warn"}">② LLM${llmOk ? "已配置" : "未配置"}</span>
+      ${isSetupComplete() ? '<span class="setup-pill ready">可以开始使用</span>' : ""}
+    </div>`;
 }
 
 function sanitizeUserText(text) {
@@ -277,7 +304,8 @@ function renderAccountViews(account) {
         <div>
           <h3>未登录</h3>
           <p>${escapeHtml(account.message || "请使用侧边栏扫码登录")}</p>
-          <span class="account-status warn">需登录后参与活动</span>
+          ${renderSetupChecklist()}
+          <span class="account-status warn">需完成登录与 LLM 配置</span>
         </div>
       </div>`;
     if (accountHero) accountHero.innerHTML = emptyHtml;
@@ -307,7 +335,8 @@ function renderAccountViews(account) {
         <div class="account-stat"><span class="account-stat-value">${account.dynamic_count ?? "—"}</span><span class="account-stat-label">动态</span></div>
         <div class="account-stat"><span class="account-stat-value">${account.unread_messages ?? "—"}</span><span class="account-stat-label">私信未读</span></div>
       </div>
-      <span class="account-status ${account.expired ? "warn" : "ok"}">${account.expired ? "需重新扫码登录" : "已登录"}</span>
+      ${renderSetupChecklist()}
+      <span class="account-status ${isSetupComplete() ? "ok" : "warn"}">${isSetupComplete() ? "已就绪" : account.expired ? "需重新扫码登录" : "请完成 LLM 配置"}</span>
     </div>`;
   if (accountHero) accountHero.innerHTML = heroHtml;
 
@@ -361,9 +390,71 @@ async function logoutAccount() {
 
 async function loadSettings() {
   const settings = await fetchJSON("/api/settings");
+  state.settings = settings;
   const input = document.getElementById("participate-text-input");
   if (input) input.value = settings.participate_text || settings.default_participate_text || "好运连连！";
+  renderLlmSettingsForm(settings);
+  if (state.account?.logged_in) renderAccountViews(state.account);
   return settings;
+}
+
+function renderLlmSettingsForm(settings) {
+  const llm = settings?.llm || {};
+  const defaults = settings?.llm_defaults || {};
+  const baseInput = document.getElementById("llm-base-url-input");
+  const modelInput = document.getElementById("llm-model-name-input");
+  const keyInput = document.getElementById("llm-api-key-input");
+  const keyHint = document.getElementById("llm-api-key-hint");
+  const status = document.getElementById("llm-settings-status");
+  if (baseInput) baseInput.value = llm.base_url || defaults.base_url || "";
+  if (modelInput) modelInput.value = llm.model_name || defaults.model_name || "";
+  if (keyInput) {
+    keyInput.value = "";
+    keyInput.placeholder = llm.configured ? "已配置，留空则不修改" : "请输入 API Key";
+  }
+  if (keyHint) {
+    keyHint.textContent = llm.configured
+      ? `当前 Key：${llm.api_key_hint || "****"}（输入新 Key 可覆盖）`
+      : "尚未保存 API Key";
+  }
+  if (status) {
+    if (!isLoggedIn()) status.textContent = "需先登录，再保存 LLM 配置";
+    else if (llm.configured) status.textContent = "LLM 已配置，保存后立即生效";
+    else status.textContent = "请填写 API Key 并保存，完成后才能使用项目功能";
+  }
+}
+
+async function saveLlmSettings() {
+  if (!isLoggedIn()) {
+    showToast("请先扫码登录", "info", "登录后才能配置 LLM");
+    return;
+  }
+  const result = await fetchJSON("/api/settings/llm", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      api_key: document.getElementById("llm-api-key-input")?.value || "",
+      base_url: document.getElementById("llm-base-url-input")?.value || "",
+      model_name: document.getElementById("llm-model-name-input")?.value || "",
+    }),
+  });
+  state.settings = { ...(state.settings || {}), llm: result.llm, setup_complete: result.setup_complete };
+  renderLlmSettingsForm(state.settings);
+  if (state.account?.logged_in) renderAccountViews(state.account);
+  showToast("LLM 配置已保存", "success", `${result.llm.model_name} · ${result.llm.api_key_hint || "已配置"}`);
+}
+
+async function resetLlmSettings() {
+  if (!isLoggedIn()) {
+    showToast("请先扫码登录", "info", "登录后才能配置 LLM");
+    return;
+  }
+  const defaults = state.settings?.llm_defaults || {};
+  const baseInput = document.getElementById("llm-base-url-input");
+  const modelInput = document.getElementById("llm-model-name-input");
+  if (baseInput) baseInput.value = defaults.base_url || "https://www.autodl.art/api/v1";
+  if (modelInput) modelInput.value = defaults.model_name || "DeepSeek-V4-Flash";
+  showToast("已恢复默认地址与模型", "info", "API Key 需重新填写后保存");
 }
 
 async function saveParticipateText() {
@@ -558,7 +649,7 @@ async function loadActivities() {
 }
 
 async function startJob(action, params = {}) {
-  if (!requireLogin(action)) return;
+  if (!requireSetup(action)) return;
   const actionNames = { login: "扫码登录", refresh_all: "一键更新", participate: "参与活动" };
   showToast(`正在启动${actionNames[action] || action}`, "running", "任务日志已展开，可查看实时进度");
   toggleLogDock(true);
@@ -571,7 +662,9 @@ async function startJob(action, params = {}) {
   } catch (error) {
     const message = sanitizeUserText(error.message || error);
     if (message.includes("请先扫码登录")) {
-      showToast("请先扫码登录", "info", "登录后才能执行此操作");
+      showToast("请先扫码登录", "info", "完成登录与 LLM 配置后才能使用项目功能");
+    } else if (message.includes("配置 LLM")) {
+      showToast("请先配置 LLM", "info", "在概览页填写并保存 LLM 配置");
     } else {
       showToast(message, "error");
     }
@@ -645,6 +738,7 @@ function startPolling() {
     state.polling = null;
     await loadSummary();
     await loadAccount();
+    await loadSettings();
     await loadActivities();
     document.querySelectorAll("[data-action='participate'].is-loading").forEach((btn) => {
       btn.textContent = "参与";
@@ -692,6 +786,22 @@ function bindFilterPills() {
     }, 320);
   });
 }
+
+document.getElementById("save-llm-settings")?.addEventListener("click", async () => {
+  try {
+    await saveLlmSettings();
+  } catch (error) {
+    showToast(String(error.message || error), "error");
+  }
+});
+
+document.getElementById("reset-llm-settings")?.addEventListener("click", async () => {
+  try {
+    await resetLlmSettings();
+  } catch (error) {
+    showToast(String(error.message || error), "error");
+  }
+});
 
 document.getElementById("save-participate-text")?.addEventListener("click", async () => {
   try {

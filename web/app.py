@@ -9,6 +9,13 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from src.bilibili_login import QR_IMAGE_PATH
+from src.llm_settings import (
+    DEFAULT_LLM_BASE_URL,
+    DEFAULT_LLM_MODEL_NAME,
+    get_llm_settings_public,
+    is_llm_configured,
+    save_llm_settings,
+)
 from src.user_settings import DEFAULT_PARTICIPATE_TEXT, get_participate_text, set_participate_text
 from web.account_service import clear_login_cookie, get_account_profile
 from web.activity_service import get_summary, list_activities
@@ -27,6 +34,12 @@ class JobRequest(BaseModel):
 
 class ParticipateTextRequest(BaseModel):
     participate_text: str = Field(default="", max_length=233)
+
+
+class LlmSettingsRequest(BaseModel):
+    api_key: str = Field(default="")
+    base_url: str = Field(default="")
+    model_name: str = Field(default="")
 
 
 @app.get("/api/account")
@@ -66,6 +79,8 @@ def api_start_job(request: JobRequest) -> dict[str, Any]:
         account = get_account_profile()
         if not account.get("logged_in"):
             raise HTTPException(status_code=401, detail="请先扫码登录后再执行此操作")
+        if not is_llm_configured():
+            raise HTTPException(status_code=401, detail="请先在概览页配置 LLM 后再执行此操作")
     if not runner.start(request.action, request.params or {}):
         raise HTTPException(status_code=409, detail="已有任务正在运行")
     return {"ok": True, "job": runner.get_status().to_dict()}
@@ -84,11 +99,36 @@ def api_current_job() -> dict[str, Any]:
 
 
 @app.get("/api/settings")
-def api_settings() -> dict[str, str]:
+def api_settings() -> dict[str, Any]:
+    account = get_account_profile()
+    llm = get_llm_settings_public()
+    logged_in = bool(account.get("logged_in"))
     return {
         "participate_text": get_participate_text(),
         "default_participate_text": DEFAULT_PARTICIPATE_TEXT,
+        "llm": llm,
+        "llm_defaults": {
+            "base_url": DEFAULT_LLM_BASE_URL,
+            "model_name": DEFAULT_LLM_MODEL_NAME,
+        },
+        "setup_complete": logged_in and bool(llm.get("configured")),
     }
+
+
+@app.put("/api/settings/llm")
+def api_update_llm_settings(request: LlmSettingsRequest) -> dict[str, Any]:
+    account = get_account_profile()
+    if not account.get("logged_in"):
+        raise HTTPException(status_code=401, detail="请先扫码登录后再配置 LLM")
+    try:
+        llm = save_llm_settings(
+            api_key=request.api_key.strip() or None,
+            base_url=request.base_url,
+            model_name=request.model_name,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"llm": llm, "setup_complete": True}
 
 
 @app.put("/api/settings/participate-text")

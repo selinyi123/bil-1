@@ -29,10 +29,12 @@ def _parse_env_file(path: Path) -> dict[str, str]:
 
 
 def load_llm_config() -> LlmConfig | None:
-    file_values = _parse_env_file(LLM_ENV_PATH)
-    api_key = os.environ.get("LLM_API_KEY", file_values.get("LLM_API_KEY", "")).strip()
-    base_url = os.environ.get("LLM_BASE_URL", file_values.get("LLM_BASE_URL", "")).strip()
-    model_name = os.environ.get("LLM_MODEL_NAME", file_values.get("LLM_MODEL_NAME", "")).strip()
-    if not api_key or not base_url or not model_name:
-        return None
-    return LlmConfig(api_key=api_key, base_url=base_url.rstrip("/"), model_name=model_name)
+    api_key = os.environ.get("LLM_API_KEY", "").strip()
+    base_url = os.environ.get("LLM_BASE_URL", "").strip()
+    model_name = os.environ.get("LLM_MODEL_NAME", "").strip()
+    if api_key and base_url and model_name:
+        return LlmConfig(api_key=api_key, base_url=base_url.rstrip("/"), model_name=model_name)
+
+    from src.llm_settings import get_llm_config
+
+    return get_llm_config()
