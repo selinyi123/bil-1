@@ -2,7 +2,6 @@
 
 聚合 B 站抽奖 UP 合集，增量发现活动、本地管理参与状态，Web 控制台一键参与互动 / 转发 / 预约抽奖。
 
-
 ## 快速开始
 
 ```bash
@@ -10,15 +9,47 @@
 pip install -r requirements.txt
 
 # 2. 配置 Cookie（扫码登录，推荐）
+cp config/cookies.txt.example config/cookies.txt
 python scripts/bili_login.py
 
-# 3. 启动本地控制台
+# 3. 配置 LLM（转发抽奖解析，推荐）
+cp config/llm.env.example config/llm.env
+# 编辑 config/llm.env，填入你的 API Key（见下方说明）
+
+# 4. 启动本地控制台
 python scripts/run_dashboard.py
 ```
 
 浏览器打开 http://127.0.0.1:8787
 
 更详细的说明见 [docs/quickstart.md](docs/quickstart.md)。
+
+### LLM 是做什么的？
+
+在「一键更新活动链接」拉取详情时：
+
+- **互动抽奖 / 预约抽奖**：走 B 站官方接口，**不消耗 LLM**
+- **转发抽奖**：没有官方结构化字段，会调用大模型阅读动态正文，抽取奖品、开奖时间、参与条件、中奖人数等
+
+因此只需配置一个**便宜的文本生成模型**即可，不需要视觉或多模态能力。
+
+**推荐使用 [DeepSeek-V4-Flash](https://www.deepseek.com/)**（速度快、成本低，适合 JSON 结构化抽取）。
+
+编辑 `config/llm.env`：
+
+```env
+LLM_API_KEY=你的_API_Key
+LLM_BASE_URL=https://www.autodl.art/api/v1
+LLM_MODEL_NAME=DeepSeek-V4-Flash
+```
+
+| 字段 | 说明 |
+|------|------|
+| `LLM_API_KEY` | 服务商提供的密钥（**勿提交 Git**） |
+| `LLM_BASE_URL` | OpenAI 兼容接口地址，按你购买的服务修改 |
+| `LLM_MODEL_NAME` | 模型名称，建议 `DeepSeek-V4-Flash` 或同档低价文本模型 |
+
+未配置 LLM 时，转发抽奖的活动会缺少奖品/开奖时间等字段，但互动与预约类活动不受影响。
 
 ## 功能概览
 
@@ -70,9 +101,13 @@ bilibili_binggo/
 
 MIT（可按需调整）
 
-
 ## Star History
 
 <!-- star-history:start -->
-<p align="center"><em>Star 趋势图由 GitHub Actions 自动生成（需配置 <code>GH_PAT</code> 密钥后运行 workflow）</em></p>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/star-history/star-history-dark.svg">
+  <img alt="Star History Chart" src="assets/star-history/star-history-light.svg">
+</picture>
 <!-- star-history:end -->
+
+图表由仓库内静态 SVG 展示；GitHub Actions 会在有新 Star 时自动更新（见 `.github/workflows/star-history.yml`）。

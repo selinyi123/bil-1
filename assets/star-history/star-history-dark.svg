@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="320" viewBox="0 0 800 320" role="img" aria-label="Star History Chart">
+  <defs>
+    <linearGradient id="fill-dark" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#c46f52" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#c46f52" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="320" fill="#1f1b18"/>
+  <text x="28" y="34" fill="#b9aea4" font-family="Segoe UI, sans-serif" font-size="13">luovicter-collab/bilibinggo</text>
+  <line x1="72" y1="250" x2="760" y2="250" stroke="#3a332e" stroke-width="1"/>
+  <line x1="72" y1="70" x2="72" y2="250" stroke="#3a332e" stroke-width="1"/>
+  <text x="52" y="254" fill="#b9aea4" font-family="Segoe UI, sans-serif" font-size="12" text-anchor="end">0</text>
+  <text x="52" y="164" fill="#b9aea4" font-family="Segoe UI, sans-serif" font-size="12" text-anchor="end">1</text>
+  <text x="120" y="272" fill="#b9aea4" font-family="Segoe UI, sans-serif" font-size="12">2026-07-12</text>
+  <text x="700" y="272" fill="#b9aea4" font-family="Segoe UI, sans-serif" font-size="12" text-anchor="end">2026-07-13</text>
+  <path d="M 120 250 L 700 164 L 700 250 L 120 250 Z" fill="url(#fill-dark)"/>
+  <path d="M 120 250 L 700 164" fill="none" stroke="#c46f52" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="120" cy="250" r="5" fill="#c46f52"/>
+  <circle cx="700" cy="164" r="5" fill="#c46f52"/>
+  <text x="708" y="168" fill="#fffaf4" font-family="Segoe UI, sans-serif" font-size="12" font-weight="600">1</text>
+</svg>

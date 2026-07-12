@@ -23,7 +23,29 @@ cp config/llm.env.example config/llm.env
 ```
 
 - `config/cookies.txt`：B 站登录凭证，**切勿提交到 Git**
-- `config/llm.env`：转发抽奖正文解析用的 LLM API Key，**切勿提交到 Git**
+- `config/llm.env`：转发抽奖正文解析用的 LLM 配置，**切勿提交到 Git**
+
+### LLM 配置（转发抽奖解析）
+
+「一键更新」拉取活动详情时，**仅转发抽奖**需要 LLM：模型会阅读动态正文，抽取奖品、开奖时间、参与条件、中奖人数。互动抽奖与预约抽奖走 B 站官方接口，不调用 LLM。
+
+建议使用**便宜的文本生成模型**，无需多模态能力。默认模板已配置 **DeepSeek-V4-Flash**（性价比高，适合 JSON 结构化输出）。
+
+编辑 `config/llm.env`：
+
+```env
+LLM_API_KEY=你的_API_Key
+LLM_BASE_URL=https://www.autodl.art/api/v1
+LLM_MODEL_NAME=DeepSeek-V4-Flash
+```
+
+| 字段 | 说明 |
+|------|------|
+| `LLM_API_KEY` | API 密钥 |
+| `LLM_BASE_URL` | OpenAI 兼容接口根地址 |
+| `LLM_MODEL_NAME` | 模型名，推荐 `DeepSeek-V4-Flash` |
+
+未配置时，转发抽奖活动会保留基础信息，但可能缺少奖品/开奖时间等解析字段。
 
 ## 3. 登录 B 站账号
 

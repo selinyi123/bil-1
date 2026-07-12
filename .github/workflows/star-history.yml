@@ -22,3 +22,4 @@ jobs:
         with:
           repos: luovicter-collab/bilibinggo
           token: ${{ github.token }}
+          update-readme: true

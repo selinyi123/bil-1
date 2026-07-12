@@ -446,8 +446,8 @@ input {
 .account-hero {
   display: flex;
   align-items: center;
-  gap: 24px;
-  padding: 28px 30px;
+  gap: 32px;
+  padding: 34px 36px;
   background:
     linear-gradient(135deg, rgba(196, 111, 82, 0.08), transparent 55%),
     var(--surface);
@@ -461,8 +461,9 @@ input {
 .account-hero-name {
   margin: 6px 0 14px;
   font-family: var(--font-display);
-  font-size: 30px;
+  font-size: 32px;
   font-weight: 700;
+  line-height: 1.2;
 }
 
 .account-hero-stats {
@@ -492,12 +493,17 @@ input {
 .account-empty {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 28px;
 }
 
 .account-avatar-lg {
-  width: 120px;
-  height: 120px;
+  width: 156px;
+  height: 156px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid var(--border-soft);
+  box-shadow: var(--shadow-sm);
 }
 
 .project-card-head {
@@ -1441,6 +1447,19 @@ body.modal-open {
   .account-hero {
     flex-direction: column;
     align-items: flex-start;
+    gap: 22px;
+    padding: 28px 24px;
+  }
+
+  .account-avatar-lg {
+    width: 128px;
+    height: 128px;
+  }
+
+  .account-empty {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 18px;
   }
 
   .project-showcase-grid {
