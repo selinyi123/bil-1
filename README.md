@@ -73,4 +73,5 @@ MIT（可按需调整）
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=luovicter-collab/bilibinggo&type=Date&sealed_token=689myuQeVOGqTEHlOxXQWC83PR44OLjVwzGapCE50hZIoQZ5fAOBwHFNCVkpMQy9fQPI0S7gAUsCVUapr6fyqfOoK2zVMmdIUYmtN_cMpvCCAF3cRPT6aI2w7Zaihg-QRRe_5RvmD-hfbY2vamSxQA3gQWe2xgqV4qdyX6cxcxZPDFjnr85bA-IycWMr)](https://star-history.com/#luovicter-collab/bilibinggo&Date)
+<!-- star-history:start -->
+<!-- star-history:end -->
