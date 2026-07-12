@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Binggo — B站抽奖活动发现与参与助手" />
+  <title>Binggo · B站抽奖助手</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Noto+Serif+SC:wght@400;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="progress-banner" id="progress-banner" hidden>
+    <div class="progress-banner-inner">
+      <div class="progress-banner-text">
+        <span class="progress-spinner" aria-hidden="true"></span>
+        <span id="progress-label">任务运行中…</span>
+      </div>
+      <div class="progress-track" aria-hidden="true">
+        <div class="progress-fill" id="progress-fill"></div>
+      </div>
+      <p class="progress-detail" id="progress-detail"></p>
+      <ol class="progress-steps" id="progress-steps" hidden></ol>
+    </div>
+  </div>
+  <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
+
+  <div class="qrcode-modal" id="qrcode-modal" hidden>
+    <div class="qrcode-backdrop" id="qrcode-backdrop"></div>
+    <div class="qrcode-panel" role="dialog" aria-labelledby="qrcode-title">
+      <button type="button" class="qrcode-close" id="qrcode-close" aria-label="关闭">×</button>
+      <p class="qrcode-eyebrow">扫码登录</p>
+      <h2 class="qrcode-title" id="qrcode-title">使用哔哩哔哩 App 扫码</h2>
+      <p class="qrcode-desc">扫码确认后窗口将自动关闭</p>
+      <div class="qrcode-frame">
+        <img id="qrcode-img" alt="登录二维码" />
+      </div>
+      <p class="qrcode-status" id="qrcode-status">等待扫码…</p>
+    </div>
+  </div>
+
+  <div class="log-dock" id="log-dock">
+    <button type="button" class="log-dock-toggle" id="log-dock-toggle" aria-expanded="false">
+      <span class="log-dock-icon" aria-hidden="true">⌘</span>
+      <span class="log-dock-label">任务日志</span>
+      <span class="log-dock-badge" id="log-dock-badge" hidden>运行中</span>
+    </button>
+    <div class="log-dock-panel" id="log-dock-panel" hidden>
+      <div class="log-dock-head">
+        <div>
+          <p class="log-dock-title">任务日志</p>
+          <p class="log-dock-message" id="job-message">暂无任务</p>
+        </div>
+        <button type="button" class="log-dock-collapse" id="log-dock-collapse" aria-label="收起">收起</button>
+      </div>
+      <pre class="log-box" id="job-log"></pre>
+    </div>
+  </div>
+
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand-block">
+        <div class="brand-mark" aria-hidden="true">B</div>
+        <div>
+          <p class="brand-name">Binggo</p>
+          <p class="brand-tag">B站抽奖助手</p>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav" aria-label="主导航">
+        <button type="button" class="nav-item active" data-section="overview">概览</button>
+        <button type="button" class="nav-item" data-section="sources">数据源</button>
+        <button type="button" class="nav-item" data-section="activities">活动</button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="job-pill" id="job-pill">空闲</div>
+      </div>
+    </aside>
+
+    <div class="main-shell">
+      <header class="topbar">
+        <button type="button" class="sidebar-toggle" id="sidebar-toggle" aria-label="切换侧边栏">☰</button>
+        <div class="topbar-copy">
+          <p class="eyebrow">本地控制台</p>
+          <h1 class="page-title" id="page-title">概览</h1>
+          <p class="page-subtitle" id="page-subtitle">账号状态、活动统计与快捷操作。</p>
+        </div>
+      </header>
+
+      <main class="content-area">
+        <section class="view-section active" id="section-overview" data-title="概览" data-subtitle="账号状态、活动统计与快捷操作。">
+          <div class="overview-layout">
+            <div class="overview-main">
+              <div class="stats-grid" id="stats-grid"></div>
+              <div class="quick-actions panel">
+                <h2 class="section-title">快捷操作</h2>
+                <div class="action-row">
+                  <button class="btn btn-primary" data-action="refresh_all">一键更新活动链接</button>
+                  <button class="btn btn-secondary" data-section-jump="activities">查看活动列表</button>
+                </div>
+              </div>
+            </div>
+            <aside class="overview-side panel account-panel">
+              <h2 class="section-title">账号</h2>
+              <div class="account-card" id="account-card">
+                <p class="caption">加载账号信息中…</p>
+              </div>
+              <div class="action-row account-actions">
+                <button class="btn btn-primary" data-action="login">扫码登录</button>
+                <button class="btn btn-secondary" id="refresh-account">刷新账号</button>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <section class="view-section" id="section-sources" data-title="数据源" data-subtitle="从五个 UP 合集增量拉取活动链接，历史记录全部保留。">
+          <div class="panel">
+            <div class="panel-head panel-head-row">
+              <p class="section-desc">检查新专栏 → 合并去重 → 分类 → 拉取详情，仅处理新增链接。</p>
+              <button class="btn btn-primary" data-action="refresh_all">一键更新</button>
+            </div>
+            <div class="source-list" id="source-grid"></div>
+          </div>
+        </section>
+
+        <section class="view-section" id="section-activities" data-title="活动" data-subtitle="仅展示可参与或已参加的活动。">
+          <div class="panel">
+            <div class="filters">
+              <input type="search" id="filter-q" class="input" placeholder="搜索奖品名称…" />
+              <div class="filter-group" id="filter-type-group" role="group" aria-label="活动类型">
+                <button type="button" class="filter-pill active" data-filter-type="">全部类型</button>
+                <button type="button" class="filter-pill" data-filter-type="互动抽奖">互动抽奖</button>
+                <button type="button" class="filter-pill" data-filter-type="转发抽奖">转发抽奖</button>
+                <button type="button" class="filter-pill" data-filter-type="预约抽奖">预约抽奖</button>
+              </div>
+              <div class="filter-group" id="filter-status-group" role="group" aria-label="参与状态">
+                <button type="button" class="filter-pill active" data-filter-status="">全部状态</button>
+                <button type="button" class="filter-pill" data-filter-status="未参加">未参加</button>
+                <button type="button" class="filter-pill" data-filter-status="已参加">已参加</button>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>活动</th>
+                    <th>链接</th>
+                    <th>类型</th>
+                    <th>状态</th>
+                    <th>开奖时间</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="activities-body"></tbody>
+              </table>
+            </div>
+            <div class="pagination" id="pagination"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

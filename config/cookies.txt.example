@@ -1,0 +1,4 @@
+# 将浏览器里 bilibili.com 的 Cookie 整行粘贴到下一行（不要引号）
+# 更简单的方式：直接运行 python scripts/bili_login.py 扫码登录，会自动写入本文件
+#
+# 手动获取：浏览器 F12 → Network → 任意 bilibili 请求 → Request Headers → Cookie

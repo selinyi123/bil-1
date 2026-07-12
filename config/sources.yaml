@@ -1,0 +1,34 @@
+DS-1:
+  id: DS-1
+  name: 哔哩抽奖小助理
+  mid: 885439
+  kind: video
+  space_url: https://space.bilibili.com/885439/upload/video
+
+DS-2:
+  id: DS-2
+  name: 番茄薯条喵
+  mid: 3546836235193146
+  kind: cv
+  space_url: https://space.bilibili.com/3546836235193146/upload/opus
+
+DS-3:
+  id: DS-3
+  name: 你的抽奖工具人
+  mid: 100680137
+  kind: cv
+  space_url: https://space.bilibili.com/100680137/upload/opus
+
+DS-4:
+  id: DS-4
+  name: J君名
+  mid: 126038161
+  kind: cv
+  space_url: https://space.bilibili.com/126038161/upload/opus
+
+DS-5:
+  id: DS-5
+  name: 互动抽奖娘
+  mid: 3546776042736296
+  kind: opus_post
+  space_url: https://space.bilibili.com/3546776042736296/upload/opus
