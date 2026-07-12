@@ -30,9 +30,9 @@ def mask_api_key(api_key: str) -> str:
     cleaned = (api_key or "").strip()
     if not cleaned:
         return ""
-    if len(cleaned) <= 4:
+    if len(cleaned) <= 8:
         return "****"
-    return f"****{cleaned[-4:]}"
+    return f"{cleaned[:4]}****{cleaned[-4:]}"
 
 
 def load_llm_values() -> dict[str, str]:
@@ -66,15 +66,38 @@ def get_llm_settings_public() -> dict[str, str | bool]:
     values = _read_values()
     api_key = values.get("LLM_API_KEY", "").strip()
     base_url = values.get("LLM_BASE_URL", "").strip()
-    model_name = values.get("LLM_MODEL_NAME", "").strip() or DEFAULT_LLM_MODEL_NAME
+    model_name = values.get("LLM_MODEL_NAME", "").strip()
     configured = bool(api_key and model_name)
     return {
         "configured": configured,
         "base_url": base_url,
         "model_name": model_name,
         "api_key_hint": mask_api_key(api_key) if api_key else "",
-        "base_url_customized": bool(base_url),
     }
+
+
+def build_llm_config_from_inputs(
+    *,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    model_name: str | None = None,
+) -> LlmConfig:
+    current = _read_values()
+    next_key = (api_key or "").strip() or current.get("LLM_API_KEY", "").strip()
+    if base_url is not None:
+        next_base = (base_url or "").strip().rstrip("/")
+    else:
+        next_base = current.get("LLM_BASE_URL", "").strip().rstrip("/")
+    next_model = (model_name or "").strip() or current.get("LLM_MODEL_NAME", "").strip()
+    if not next_key:
+        raise ValueError("请填写 API Key")
+    if not next_model:
+        raise ValueError("请填写模型名称")
+    return LlmConfig(
+        api_key=next_key,
+        base_url=_resolve_base_url(next_base),
+        model_name=next_model,
+    )
 
 
 @dataclass(frozen=True)
@@ -95,9 +118,11 @@ def save_llm_settings(
     if not next_key:
         next_key = current.get("LLM_API_KEY", "").strip()
     next_base = (base_url or "").strip().rstrip("/")
-    next_model = (model_name or "").strip() or DEFAULT_LLM_MODEL_NAME
+    next_model = (model_name or "").strip()
     if not next_key:
         raise ValueError("请填写 LLM API Key")
+    if not next_model:
+        raise ValueError("请填写模型名称")
 
     path = _llm_env_path()
     path.parent.mkdir(parents=True, exist_ok=True)

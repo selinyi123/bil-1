@@ -382,6 +382,20 @@ input {
   padding-top: 4px;
 }
 
+.settings-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.field-help code {
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--surface-soft);
+  font-size: 12px;
+}
+
 .participate-settings-foot {
   margin-top: 12px;
   padding-top: 0;
@@ -1657,6 +1671,15 @@ body.modal-open {
 
   .settings-field-row {
     grid-template-columns: 1fr;
+  }
+
+  .settings-panel-foot {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .settings-panel-actions {
+    justify-content: flex-end;
   }
 
   .log-dock {

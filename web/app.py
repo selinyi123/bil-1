@@ -10,8 +10,7 @@ from pydantic import BaseModel, Field
 
 from src.bilibili_login import QR_IMAGE_PATH
 from src.llm_settings import (
-    DEFAULT_LLM_BASE_URL,
-    DEFAULT_LLM_MODEL_NAME,
+    build_llm_config_from_inputs,
     get_llm_settings_public,
     is_llm_configured,
     save_llm_settings,
@@ -20,6 +19,7 @@ from src.user_settings import DEFAULT_PARTICIPATE_TEXT, get_participate_text, se
 from web.account_service import clear_login_cookie, get_account_profile
 from web.activity_service import get_summary, list_activities
 from web.job_runner import runner
+from src.llm_client import test_llm_connection
 
 WEB_DIR = Path(__file__).resolve().parent
 STATIC_DIR = WEB_DIR / "static"
@@ -98,8 +98,7 @@ def api_current_job() -> dict[str, Any]:
     return runner.get_status().to_dict()
 
 
-@app.get("/api/settings")
-def api_settings() -> dict[str, Any]:
+def _build_settings_payload() -> dict[str, Any]:
     account = get_account_profile()
     llm = get_llm_settings_public()
     logged_in = bool(account.get("logged_in"))
@@ -107,12 +106,43 @@ def api_settings() -> dict[str, Any]:
         "participate_text": get_participate_text(),
         "default_participate_text": DEFAULT_PARTICIPATE_TEXT,
         "llm": llm,
-        "llm_defaults": {
-            "base_url": DEFAULT_LLM_BASE_URL,
-            "model_name": DEFAULT_LLM_MODEL_NAME,
-        },
         "setup_complete": logged_in and bool(llm.get("configured")),
     }
+
+
+@app.get("/api/settings")
+def api_settings() -> dict[str, Any]:
+    return _build_settings_payload()
+
+
+@app.get("/api/settings/llm")
+def api_get_llm_settings() -> dict[str, Any]:
+    account = get_account_profile()
+    llm = get_llm_settings_public()
+    logged_in = bool(account.get("logged_in"))
+    return {
+        "llm": llm,
+        "setup_complete": logged_in and bool(llm.get("configured")),
+    }
+
+
+@app.post("/api/settings/llm/test")
+def api_test_llm_settings(request: LlmSettingsRequest) -> dict[str, Any]:
+    account = get_account_profile()
+    if not account.get("logged_in"):
+        raise HTTPException(status_code=401, detail="请先扫码登录后再测试 LLM")
+    try:
+        config = build_llm_config_from_inputs(
+            api_key=request.api_key.strip() or None,
+            base_url=request.base_url,
+            model_name=request.model_name,
+        )
+        endpoint = test_llm_connection(config)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True, "message": f"连接成功：{endpoint}"}
 
 
 @app.put("/api/settings/llm")

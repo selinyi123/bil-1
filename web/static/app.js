@@ -394,20 +394,33 @@ async function loadSettings() {
   const input = document.getElementById("participate-text-input");
   if (input) input.value = settings.participate_text || settings.default_participate_text || "好运连连！";
   renderLlmSettingsForm(settings);
-  if (state.account?.logged_in) renderAccountViews(state.account);
   return settings;
+}
+
+async function syncProjectState() {
+  await loadAccount();
+  await loadSettings();
+  if (state.account) renderAccountViews(state.account);
+}
+
+function getLlmFormValues() {
+  return {
+    api_key: document.getElementById("llm-api-key-input")?.value || "",
+    base_url: document.getElementById("llm-base-url-input")?.value || "",
+    model_name: document.getElementById("llm-model-name-input")?.value || "",
+  };
 }
 
 function renderLlmSettingsForm(settings) {
   const llm = settings?.llm || {};
-  const defaults = settings?.llm_defaults || {};
   const baseInput = document.getElementById("llm-base-url-input");
   const modelInput = document.getElementById("llm-model-name-input");
   const keyInput = document.getElementById("llm-api-key-input");
   const keyHint = document.getElementById("llm-api-key-hint");
+  const baseHint = document.getElementById("llm-base-url-hint");
   const status = document.getElementById("llm-settings-status");
-  if (baseInput) baseInput.value = llm.base_url_customized ? llm.base_url || "" : "";
-  if (modelInput) modelInput.value = llm.model_name || defaults.model_name || "";
+  if (baseInput) baseInput.value = llm.base_url || "";
+  if (modelInput) modelInput.value = llm.model_name || "";
   if (keyInput) {
     keyInput.value = "";
     keyInput.placeholder = llm.configured ? "已配置，留空则不修改" : "请输入 API Key";
@@ -417,10 +430,40 @@ function renderLlmSettingsForm(settings) {
       ? `当前 Key：${llm.api_key_hint || "****"}（输入新 Key 可覆盖）`
       : "尚未保存 API Key";
   }
+  if (baseHint) {
+    baseHint.textContent = `当前接口：${llm.base_url || "（空）"}`;
+  }
   if (status) {
-    if (!isLoggedIn()) status.textContent = "需先登录，再保存 LLM 配置";
-    else if (llm.configured) status.textContent = "LLM 已配置，保存后立即生效";
-    else status.textContent = "请填写 API Key 并保存，完成后才能使用项目功能";
+    if (!isLoggedIn()) {
+      status.textContent = llm.configured
+        ? "已从本地配置文件读取，登录后可修改并保存"
+        : "需先登录，再保存 LLM 配置";
+    } else if (llm.configured) status.textContent = "LLM 已配置，保存后立即生效";
+    else status.textContent = "请填写 API Key 与模型名称并保存，完成后才能使用项目功能";
+  }
+}
+
+async function refreshLlmSettings() {
+  const button = document.getElementById("refresh-llm-settings");
+  const originalText = button?.textContent || "刷新配置";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "刷新中…";
+  }
+  try {
+    const result = await fetchJSON("/api/settings/llm");
+    state.settings = { ...(state.settings || {}), llm: result.llm, setup_complete: result.setup_complete };
+    renderLlmSettingsForm(state.settings);
+    if (state.account) renderAccountViews(state.account);
+    const detail = result.llm?.configured
+      ? `${result.llm.model_name || "已配置"} · ${result.llm.api_key_hint || ""}`
+      : "本地配置文件为空或未完整填写";
+    showToast("配置已刷新", "success", detail);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
   }
 }
 
@@ -432,29 +475,39 @@ async function saveLlmSettings() {
   const result = await fetchJSON("/api/settings/llm", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      api_key: document.getElementById("llm-api-key-input")?.value || "",
-      base_url: document.getElementById("llm-base-url-input")?.value || "",
-      model_name: document.getElementById("llm-model-name-input")?.value || "",
-    }),
+    body: JSON.stringify(getLlmFormValues()),
   });
   state.settings = { ...(state.settings || {}), llm: result.llm, setup_complete: result.setup_complete };
   renderLlmSettingsForm(state.settings);
-  if (state.account?.logged_in) renderAccountViews(state.account);
-  showToast("LLM 配置已保存", "success", `${result.llm.model_name} · ${result.llm.api_key_hint || "已配置"}`);
+  if (state.account) renderAccountViews(state.account);
+  showToast("LLM 配置已保存", "success", `${result.llm.model_name || "已配置"} · ${result.llm.api_key_hint || ""}`);
 }
 
-async function resetLlmSettings() {
+async function testLlmSettings() {
   if (!isLoggedIn()) {
-    showToast("请先扫码登录", "info", "登录后才能配置 LLM");
+    showToast("请先扫码登录", "info", "登录后才能测试 LLM");
     return;
   }
-  const defaults = state.settings?.llm_defaults || {};
-  const baseInput = document.getElementById("llm-base-url-input");
-  const modelInput = document.getElementById("llm-model-name-input");
-  if (baseInput) baseInput.value = "";
-  if (modelInput) modelInput.value = defaults.model_name || "DeepSeek-V4-Flash";
-  showToast("已恢复默认模型", "info", "接口地址已清空，使用内置默认");
+  const button = document.getElementById("test-llm-settings");
+  const originalText = button?.textContent || "测试连接";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "测试中…";
+  }
+  try {
+    const result = await fetchJSON("/api/settings/llm/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(getLlmFormValues()),
+      timeoutMs: 60000,
+    });
+    showToast("LLM 连接正常", "success", result.message || "");
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  }
 }
 
 async function saveParticipateText() {
@@ -737,8 +790,7 @@ function startPolling() {
     window.clearInterval(state.polling);
     state.polling = null;
     await loadSummary();
-    await loadAccount();
-    await loadSettings();
+    await syncProjectState();
     await loadActivities();
     document.querySelectorAll("[data-action='participate'].is-loading").forEach((btn) => {
       btn.textContent = "参与";
@@ -787,17 +839,25 @@ function bindFilterPills() {
   });
 }
 
-document.getElementById("save-llm-settings")?.addEventListener("click", async () => {
+document.getElementById("refresh-llm-settings")?.addEventListener("click", async () => {
   try {
-    await saveLlmSettings();
+    await refreshLlmSettings();
   } catch (error) {
     showToast(String(error.message || error), "error");
   }
 });
 
-document.getElementById("reset-llm-settings")?.addEventListener("click", async () => {
+document.getElementById("test-llm-settings")?.addEventListener("click", async () => {
   try {
-    await resetLlmSettings();
+    await testLlmSettings();
+  } catch (error) {
+    showToast(String(error.message || error), "error");
+  }
+});
+
+document.getElementById("save-llm-settings")?.addEventListener("click", async () => {
+  try {
+    await saveLlmSettings();
   } catch (error) {
     showToast(String(error.message || error), "error");
   }
@@ -824,8 +884,8 @@ sidebarRefreshBtn?.addEventListener("click", async () => {
   sidebarRefreshBtn.disabled = true;
   sidebarRefreshBtn.textContent = "刷新中…";
   try {
-    await loadAccount();
-    showToast("账号信息已更新", "success");
+    await syncProjectState();
+    showToast("状态已同步", "success");
   } catch (error) {
     showToast(String(error.message || error), "error");
   } finally {
@@ -849,12 +909,18 @@ async function init() {
   bindNavigation();
   bindFilterPills();
   bindActionButtons();
-  await loadAccount();
-  await loadSettings();
+  await syncProjectState();
   const job = await loadSummary();
   await loadActivities();
   if (job?.state === "running") startPolling();
 }
+
+window.addEventListener("pageshow", (event) => {
+  if (!event.persisted) return;
+  syncProjectState().catch((error) => {
+    showToast(String(error.message || error), "error");
+  });
+});
 
 init().catch((error) => {
   showToast(String(error.message || error), "error");

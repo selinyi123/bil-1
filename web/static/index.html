@@ -137,7 +137,6 @@
                   <h2 class="section-title">LLM 配置</h2>
                   <p class="section-desc">解析<strong>转发抽奖</strong>动态正文，提取奖品与开奖时间。互动 / 预约抽奖不消耗 LLM，推荐使用 <strong>DeepSeek-V4-Flash</strong>。</p>
                 </div>
-                <button type="button" class="btn btn-secondary btn-pill" id="reset-llm-settings">恢复默认</button>
               </div>
               <div class="llm-settings-body">
                 <div class="settings-field settings-field-full">
@@ -145,7 +144,7 @@
                     <label class="field-label" for="llm-api-key-input">API Key</label>
                     <span class="field-tag required">必填</span>
                   </div>
-                  <p class="field-help">服务商密钥，保存后仅显示掩码，不会明文展示。</p>
+                  <p class="field-help">服务商密钥，保存后仅显示首尾各 4 位，不会明文展示。</p>
                   <input type="password" id="llm-api-key-input" class="form-input" autocomplete="new-password" placeholder="请输入 API Key" />
                   <p class="caption field-hint" id="llm-api-key-hint"></p>
                 </div>
@@ -155,22 +154,27 @@
                       <label class="field-label" for="llm-base-url-input">接口地址</label>
                       <span class="field-tag">选填</span>
                     </div>
-                    <p class="field-help">自定义 API 时填写，留空使用内置默认。</p>
+                    <p class="field-help">对应本地 <code>llm.env</code> 中的 LLM_BASE_URL，留空即不填写。</p>
                     <input type="text" id="llm-base-url-input" class="form-input" autocomplete="off" placeholder="请输入 BASE URL" />
+                    <p class="caption field-hint" id="llm-base-url-hint"></p>
                   </div>
                   <div class="settings-field">
                     <div class="settings-field-top">
                       <label class="field-label" for="llm-model-name-input">模型名称</label>
                       <span class="field-tag required">必填</span>
                     </div>
-                    <p class="field-help">文本模型标识，推荐 DeepSeek-V4-Flash。</p>
-                    <input type="text" id="llm-model-name-input" class="form-input" placeholder="DeepSeek-V4-Flash" />
+                    <p class="field-help">文本模型标识，例如 DeepSeek-V4-Flash。</p>
+                    <input type="text" id="llm-model-name-input" class="form-input" placeholder="请输入模型名称" />
                   </div>
                 </div>
               </div>
               <div class="settings-panel-foot">
                 <span class="caption" id="llm-settings-status">需先登录，再保存 LLM 配置</span>
-                <button type="button" class="btn btn-primary btn-pill" id="save-llm-settings">保存配置</button>
+                <div class="settings-panel-actions">
+                  <button type="button" class="btn btn-secondary btn-pill" id="refresh-llm-settings">刷新配置</button>
+                  <button type="button" class="btn btn-secondary btn-pill" id="test-llm-settings">测试连接</button>
+                  <button type="button" class="btn btn-primary btn-pill" id="save-llm-settings">保存配置</button>
+                </div>
               </div>
             </article>
 
