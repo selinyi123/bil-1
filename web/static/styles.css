@@ -1065,6 +1065,73 @@ input {
   gap: 8px;
 }
 
+.draw-reminder-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+}
+
+.draw-reminder-title {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.draw-reminder-desc {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--foreground-muted);
+  line-height: 1.5;
+}
+
+.draw-reminder-block + .draw-reminder-block {
+  margin-top: 10px;
+}
+
+.draw-reminder-block-title {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.draw-reminder-list {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--foreground-muted);
+  font-size: 12px;
+}
+
+.draw-reminder-list li + li {
+  margin-top: 4px;
+}
+
+.draw-reminder-item-title {
+  margin-right: 8px;
+}
+
+.draw-reminder-item-time {
+  color: var(--foreground-muted);
+}
+
+.draw-reminder-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.activity-check-at-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--accent);
+}
+
 .account-empty {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

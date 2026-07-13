@@ -39,6 +39,18 @@ def test_lottery_time_text_only_returns_standard_format() -> None:
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}", text)
 
 
-def test_is_relative_lottery_time_text() -> None:
-    assert is_relative_lottery_time_text("下周") is True
-    assert is_relative_lottery_time_text("2026-07-15 11:00") is False
+def test_normalize_evening_hour() -> None:
+    assert normalize_lottery_time_text("7月20日晚8点") == "2026-07-20 20:00"
+    assert normalize_lottery_time_text("7月14日 18:00") == "2026-07-14 18:00"
+
+
+def test_format_timestamp_beijing() -> None:
+    text = format_timestamp(1784119200)
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}", text)
+
+
+def test_is_standard_lottery_time_display() -> None:
+    from src.lottery_time import is_standard_lottery_time_display
+
+    assert is_standard_lottery_time_display("2026-07-14 18:00") is True
+    assert is_standard_lottery_time_display("7月15号") is False

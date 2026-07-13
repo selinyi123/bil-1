@@ -9,6 +9,7 @@ const state = {
   account: null,
   settings: null,
   atAlertShownKey: "",
+  drawReminder: null,
 };
 
 const jobMessage = document.getElementById("job-message");
@@ -21,6 +22,7 @@ const sidebarLoginBtn = document.getElementById("sidebar-login");
 const sidebarLogoutBtn = document.getElementById("sidebar-logout");
 const sidebarRefreshBtn = document.getElementById("sidebar-refresh-account");
 const activitiesBody = document.getElementById("activities-body");
+const drawReminderBanner = document.getElementById("draw-reminder-banner");
 const pagination = document.getElementById("pagination");
 const qrcodeModal = document.getElementById("qrcode-modal");
 const qrcodeImg = document.getElementById("qrcode-img");
@@ -761,6 +763,79 @@ function renderSources(sources) {
     .join("");
 }
 
+function renderDrawReminderBanner(reminder) {
+  if (!drawReminderBanner) return;
+  if (!reminder) {
+    drawReminderBanner.hidden = true;
+    drawReminderBanner.innerHTML = "";
+    state.drawReminder = null;
+    return;
+  }
+  state.drawReminder = reminder;
+  const drawnCount = Number(reminder?.drawn_participated_count) || 0;
+  const soonCount = Number(reminder?.drawing_soon_count) || 0;
+  if (!drawnCount && !soonCount) {
+    drawReminderBanner.hidden = true;
+    drawReminderBanner.innerHTML = "";
+    return;
+  }
+
+  const notifyUrl = reminder?.at_notify_url || "https://message.bilibili.com/#/notify/at";
+  const drawnItems = (reminder?.drawn_participated || [])
+    .slice(0, 3)
+    .map(
+      (item) =>
+        `<li><span class="draw-reminder-item-title">${escapeHtml(item.title || item.dynamic_id)}</span><span class="draw-reminder-item-time">${escapeHtml(item.lottery_time_text || "—")}</span></li>`
+    )
+    .join("");
+  const soonItems = (reminder?.drawing_soon || [])
+    .slice(0, 3)
+    .map(
+      (item) =>
+        `<li><span class="draw-reminder-item-title">${escapeHtml(item.title || item.dynamic_id)}</span><span class="draw-reminder-item-time">${escapeHtml(item.lottery_time_text || "—")}</span></li>`
+    )
+    .join("");
+
+  const drawnBlock = drawnCount
+    ? `<div class="draw-reminder-block">
+        <p class="draw-reminder-block-title">已开奖 ${drawnCount} 个（建议查看 @我的）</p>
+        ${drawnItems ? `<ul class="draw-reminder-list">${drawnItems}</ul>` : ""}
+      </div>`
+    : "";
+  const soonBlock = soonCount
+    ? `<div class="draw-reminder-block">
+        <p class="draw-reminder-block-title">3 天内即将开奖 ${soonCount} 个</p>
+        ${soonItems ? `<ul class="draw-reminder-list">${soonItems}</ul>` : ""}
+      </div>`
+    : "";
+
+  drawReminderBanner.hidden = false;
+  drawReminderBanner.innerHTML = `
+    <div class="draw-reminder-copy">
+      <p class="draw-reminder-title">开奖提醒</p>
+      <p class="draw-reminder-desc">以下是你已参加活动的开奖时间汇总。已开奖的活动建议去 B 站查看 @我的 通知。</p>
+      ${drawnBlock}
+      ${soonBlock}
+    </div>
+    <div class="draw-reminder-actions">
+      <a class="btn btn-secondary btn-compact" href="${escapeHtml(notifyUrl)}" target="_blank" rel="noopener noreferrer">去 B 站查看 @我的</a>
+    </div>`;
+}
+
+async function loadDrawReminder() {
+  if (!isLoggedIn()) {
+    renderDrawReminderBanner(null);
+    return null;
+  }
+  try {
+    const reminder = await fetchJSON("/api/activities/draw-reminder", { timeoutMs: 15000 });
+    renderDrawReminderBanner(reminder);
+    return reminder;
+  } catch {
+    return null;
+  }
+}
+
 function renderActivities(payload) {
   const items = payload.items || [];
   if (!items.length) {
@@ -777,10 +852,14 @@ function renderActivities(payload) {
         const linkCell = item.source_url
           ? `<a class="activity-link" href="${escapeHtml(item.source_url)}" target="_blank" rel="noopener">打开动态</a>`
           : `<span class="caption">—</span>`;
+        const checkAtHint = item.check_at_recommended
+          ? `<div class="activity-check-at-hint">已开奖，建议查看 @我的 通知</div>`
+          : "";
         return `
           <tr>
             <td class="activity-cell">
               <div class="activity-title">${escapeHtml(item.activity_title || item.prize || "未知活动")}</div>
+              ${checkAtHint}
               ${lastNote}
             </td>
             <td class="link-cell">${linkCell}</td>
@@ -876,6 +955,9 @@ function switchSection(sectionId) {
     }
   });
   document.getElementById("sidebar")?.classList.remove("open");
+  if (sectionId === "activities") {
+    loadDrawReminder();
+  }
 }
 
 function bindNavigation() {
@@ -922,7 +1004,19 @@ async function refreshActivityStatus() {
   }
   try {
     const result = await fetchJSON("/api/activities/refresh-status", { method: "POST" });
-    showToast(result.message || "状态已刷新", "success");
+    if (result.draw_reminder) {
+      renderDrawReminderBanner(result.draw_reminder);
+    }
+    const drawnCount = Number(result.draw_reminder?.drawn_participated_count) || 0;
+    if (drawnCount > 0) {
+      showToast(
+        result.message || "状态已刷新",
+        "info",
+        `${drawnCount} 个已参加活动已开奖，建议打开 B 站查看 @我的 通知。`
+      );
+    } else {
+      showToast(result.message || "状态已刷新", "success");
+    }
     await loadActivities();
     const summary = await fetchJSON("/api/summary");
     renderStats(summary);
@@ -1181,6 +1275,7 @@ async function init() {
   await syncProjectState();
   const job = await loadSummary();
   await loadActivities();
+  await loadDrawReminder();
   if (job?.state === "running") startPolling();
 }
 

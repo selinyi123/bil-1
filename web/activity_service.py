@@ -8,6 +8,7 @@ from typing import Any
 from src.activity_status import resolve_activity_status
 from src.fetch_activity_info import ENRICHED_OUTPUT_PATH
 from src.lottery_classifier import PARTICIPATABLE_TYPES
+from src.draw_reminder import should_recommend_at_check
 from src.lottery_time import format_timestamp, lottery_time_text
 from src.merge_links import MERGED_OUTPUT_PATH
 from src.participation_store import ParticipationRecord, load_participations
@@ -167,6 +168,7 @@ def _normalize_activity(
         "repost_fetched": repost_fetched,
         "heat_missing": heat_missing,
         "lottery_time": lottery_time_text(item) or "—",
+        "check_at_recommended": should_recommend_at_check(item, participation),
         "skipped": bool(item.get("skipped")),
         "skip_reason": str(item.get("skip_reason") or ""),
         "can_participate": can_participate,

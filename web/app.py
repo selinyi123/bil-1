@@ -8,7 +8,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from src.bilibili_login import QR_IMAGE_PATH
+from src.bilibili_auth import get_login_uid
+from src.draw_reminder import load_draw_reminder_snapshot, save_draw_reminder_snapshot
 from src.llm_settings import (
     build_llm_config_from_inputs,
     get_llm_settings_public,
@@ -110,6 +111,10 @@ def api_refresh_activity_status() -> dict[str, Any]:
         invalidate_activity_cache()
     except OSError as exc:
         raise HTTPException(status_code=500, detail=f"刷新活动状态失败：{exc}") from exc
+    draw_reminder = result.get("draw_reminder") or {}
+    uid = get_login_uid()
+    if uid:
+        draw_reminder = save_draw_reminder_snapshot(uid, draw_reminder)
     counts = result.get("status_counts") or {}
     listable = result.get("listable_counts") or {}
     message = (
@@ -117,7 +122,29 @@ def api_refresh_activity_status() -> dict[str, Any]:
         f"列表展示 已参加 {listable.get('已参加', 0)} / 未参加 {listable.get('未参加', 0)} / "
         f"已结束 {listable.get('已结束', 0)}"
     )
-    return {"ok": True, "message": message, "result": result}
+    drawn_count = int(draw_reminder.get("drawn_participated_count") or 0)
+    if drawn_count:
+        message += f"；{drawn_count} 个已参加活动已开奖，建议查看 @我的 通知"
+    return {"ok": True, "message": message, "result": result, "draw_reminder": draw_reminder}
+
+
+@app.get("/api/activities/draw-reminder")
+def api_draw_reminder() -> dict[str, Any]:
+    account = get_account_profile()
+    if not account.get("logged_in"):
+        raise HTTPException(status_code=401, detail="请先扫码登录后再执行此操作")
+    uid = get_login_uid()
+    snapshot = load_draw_reminder_snapshot(uid) if uid else None
+    if not snapshot:
+        return {
+            "drawn_participated_count": 0,
+            "drawing_soon_count": 0,
+            "drawn_participated": [],
+            "drawing_soon": [],
+            "updated_at": None,
+            "at_notify_url": "https://message.bilibili.com/#/notify/at",
+        }
+    return snapshot
 
 
 @app.post("/api/activities/backfill-heat")

@@ -2,35 +2,14 @@ from __future__ import annotations
 
 import json
 import time
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from src.activity_status import DrawStatus, resolve_activity_status
+from src.draw_reminder import compute_draw_reminders
 from src.fetch_activity_info import ENRICHED_OUTPUT_PATH
-from src.lottery_time import normalize_lottery_time_text
+from src.lottery_time import lottery_time_unix
 from src.participation_store import ParticipationRecord, load_participations
-
-
-def _lottery_time_unix(item: dict) -> int | None:
-    lottery_time = item.get("lottery_time")
-    if lottery_time:
-        try:
-            return int(lottery_time)
-        except (TypeError, ValueError):
-            return None
-
-    conditions = item.get("conditions") or {}
-    text = str(conditions.get("lottery_time_text") or "").strip()
-    if not text:
-        return None
-    normalized = normalize_lottery_time_text(text)
-    if not normalized or not normalized[:4].isdigit():
-        return None
-    try:
-        return int(datetime.strptime(normalized, "%Y-%m-%d %H:%M").timestamp())
-    except ValueError:
-        return None
 
 
 def _resolve_row_status(
@@ -62,6 +41,7 @@ def refresh_activity_statuses(*, path: Path | None = None) -> dict[str, Any]:
             "status_counts": {"已结束": 0, "已参加": 0, "未参加": 0},
             "listable_counts": {"已结束": 0, "已参加": 0, "未参加": 0},
             "total": 0,
+            "draw_reminder": compute_draw_reminders([], {}),
         }
 
     payload = json.loads(target.read_text(encoding="utf-8"))
@@ -77,7 +57,7 @@ def refresh_activity_statuses(*, path: Path | None = None) -> dict[str, Any]:
     for item in activities:
         dynamic_id = str(item.get("dynamic_id") or "")
         participation = participations.get(dynamic_id)
-        lottery_time = _lottery_time_unix(item)
+        lottery_time = lottery_time_unix(item)
         if lottery_time and lottery_time <= now and item.get("draw_status") != "ended":
             item["draw_status"] = "ended"
             ended_marked += 1
@@ -126,4 +106,5 @@ def refresh_activity_statuses(*, path: Path | None = None) -> dict[str, Any]:
         "status_counts": status_counts,
         "listable_counts": listable_counts,
         "total": len(activities),
+        "draw_reminder": compute_draw_reminders(activities, participations, now=now),
     }
