@@ -539,6 +539,13 @@ input {
   color: var(--foreground-muted);
 }
 
+.topbar-copy .eyebrow,
+.page-subtitle {
+  font-family: var(--font-display);
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
 .page-title {
   margin: 0;
   font-family: var(--font-display);
@@ -550,6 +557,8 @@ input {
 .page-subtitle {
   margin: 10px 0 0;
   color: var(--foreground-muted);
+  font-weight: 400;
+  line-height: 1.6;
   max-width: 56ch;
 }
 
@@ -780,6 +789,10 @@ input {
   font-size: 13px;
   font-weight: 600;
   color: var(--foreground-muted);
+}
+
+.participate-settings .field-label {
+  margin-bottom: 10px;
 }
 
 .textarea {
@@ -1984,15 +1997,6 @@ body.job-running {
   transition: stroke-dashoffset 0.45s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.progress-spinner-inline {
-  position: absolute;
-  inset: 13px;
-  width: 22px;
-  height: 22px;
-  border-width: 2px;
-  border-top-color: var(--job-percent);
-}
-
 .progress-banner-copy {
   min-width: 0;
 }
@@ -2219,21 +2223,6 @@ body.job-running {
   to {
     opacity: 1;
     transform: translateX(-50%) translateY(0) scale(1);
-  }
-}
-
-.progress-spinner {
-  width: 16px;
-  height: 16px;
-  border: 2px solid var(--progress-track);
-  border-top-color: var(--accent-hover);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
   }
 }
 

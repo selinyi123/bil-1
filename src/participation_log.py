@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from src.lottery_actions import ActionResult
 from src.user_data import participation_actions_path
+from src.user_data_lock import user_data_lock
 
 ParticipationOutcome = Literal["joined", "failed", "skipped", "dry_run"]
 CORE_ACTIONS = ("like", "follow", "favorite", "repost", "comment")
@@ -88,11 +89,12 @@ def all_core_actions_ok(actions: list[ActionResult]) -> bool:
 
 
 def append_action_record(record: ParticipationActionRecord) -> None:
-    data = _load_raw()
-    entries = data.get("entries") or []
-    if not isinstance(entries, list):
-        entries = []
-    entries.append(record.to_dict())
-    data["entries"] = entries[-500:]
-    data["updated_at"] = int(time.time())
-    _save_raw(data)
+    with user_data_lock():
+        data = _load_raw()
+        entries = data.get("entries") or []
+        if not isinstance(entries, list):
+            entries = []
+        entries.append(record.to_dict())
+        data["entries"] = entries[-500:]
+        data["updated_at"] = int(time.time())
+        _save_raw(data)

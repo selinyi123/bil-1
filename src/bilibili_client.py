@@ -24,6 +24,8 @@ DEFAULT_HEADERS = {
     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
 }
 
+_RATE_LIMIT_CODES = frozenset({-352, -509})
+
 MIXIN_KEY_ENC_TAB = [
     46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49,
     33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16, 24, 55, 40, 61,
@@ -176,6 +178,12 @@ class BilibiliClient:
                 if isinstance(exc, httpx.RequestError):
                     raise RuntimeError(f"网络请求失败: {exc}") from exc
                 raise
+            except json.JSONDecodeError as exc:
+                last_error = exc
+                if attempt < retries:
+                    time.sleep(2.0 * (attempt + 1))
+                    continue
+                raise RuntimeError("响应不是有效 JSON") from exc
         if last_error:
             raise last_error
         raise RuntimeError("请求失败")
@@ -197,7 +205,15 @@ class BilibiliClient:
                 resp.raise_for_status()
                 payload = resp.json()
                 code = payload.get("code")
-                if raise_on_code and code not in (0, None):
+                if code in (0, None):
+                    return payload
+                if not raise_on_code and code not in _RATE_LIMIT_CODES:
+                    return payload
+                if code in _RATE_LIMIT_CODES and attempt < retries:
+                    time.sleep(1.2 * (attempt + 1))
+                    last_error = RuntimeError(f"API error {code}: {payload.get('message')}")
+                    continue
+                if raise_on_code:
                     message = payload.get("message") or payload.get("msg") or ""
                     raise RuntimeError(f"API error {code}: {message}")
                 return payload
@@ -238,7 +254,15 @@ class BilibiliClient:
                 resp.raise_for_status()
                 data = resp.json()
                 code = data.get("code")
-                if raise_on_code and code not in (0, None):
+                if code in (0, None):
+                    return data
+                if not raise_on_code and code not in _RATE_LIMIT_CODES:
+                    return data
+                if code in _RATE_LIMIT_CODES and attempt < retries:
+                    time.sleep(1.2 * (attempt + 1))
+                    last_error = RuntimeError(f"API error {code}: {data.get('message')}")
+                    continue
+                if raise_on_code:
                     message = data.get("message") or data.get("msg") or ""
                     raise RuntimeError(f"API error {code}: {message}")
                 return data

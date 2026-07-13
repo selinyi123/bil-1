@@ -28,7 +28,7 @@ from src.participation_log import (
 from src.participation_store import set_participation
 from src.fetch_activity_info import mark_enriched_joined
 from src.lottery_classifier import PARTICIPATABLE_TYPES
-from src.sources.common import opus_link
+from src.sources.common import is_valid_dynamic_id, opus_link
 
 RESERVE_CLICK_URL = "https://api.bilibili.com/x/dynamic/feed/reserve/click"
 RESERVE_RESERVED_STATUS = 2
@@ -112,12 +112,19 @@ def _persist_result(
         mark_enriched_joined(result.dynamic_id)
 
 
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _is_notice_active(notice: dict | None) -> tuple[bool, str]:
     if not notice:
         return False, "未找到抽奖信息"
-    if int(notice.get("status") or 0) != 0:
+    if _safe_int(notice.get("status")) != 0:
         return False, "抽奖已结束或不可参与"
-    lottery_time = int(notice.get("lottery_time") or 0)
+    lottery_time = _safe_int(notice.get("lottery_time"))
     if lottery_time and lottery_time <= int(time.time()):
         return False, "已过开奖时间"
     return True, ""
@@ -331,7 +338,21 @@ def participate_reserve_lottery(
     except RuntimeError:
         notice = None
 
-    reserve_info = _resolve_reserve_info(client, dynamic_id)
+    try:
+        reserve_info = _resolve_reserve_info(client, dynamic_id)
+    except (RuntimeError, ValueError) as exc:
+        result = ParticipateResult(
+            dynamic_id=dynamic_id,
+            lottery_type="预约抽奖",
+            status="failed",
+            message=str(exc),
+            action_text="",
+            actions=[],
+            context_snapshot=_notice_snapshot(notice),
+        )
+        _persist_result(result=result, persist=persist, dry_run=dry_run)
+        return result
+
     if on_step:
         on_step(1, 1, "正在预约直播…", "reserve")
     action = _reserve_click(
@@ -386,6 +407,8 @@ def participate_activity(
     persist: bool = True,
     on_step: Callable[[int, int, str, str], None] | None = None,
 ) -> ParticipateResult:
+    if not is_valid_dynamic_id(dynamic_id):
+        raise ValueError("dynamic_id 无效")
     if lottery_type == "充电抽奖":
         result = ParticipateResult(
             dynamic_id=dynamic_id,

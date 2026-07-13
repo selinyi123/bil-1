@@ -25,3 +25,14 @@ def test_activities_pagination_bounds() -> None:
     assert resp.status_code == 200
     data = resp.json()
     assert data["page_size"] <= 100
+
+
+def test_login_qrcode_does_not_crash() -> None:
+    resp = client.get("/api/login/qrcode")
+    assert resp.status_code in (200, 404)
+
+
+def test_api_account_does_not_crash() -> None:
+    resp = client.get("/api/account")
+    assert resp.status_code == 200
+    assert "logged_in" in resp.json()

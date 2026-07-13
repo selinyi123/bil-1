@@ -605,6 +605,9 @@ def fetch_activity_info(
         if cache_updates:
             merge_cache(cache_updates)
 
+        if processed > 0 and save_every > 0 and processed % save_every != 0:
+            flush_partial(complete=not backfill_tasks)
+
     if backfill_tasks:
         backfill_processed = 0
         if on_progress:

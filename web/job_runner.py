@@ -148,7 +148,12 @@ class JobRunner:
                 self._status.finished_at = int(time.time())
                 self._status.message = str(payload.get("message") or "完成")
                 if payload.get("log"):
-                    self._status.log = sanitize_log(str(payload.get("log")))
+                    final_log = sanitize_log(str(payload.get("log")))
+                    current = self._status.log.strip()
+                    if current and final_log:
+                        self._status.log = f"{current}\n{final_log}".strip()
+                    elif final_log:
+                        self._status.log = final_log
                 self._status.result = payload.get("result")
                 if self._status.progress_total:
                     self._status.progress_step = self._status.progress_total

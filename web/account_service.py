@@ -17,7 +17,10 @@ def _api_code(payload: dict[str, Any]) -> int:
     code = payload.get("code")
     if code is None:
         return -1
-    return int(code)
+    try:
+        return int(code)
+    except (TypeError, ValueError):
+        return -1
 
 
 def clear_login_cookie() -> None:
@@ -102,8 +105,16 @@ def get_account_profile() -> dict[str, Any]:
                 profile["unread_at"] = profile.get("unread_at", 0)
 
             if mid:
-                alert = evaluate_at_unread_alert(mid, int(profile.get("unread_at") or 0))
-                profile["at_alert"] = alert.to_dict()
+                try:
+                    alert = evaluate_at_unread_alert(mid, int(profile.get("unread_at") or 0))
+                    profile["at_alert"] = alert.to_dict()
+                except OSError:
+                    profile["at_alert"] = {
+                        "increased": False,
+                        "delta": 0,
+                        "previous": 0,
+                        "current": int(profile.get("unread_at") or 0),
+                    }
                 profile["at_notify_url"] = BILIBILI_AT_NOTIFY_URL
             else:
                 profile["at_alert"] = {

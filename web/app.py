@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -8,6 +9,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from src.bilibili_login import QR_IMAGE_PATH
+from src.debug_trace import debug_log
 from src.llm_settings import (
     build_llm_config_from_inputs,
     get_llm_settings_public,
@@ -18,7 +21,7 @@ from src.llm_settings import (
 )
 from src.user_settings import DEFAULT_PARTICIPATE_TEXT, get_participate_text, set_participate_text
 from src.sources.common import is_valid_dynamic_id
-from web.account_service import ack_at_unread_notice, clear_login_cookie, get_account_profile, has_login_cookie
+from web.account_service import ack_at_unread_notice, clear_login_cookie, get_account_profile
 from web.activity_service import get_summary, invalidate_activity_cache, list_activities
 from web.job_runner import runner
 from src.llm_client import test_llm_connection
@@ -67,6 +70,8 @@ def api_ack_at_unread(request: AckAtUnreadRequest) -> dict[str, Any]:
         return ack_at_unread_notice(request.current)
     except RuntimeError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"保存提醒状态失败：{exc}") from exc
 
 
 @app.get("/api/summary")
@@ -103,13 +108,16 @@ def api_activities(
 
 @app.post("/api/activities/refresh-status")
 def api_refresh_activity_status() -> dict[str, Any]:
+    if runner.is_running():
+        raise HTTPException(status_code=409, detail="有任务正在运行，请稍后再试")
     account = get_account_profile()
     if not account.get("logged_in"):
         raise HTTPException(status_code=401, detail="请先扫码登录后再执行此操作")
     try:
         result = refresh_activity_statuses()
         invalidate_activity_cache()
-    except OSError as exc:
+    except (OSError, json.JSONDecodeError) as exc:
+        debug_log("app.py:refresh-status", "refresh failed", data={"error": str(exc)}, hypothesis_id="H4")
         raise HTTPException(status_code=500, detail=f"刷新活动状态失败：{exc}") from exc
     draw_reminder = result.get("draw_reminder") or {}
     counts = result.get("status_counts") or {}
@@ -130,6 +138,8 @@ def api_refresh_activity_status() -> dict[str, Any]:
 
 @app.post("/api/activities/backfill-heat")
 def api_backfill_heat() -> dict[str, Any]:
+    if runner.is_running():
+        raise HTTPException(status_code=409, detail="有任务正在运行，请稍后再试")
     account = get_account_profile()
     if not account.get("logged_in"):
         raise HTTPException(status_code=401, detail="请先扫码登录后再执行此操作")
@@ -253,6 +263,8 @@ def api_update_llm_settings(request: LlmSettingsRequest) -> dict[str, Any]:
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"保存 LLM 配置失败：{exc}") from exc
     logged_in = bool(account.get("logged_in"))
     return {
         "llm": llm,
@@ -262,9 +274,13 @@ def api_update_llm_settings(request: LlmSettingsRequest) -> dict[str, Any]:
 
 @app.put("/api/settings/participate-text")
 def api_update_participate_text(request: ParticipateTextRequest) -> dict[str, str]:
-    if not has_login_cookie():
+    account = get_account_profile()
+    if not account.get("logged_in"):
         raise HTTPException(status_code=401, detail="请先扫码登录后再修改参与文案")
-    value = set_participate_text(request.participate_text)
+    try:
+        value = set_participate_text(request.participate_text)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"保存参与文案失败：{exc}") from exc
     return {"participate_text": value}
 
 
@@ -279,6 +295,7 @@ def api_logout() -> dict[str, Any]:
 
 @app.get("/api/login/qrcode")
 def api_login_qrcode() -> FileResponse:
+    debug_log("app.py:qrcode", "qrcode requested", data={"exists": QR_IMAGE_PATH.exists()}, hypothesis_id="H1")
     if not QR_IMAGE_PATH.exists():
         raise HTTPException(status_code=404, detail="二维码尚未生成")
     return FileResponse(QR_IMAGE_PATH, media_type="image/png")

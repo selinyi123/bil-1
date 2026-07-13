@@ -51,7 +51,10 @@ def _cached_json(path_str: str, mtime_ns: int) -> dict:
 def _load_json(path: Path) -> dict:
     if not path.exists():
         return {}
-    return _cached_json(str(path), path.stat().st_mtime_ns)
+    try:
+        return _cached_json(str(path), path.stat().st_mtime_ns)
+    except OSError:
+        return {}
 
 
 def _activity_title(item: dict) -> str:

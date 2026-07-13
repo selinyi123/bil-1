@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Literal
 
 from src.user_data import participations_path
+from src.user_data_lock import user_data_lock
 
 ParticipationStatus = Literal["已参加", "未参加"]
 
@@ -60,12 +61,13 @@ def load_participations() -> dict[str, ParticipationRecord]:
 
 
 def set_participation(dynamic_id: str, user_status: ParticipationStatus) -> ParticipationRecord:
-    data = _load_raw()
-    record = ParticipationRecord(
-        dynamic_id=dynamic_id,
-        user_status=user_status,
-        updated_at=int(time.time()),
-    )
-    data["entries"][dynamic_id] = record.to_dict()
-    _save_raw(data)
-    return record
+    with user_data_lock():
+        data = _load_raw()
+        record = ParticipationRecord(
+            dynamic_id=dynamic_id,
+            user_status=user_status,
+            updated_at=int(time.time()),
+        )
+        data["entries"][dynamic_id] = record.to_dict()
+        _save_raw(data)
+        return record

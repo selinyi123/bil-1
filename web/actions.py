@@ -256,6 +256,7 @@ def run_action(
             if enrich_log.strip():
                 _append_log_detail(log_lines, enrich_log)
             enrich_path = save_enriched(enrich_result)
+            invalidate_activity_cache()
             failed_enrich = max(0, pending_enrich - enrich_result.new_count)
             enrich_line = (
                 f"=== 保存活动数据 ===\n"
