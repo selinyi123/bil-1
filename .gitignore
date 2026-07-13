@@ -9,6 +9,12 @@ data/
 # 本地备忘（个人 git 命令等）
 git.txt
 
+# 本地文档（不上传 GitHub）
+docs/data-source-analysis.md
+docs/implementation-plan.md
+docs/quickstart.md
+docs/star-history.md
+
 # Python
 __pycache__/
 *.py[cod]

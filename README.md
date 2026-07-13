@@ -27,8 +27,6 @@ python scripts/run_dashboard.py
 
 浏览器打开 http://127.0.0.1:8787
 
-更详细的说明见 [docs/quickstart.md](docs/quickstart.md)。
-
 ### LLM 是做什么的？
 
 在「一键更新活动链接」拉取详情时：
