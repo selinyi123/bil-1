@@ -16,7 +16,12 @@ python scripts/bili_login.py
 cp config/llm.env.example config/llm.env
 # 编辑 config/llm.env，填入你的 API Key（见下方说明）
 
-# 4. 启动本地控制台
+# 4. 释放 8787 端口（若启动时报「端口已被占用」）
+# Windows PowerShell：
+netstat -ano | findstr ":8787"
+Stop-Process -Id <PID> -Force   # 将 <PID> 换为上一行 LISTENING 对应的进程号
+
+# 5. 启动本地控制台
 python scripts/run_dashboard.py
 ```
 
