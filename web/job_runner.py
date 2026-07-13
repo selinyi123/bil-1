@@ -119,8 +119,10 @@ class JobRunner:
                 self._status.progress_message = message
                 self._status.message = message
                 if log_append:
-                    current = self._status.log.strip()
-                    self._status.log = f"{current}\n{log_append}".strip() if current else log_append
+                    cleaned = sanitize_log(log_append)
+                    if cleaned:
+                        current = self._status.log.strip()
+                        self._status.log = f"{current}\n{cleaned}".strip() if current else cleaned
                 if qrcode_refreshed_at is not None:
                     result = dict(self._status.result or {})
                     result["qrcode_refreshed_at"] = qrcode_refreshed_at

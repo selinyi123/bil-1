@@ -63,11 +63,33 @@ def _looks_like_internal_error(message: str) -> bool:
         "typeerror",
         "keyerror",
         "modulenotfounderror",
+        "oserror",
+        "systemexit",
+        "winerror",
+        "errno",
+        "uvicorn",
+        "asyncio",
         "line ",
         ".py",
         "exception",
+        "raise systemexit",
     )
     return any(marker in lowered for marker in markers)
+
+
+def _is_stack_frame_line(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped:
+        return False
+    if stripped.startswith("File ") or stripped.startswith("During handling"):
+        return True
+    if re.search(r'\sFile "[^"]+", line \d+', line):
+        return True
+    if re.match(r"^[A-Za-z_][\w.]*Error:", stripped):
+        return True
+    if "uvicorn.run" in stripped or "asyncio_run" in stripped or "server.run" in stripped:
+        return True
+    return False
 
 
 def sanitize_log(log: str) -> str:
@@ -75,19 +97,30 @@ def sanitize_log(log: str) -> str:
     if not text:
         return ""
 
-    if "Traceback (most recent call last)" in text:
-        return "任务执行时发生内部错误，请稍后重试"
-
+    in_traceback = False
     lines: list[str] = []
     for raw in text.splitlines():
-        line = raw.strip()
-        if not line:
+        stripped = raw.strip()
+        if not stripped:
             continue
-        if line.startswith("File ") or "Traceback" in line:
+        if "Traceback (most recent call last)" in stripped:
+            in_traceback = True
             continue
-        if _looks_like_internal_error(line):
+        if in_traceback:
+            if (
+                stripped.startswith("File ")
+                or stripped.startswith("During handling")
+                or _looks_like_internal_error(stripped)
+                or _is_stack_frame_line(raw)
+                or (raw[:1].isspace() and not stripped.startswith("==="))
+            ):
+                continue
+            in_traceback = False
+        if stripped.startswith("File ") or "Traceback" in stripped or _is_stack_frame_line(raw):
             continue
-        line = _PATH_PATTERN.sub("[本地文件]", line)
+        if _looks_like_internal_error(stripped):
+            continue
+        line = _PATH_PATTERN.sub("[本地文件]", stripped)
         line = _UNIX_PATH_PATTERN.sub("[本地文件]", line)
         line = re.sub(r"→\s*\S+", "→ 已保存", line)
         lines.append(line)

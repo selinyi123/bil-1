@@ -20,11 +20,24 @@ from src.user_settings import get_participate_text
 from src.merge_links import merge_activity_links, save_merged
 from src.participation import participate_activity
 from src.status_refresh import refresh_activity_statuses
-from src.sources import ds1_xiaozhuli, ds2_fanqiao, ds3_gongjuren, ds4_junming, ds5_hudong
+from src.sources import (
+    ds1_xiaozhuli,
+    ds2_fanqiao,
+    ds3_gongjuren,
+    ds4_junming,
+    ds5_hudong,
+    ds6_nuomi,
+)
 
 from src.sources.common import is_valid_dynamic_id
 from web.activity_service import invalidate_activity_cache, lookup_lottery_type
 from web.user_messages import format_participation_log, sanitize_log
+
+
+def _append_log_detail(log_lines: list[str], detail: str) -> None:
+    cleaned = sanitize_log(detail.strip())
+    if cleaned:
+        log_lines.append(cleaned)
 
 DS_HANDLERS: list[tuple[str, Callable[..., Any], Callable[[Any], Any]]] = [
     ("DS-1", ds1_xiaozhuli.check_update, ds1_xiaozhuli.save_result),
@@ -32,6 +45,7 @@ DS_HANDLERS: list[tuple[str, Callable[..., Any], Callable[[Any], Any]]] = [
     ("DS-3", ds3_gongjuren.check_update, ds3_gongjuren.save_result),
     ("DS-4", ds4_junming.check_update, ds4_junming.save_result),
     ("DS-5", ds5_hudong.check_update, ds5_hudong.save_result),
+    ("DS-6", ds6_nuomi.check_update, ds6_nuomi.save_result),
 ]
 
 REFRESH_ALL_TOTAL = len(DS_HANDLERS) + 4
@@ -120,7 +134,11 @@ def run_action(
     if action == "refresh_all":
         ds_results: list[dict[str, Any]] = []
         sources_updated = 0
-        progress(step=0, total=REFRESH_ALL_TOTAL, message="正在并行检查 5 个数据源…")
+        progress(
+            step=0,
+            total=REFRESH_ALL_TOTAL,
+            message=f"正在并行检查 {len(DS_HANDLERS)} 个数据源…",
+        )
 
         ds_payloads: list[tuple[int, dict[str, Any], str]] = []
         with ThreadPoolExecutor(max_workers=len(DS_HANDLERS)) as executor:
@@ -155,7 +173,7 @@ def run_action(
             )
             log_lines.append(log_line)
             if payload.get("detail"):
-                log_lines.append(payload["detail"])
+                _append_log_detail(log_lines, payload["detail"])
             progress(
                 step=index,
                 total=REFRESH_ALL_TOTAL,
@@ -174,7 +192,7 @@ def run_action(
         )
         log_lines.append(merge_line)
         if merge_log.strip():
-            log_lines.append(merge_log.strip())
+            _append_log_detail(log_lines, merge_log)
         progress(
             step=merge_step,
             total=REFRESH_ALL_TOTAL,
@@ -200,7 +218,7 @@ def run_action(
         )
         log_lines.append(classify_line)
         if classify_log.strip():
-            log_lines.append(classify_log.strip())
+            _append_log_detail(log_lines, classify_log)
         progress(
             step=classify_step,
             total=REFRESH_ALL_TOTAL,
@@ -229,7 +247,7 @@ def run_action(
                 on_progress=on_enrich_progress,
             )
             if enrich_log.strip():
-                log_lines.append(enrich_log.strip())
+                _append_log_detail(log_lines, enrich_log)
             enrich_path = save_enriched(enrich_result)
             failed_enrich = max(0, pending_enrich - enrich_result.new_count)
             enrich_line = (

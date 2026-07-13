@@ -8,7 +8,8 @@ python scripts/check_ds2.py # DS-2 番茄薯条喵更新检查
 python scripts/check_ds3.py # DS-3 你的抽奖工具人更新检查
 python scripts/check_ds4.py # DS-4 J君名更新检查
 python scripts/check_ds5.py # DS-5 互动抽奖娘更新检查
-python scripts/merge_links.py # 合并五个数据源的活动链接
+python scripts/check_ds6.py # DS-6 糯米是个背包更新检查
+python scripts/merge_links.py # 合并六个数据源的活动链接
 python scripts/classify_links.py # 活动链接抽奖类型分类
 python scripts/fetch_activity_info.py # 抽奖活动信息拉取
 python scripts/participate.py # 参与活动（互动/转发/预约）
@@ -93,9 +94,22 @@ python scripts/check_ds5.py --force
 
 **功能**：检查最新 Opus 帖是否更新，有更新时从正文提取活动链接；`--force` 强制重新解析当前最新 Opus 帖。
 
+## `check_ds6.py`
+
+**说明**：DS-6 糯米是个背包更新检查
+
+**指令**：
+
+```bash
+python scripts/check_ds6.py
+python scripts/check_ds6.py --force
+```
+
+**功能**：检查最新 Opus 专栏是否更新，有更新时从正文提取活动链接（含互动/预约分区提示）；`--force` 强制重新解析当前最新专栏。
+
 ## `merge_links.py`
 
-**说明**：合并五个数据源的活动链接
+**说明**：合并六个数据源的活动链接
 
 **指令**：
 
@@ -103,7 +117,7 @@ python scripts/check_ds5.py --force
 python scripts/merge_links.py
 ```
 
-**功能**：读取五个数据源的最新结果，按动态 ID 去重合并，写入 `data/output/merged_latest.json`。输出中包含 `new_activity_ids` / `new_count`，用于标识尚未出现在 `enriched_latest.json` 中的新链接。
+**功能**：读取六个数据源的最新结果，按动态 ID 去重合并，写入 `data/output/merged_latest.json`。输出中包含 `new_activity_ids` / `new_count`，用于标识尚未出现在 `enriched_latest.json` 中的新链接。
 
 ## `classify_links.py`
 
@@ -153,4 +167,4 @@ python scripts/participate.py 1208931614786060297
 python scripts/run_dashboard.py
 ```
 
-**功能**：在 `http://127.0.0.1:8787` 启动本地面板。展示 B 站账号信息（昵称、头像、关注/动态/私信未读、登录是否过期），提供「一键更新活动链接」（增量检查五个数据源 → 合并 → 分类 → 拉取详情，历史记录全部保留），以及可筛选的活动状态表与单行参与操作。参与状态按登录 UID 分目录存储。所有任务均为手动触发，同一时间只运行一个任务。
+**功能**：在 `http://127.0.0.1:8787` 启动本地面板。展示 B 站账号信息（昵称、头像、关注/动态/私信未读、登录是否过期），提供「一键更新活动链接」（增量检查六个数据源 → 合并 → 分类 → 拉取详情，历史记录全部保留），以及可筛选的活动状态表与单行参与操作。参与状态按登录 UID 分目录存储。所有任务均为手动触发，同一时间只运行一个任务。

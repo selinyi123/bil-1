@@ -1,4 +1,4 @@
-"""合并五个数据源的活动链接，按动态 ID 去重后写入 merged_latest.json。"""
+"""合并六个数据源的活动链接，按动态 ID 去重后写入 merged_latest.json。"""
 
 from __future__ import annotations
 

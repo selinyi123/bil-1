@@ -103,12 +103,22 @@ function renderSetupChecklist() {
 function sanitizeUserText(text) {
   const raw = String(text || "").trim();
   if (!raw) return "";
-  if (/traceback|nameerror|\.py\b|line \d+/i.test(raw)) {
-    return "任务执行时发生内部错误，请稍后重试";
-  }
-  return raw
-    .replace(/[A-Za-z]:\\[^\s"']+/g, "[本地文件]")
-    .replace(/→\s*\S+/g, "→ 已保存");
+  const internalLinePattern =
+    /traceback|nameerror|attributeerror|typeerror|keyerror|modulenotfounderror|oserror|systemexit|uvicorn|asyncio|^file\s/i;
+  const internalFragmentPattern = /line \d+|\.py\b|errno|winerror/i;
+  const lines = raw
+    .split("\n")
+    .map((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return "";
+      if (internalLinePattern.test(trimmed)) return "";
+      if (internalFragmentPattern.test(trimmed) && !/^===\s/.test(trimmed)) return "";
+      return trimmed
+        .replace(/[A-Za-z]:\\[^\s"']+/g, "[本地文件]")
+        .replace(/→\s*\S+/g, "→ 已保存");
+    })
+    .filter(Boolean);
+  return lines.join("\n");
 }
 
 function formatToastDetail(job) {
@@ -295,14 +305,20 @@ function renderParticipateSteps(job) {
   renderPipelineSteps(labels, activeIndex);
 }
 
+function refreshAllDataSourceCount(job) {
+  const total = Number(job.progress_total) || 10;
+  return Math.max(1, total - 4);
+}
+
 function renderRefreshAllPipeline(job) {
   if (!progressSteps) return;
   const step = Number(job.progress_step) || 0;
+  const dsCount = refreshAllDataSourceCount(job);
   let phase = 0;
-  if (step <= 5) phase = 0;
-  else if (step === 6) phase = 1;
-  else if (step === 7) phase = 2;
-  else if (step === 8) phase = 3;
+  if (step <= dsCount) phase = 0;
+  else if (step === dsCount + 1) phase = 1;
+  else if (step === dsCount + 2) phase = 2;
+  else if (step === dsCount + 3) phase = 3;
   else phase = 4;
   renderPipelineSteps(REFRESH_ALL_PIPELINE, phase);
 }
@@ -312,11 +328,12 @@ function calcJobProgressPercent(job) {
   const step = Number(job.progress_step) || 0;
   if (total <= 0) return 8;
   if (job.action === "refresh_all") {
+    const dsCount = refreshAllDataSourceCount(job);
     if (step <= 0) return 6;
-    if (step <= 5) return Math.round(10 + (step / 5) * 44);
-    if (step === 6) return 62;
-    if (step === 7) return 72;
-    if (step === 8) {
+    if (step <= dsCount) return Math.round(10 + (step / dsCount) * 44);
+    if (step === dsCount + 1) return 62;
+    if (step === dsCount + 2) return 72;
+    if (step === dsCount + 3) {
       const detail = String(job.progress_message || "");
       if (detail.includes("本地活动缓存") || detail.includes("跳过详情")) return 84;
       const match = detail.match(/\((\d+)\s*\/\s*(\d+)\)/);
@@ -326,7 +343,7 @@ function calcJobProgressPercent(job) {
       }
       return 76;
     }
-    if (step >= 9) return Math.min(100, 96);
+    if (step >= dsCount + 4) return Math.min(100, 96);
   }
   if (job.action === "participate") {
     const subTotal = Number(job.progress_total) || 5;
@@ -943,15 +960,20 @@ function startPolling() {
     }
     const finishedDynamicId = job.action === "participate" ? job.result?.dynamic_id : null;
     if (job.state === "success") {
-      showToast(sanitizeUserText(job.message) || "任务完成", "success", formatToastDetail(job));
+      const detail = formatToastDetail(job);
+      showToast(sanitizeUserText(job.message) || "任务完成", "success", detail);
     } else if (job.state === "error") {
       showToast(sanitizeUserText(job.message) || "任务失败", "error", formatToastDetail(job));
     }
     window.clearInterval(state.polling);
     state.polling = null;
-    await loadSummary();
-    await syncProjectState();
-    await loadActivities();
+    try {
+      await loadSummary();
+      await syncProjectState();
+      await loadActivities();
+    } catch (error) {
+      showToast(String(error.message || error), "error");
+    }
     document.querySelectorAll("[data-action='participate'].is-loading").forEach((btn) => {
       btn.textContent = "参与";
       btn.classList.remove("is-loading");

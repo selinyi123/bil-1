@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -16,6 +17,9 @@ def main() -> int:
     except ImportError:
         print("请先安装依赖: pip install -r requirements.txt", file=sys.stderr)
         return 1
+
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     print("控制台地址: http://127.0.0.1:8787")
     uvicorn.run("web.app:app", host="127.0.0.1", port=8787, reload=False)

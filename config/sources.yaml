@@ -32,3 +32,10 @@ DS-5:
   mid: 3546776042736296
   kind: opus_post
   space_url: https://space.bilibili.com/3546776042736296/upload/opus
+
+DS-6:
+  id: DS-6
+  name: 糯米是个背包
+  mid: 492426375
+  kind: opus_post
+  space_url: https://space.bilibili.com/492426375/upload/opus

@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
 STATE_PATH = DATA_DIR / "state.json"
+_state_lock = threading.Lock()
 
 
-def load_state() -> dict:
+def _read_state_unlocked() -> dict:
     if not STATE_PATH.exists():
         return {"sources": {}}
     try:
@@ -20,11 +22,21 @@ def load_state() -> dict:
     return state
 
 
-def save_state(state: dict) -> None:
+def _write_state_unlocked(state: dict) -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     tmp_path = STATE_PATH.with_suffix(".json.tmp")
     tmp_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp_path.replace(STATE_PATH)
+
+
+def load_state() -> dict:
+    with _state_lock:
+        return _read_state_unlocked()
+
+
+def save_state(state: dict) -> None:
+    with _state_lock:
+        _write_state_unlocked(state)
 
 
 def get_last_container(source_id: str) -> str | None:
@@ -43,14 +55,15 @@ def set_last_container(
     title: str | None = None,
     cv_id: str | None = None,
 ) -> None:
-    state = load_state()
-    entry = {
-        "container_url": container_url,
-        "container_id": container_id,
-        "title": title,
-        "checked_at": int(time.time()),
-    }
-    if cv_id is not None:
-        entry["cv_id"] = cv_id
-    state.setdefault("sources", {})[source_id] = entry
-    save_state(state)
+    with _state_lock:
+        state = _read_state_unlocked()
+        entry = {
+            "container_url": container_url,
+            "container_id": container_id,
+            "title": title,
+            "checked_at": int(time.time()),
+        }
+        if cv_id is not None:
+            entry["cv_id"] = cv_id
+        state.setdefault("sources", {})[source_id] = entry
+        _write_state_unlocked(state)

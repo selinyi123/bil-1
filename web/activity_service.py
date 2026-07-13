@@ -20,6 +20,7 @@ DS_OUTPUTS = {
     "DS-3": DATA_DIR / "output" / "ds3_latest.json",
     "DS-4": DATA_DIR / "output" / "ds4_latest.json",
     "DS-5": DATA_DIR / "output" / "ds5_latest.json",
+    "DS-6": DATA_DIR / "output" / "ds6_latest.json",
 }
 SOURCE_LABELS = {
     "DS-1": "哔哩抽奖小助理",
@@ -27,6 +28,7 @@ SOURCE_LABELS = {
     "DS-3": "你的抽奖工具人",
     "DS-4": "J君名",
     "DS-5": "互动抽奖娘",
+    "DS-6": "糯米是个背包",
 }
 SOURCE_SPACE_URLS = {
     "DS-1": "https://space.bilibili.com/885439/upload/video",
@@ -34,6 +36,7 @@ SOURCE_SPACE_URLS = {
     "DS-3": "https://space.bilibili.com/100680137/upload/opus",
     "DS-4": "https://space.bilibili.com/126038161/upload/opus",
     "DS-5": "https://space.bilibili.com/3546776042736296/upload/opus",
+    "DS-6": "https://space.bilibili.com/492426375/upload/opus",
 }
 
 
