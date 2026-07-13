@@ -54,9 +54,12 @@
       <button type="button" class="qrcode-close" id="qrcode-close" aria-label="关闭">×</button>
       <p class="qrcode-eyebrow">扫码登录</p>
       <h2 class="qrcode-title" id="qrcode-title">使用哔哩哔哩 App 扫码</h2>
-      <p class="qrcode-desc">扫码确认后窗口将自动关闭；关闭窗口将取消本次登录</p>
-      <div class="qrcode-frame">
+      <div class="qrcode-frame" id="qrcode-frame">
         <img id="qrcode-img" alt="登录二维码" />
+        <div class="qrcode-overlay" id="qrcode-overlay" hidden>
+          <div class="qrcode-overlay-icon" id="qrcode-overlay-icon" aria-hidden="true">✓</div>
+          <p class="qrcode-overlay-text" id="qrcode-overlay-text"></p>
+        </div>
       </div>
       <p class="qrcode-status" id="qrcode-status">等待扫码…</p>
     </div>

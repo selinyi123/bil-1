@@ -35,6 +35,8 @@ def friendly_error(exc: BaseException) -> str:
             return "已取消扫码登录"
         if "过期" in msg:
             return "二维码已过期，请重新发起登录"
+        if "确认超时" in msg:
+            return "扫码后确认超时，请重新发起登录"
         if "超时" in msg:
             return "扫码登录超时，请重试"
         if "SESSDATA" in msg:

@@ -10,7 +10,6 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from src.bilibili_login import QR_IMAGE_PATH
-from src.debug_trace import debug_log
 from src.llm_settings import (
     build_llm_config_from_inputs,
     get_llm_settings_public,
@@ -117,7 +116,6 @@ def api_refresh_activity_status() -> dict[str, Any]:
         result = refresh_activity_statuses()
         invalidate_activity_cache()
     except (OSError, json.JSONDecodeError) as exc:
-        debug_log("app.py:refresh-status", "refresh failed", data={"error": str(exc)}, hypothesis_id="H4")
         raise HTTPException(status_code=500, detail=f"刷新活动状态失败：{exc}") from exc
     draw_reminder = result.get("draw_reminder") or {}
     counts = result.get("status_counts") or {}
@@ -295,10 +293,16 @@ def api_logout() -> dict[str, Any]:
 
 @app.get("/api/login/qrcode")
 def api_login_qrcode() -> FileResponse:
-    debug_log("app.py:qrcode", "qrcode requested", data={"exists": QR_IMAGE_PATH.exists()}, hypothesis_id="H1")
     if not QR_IMAGE_PATH.exists():
         raise HTTPException(status_code=404, detail="二维码尚未生成")
-    return FileResponse(QR_IMAGE_PATH, media_type="image/png")
+    return FileResponse(
+        QR_IMAGE_PATH,
+        media_type="image/png",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+            "Pragma": "no-cache",
+        },
+    )
 
 
 app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")

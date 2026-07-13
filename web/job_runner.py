@@ -115,6 +115,7 @@ class JobRunner:
             message: str,
             log_append: str | None = None,
             qrcode_refreshed_at: int | None = None,
+            login_phase: str | None = None,
         ) -> None:
             with self._lock:
                 self._status.progress_step = step
@@ -126,9 +127,12 @@ class JobRunner:
                     if cleaned:
                         current = self._status.log.strip()
                         self._status.log = f"{current}\n{cleaned}".strip() if current else cleaned
-                if qrcode_refreshed_at is not None:
+                if qrcode_refreshed_at is not None or login_phase is not None:
                     result = dict(self._status.result or {})
-                    result["qrcode_refreshed_at"] = qrcode_refreshed_at
+                    if qrcode_refreshed_at is not None:
+                        result["qrcode_refreshed_at"] = qrcode_refreshed_at
+                    if login_phase is not None:
+                        result["login_phase"] = login_phase
                     self._status.result = result
 
         return on_progress
@@ -154,7 +158,15 @@ class JobRunner:
                         self._status.log = f"{current}\n{final_log}".strip()
                     elif final_log:
                         self._status.log = final_log
-                self._status.result = payload.get("result")
+                incoming = payload.get("result")
+                if isinstance(incoming, dict):
+                    merged = dict(self._status.result or {})
+                    merged.update(incoming)
+                    self._status.result = merged
+                elif self._status.result is not None:
+                    pass
+                else:
+                    self._status.result = incoming
                 if self._status.progress_total:
                     self._status.progress_step = self._status.progress_total
         except LoginCancelledError:
@@ -171,6 +183,10 @@ class JobRunner:
                 self._status.finished_at = int(time.time())
                 self._status.message = friendly_error(exc)
                 self._status.log = sanitize_log(traceback.format_exc()) or friendly_error(exc)
+                if action == "login":
+                    result = dict(self._status.result or {})
+                    result["login_phase"] = "error"
+                    self._status.result = result
 
 
 runner = JobRunner()

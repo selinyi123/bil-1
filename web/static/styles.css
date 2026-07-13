@@ -1787,6 +1787,7 @@ body.modal-open {
 }
 
 .qrcode-frame {
+  position: relative;
   margin: 20px auto 0;
   padding: 14px;
   width: fit-content;
@@ -1799,6 +1800,103 @@ body.modal-open {
   display: block;
   width: 220px;
   height: 220px;
+  transition: opacity 0.25s ease, filter 0.25s ease;
+}
+
+.qrcode-frame[data-phase="scanned"] img,
+.qrcode-frame[data-phase="confirming"] img,
+.qrcode-frame[data-phase="success"] img {
+  opacity: 0.08;
+  filter: blur(2px);
+}
+
+.qrcode-frame[data-phase="confirming"] .qrcode-overlay,
+.qrcode-frame[data-phase="success"] .qrcode-overlay {
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.qrcode-panel[data-phase="confirming"] .qrcode-title,
+.qrcode-panel[data-phase="success"] .qrcode-title {
+  color: #00a1d6;
+}
+
+.qrcode-overlay {
+  position: absolute;
+  inset: 14px;
+  display: grid;
+  place-content: center;
+  gap: 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  text-align: center;
+  animation: fade-in 0.24s ease;
+}
+
+.qrcode-overlay[hidden] {
+  display: none;
+}
+
+.qrcode-overlay-icon {
+  width: 52px;
+  height: 52px;
+  margin: 0 auto;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 28px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, #00a1d6, #23ade5);
+}
+
+.qrcode-frame[data-phase="confirming"] .qrcode-overlay-icon {
+  width: 44px;
+  height: 44px;
+  font-size: 0;
+  border: 3px solid rgba(0, 161, 214, 0.18);
+  border-top-color: #00a1d6;
+  background: transparent;
+  animation: qrcode-spin 0.8s linear infinite;
+}
+
+.qrcode-frame[data-phase="success"] .qrcode-overlay-icon {
+  background: linear-gradient(135deg, #2f9e44, #51cf66);
+}
+
+.qrcode-overlay-text {
+  margin: 0;
+  padding: 0 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.qrcode-status {
+  margin: 12px 0 0;
+  color: var(--foreground-muted);
+  font-size: 14px;
+  min-height: 1.25em;
+}
+
+.qrcode-status.is-success {
+  color: #2f9e44;
+  font-weight: 600;
+}
+
+.qrcode-status.is-error {
+  color: #c92a2a;
+  font-weight: 600;
+}
+
+.qrcode-frame[data-phase="error"] .qrcode-overlay-icon {
+  background: linear-gradient(135deg, #c92a2a, #ff6b6b);
+}
+
+@keyframes qrcode-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .log-dock {

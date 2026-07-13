@@ -25,6 +25,11 @@ const filterDrawWindowHint = document.getElementById("filter-draw-window-hint");
 const pagination = document.getElementById("pagination");
 const qrcodeModal = document.getElementById("qrcode-modal");
 const qrcodeImg = document.getElementById("qrcode-img");
+const qrcodeTitle = document.getElementById("qrcode-title");
+const qrcodeFrame = document.getElementById("qrcode-frame");
+const qrcodeOverlay = document.getElementById("qrcode-overlay");
+const qrcodeOverlayIcon = document.getElementById("qrcode-overlay-icon");
+const qrcodeOverlayText = document.getElementById("qrcode-overlay-text");
 const qrcodeStatus = document.getElementById("qrcode-status");
 const progressBanner = document.getElementById("progress-banner");
 const progressLabel = document.getElementById("progress-label");
@@ -228,12 +233,82 @@ function showToast(message, type = "info", detail = "") {
   }, duration);
 }
 
-function showQrcodeModal() {
+function ensureQrcodeModalVisible() {
   if (!qrcodeModal || state.qrcodeDismissed) return;
   qrcodeModal.hidden = false;
   document.body.classList.add("modal-open");
-  if (qrcodeStatus) qrcodeStatus.textContent = "等待扫码…";
-  if (qrcodeImg) qrcodeImg.src = `/api/login/qrcode?t=${Date.now()}`;
+}
+
+function loadQrcodeImage(refreshedAt) {
+  if (!qrcodeImg || !refreshedAt) return;
+  const url = `/api/login/qrcode?t=${refreshedAt}`;
+  qrcodeImg.onerror = () => {
+    window.setTimeout(() => {
+      if (!qrcodeImg.src.includes(`t=${refreshedAt}`)) return;
+      qrcodeImg.src = `${url}&retry=1`;
+    }, 400);
+  };
+  qrcodeImg.src = url;
+}
+
+function openQrcodeModalFresh() {
+  ensureQrcodeModalVisible();
+  if (qrcodeImg) qrcodeImg.removeAttribute("src");
+  renderQrcodeLoginState({ result: { login_phase: "waiting" }, message: "正在生成登录二维码…" });
+}
+
+function resolveLoginPhase(job) {
+  const fromResult = job?.result?.login_phase;
+  if (fromResult) return String(fromResult);
+  const msg = String(job?.message || "");
+  if (msg.includes("登录成功")) return "success";
+  if (msg.includes("正在完成登录") || msg.includes("正在写入") || msg.includes("已确认")) return "confirming";
+  if (msg.includes("请在手机上") || msg.includes("扫码成功")) return "scanned";
+  if (msg.includes("二维码已过期") || msg.includes("二维码已刷新")) return "refreshing";
+  if (msg.includes("扫码登录超时") || msg.includes("登录失败") || msg.includes("重新扫码")) return "error";
+  return "waiting";
+}
+
+function renderQrcodeLoginState(job) {
+  const phase = resolveLoginPhase(job);
+  const message = sanitizeUserText(job?.message) || "等待扫码…";
+  const titles = {
+    waiting: "使用哔哩哔哩 App 扫码",
+    scanned: "请在手机上确认登录",
+    confirming: "正在登录…",
+    refreshing: "二维码已刷新",
+    success: "登录成功",
+    error: "登录失败",
+  };
+  if (qrcodeTitle) qrcodeTitle.textContent = titles[phase] || titles.waiting;
+  if (qrcodeModal) qrcodeModal.dataset.phase = phase;
+  if (qrcodeFrame) qrcodeFrame.dataset.phase = phase;
+  if (qrcodeStatus) {
+    qrcodeStatus.textContent = message;
+    qrcodeStatus.classList.toggle("is-success", phase === "success");
+    qrcodeStatus.classList.toggle("is-pending", phase === "scanned" || phase === "confirming");
+    qrcodeStatus.classList.toggle("is-error", phase === "error");
+  }
+  const showOverlay = phase === "scanned" || phase === "confirming" || phase === "success" || phase === "error";
+  if (qrcodeOverlay) qrcodeOverlay.hidden = !showOverlay;
+  if (qrcodeOverlayText) {
+    const overlayText = {
+      scanned: "等待手机确认",
+      confirming: "正在写入登录信息",
+      success: "即将进入控制台",
+      error: "请关闭后重新扫码",
+    };
+    qrcodeOverlayText.textContent = overlayText[phase] || "";
+  }
+  if (qrcodeOverlayIcon) {
+    if (phase === "confirming") {
+      qrcodeOverlayIcon.textContent = "";
+    } else if (phase === "error") {
+      qrcodeOverlayIcon.textContent = "!";
+    } else {
+      qrcodeOverlayIcon.textContent = "✓";
+    }
+  }
 }
 
 function hideQrcodeModal(manual = false) {
@@ -1041,6 +1116,25 @@ async function loadActivities() {
 
 async function startJob(action, params = {}) {
   if (!requireSetup(action)) return;
+  if (action === "login") {
+    try {
+      const current = await fetchJSON("/api/jobs/current");
+      if (current.state === "running" && current.action === "login") {
+        state.qrcodeDismissed = false;
+        ensureQrcodeModalVisible();
+        const refreshedAt = Number(current.result?.qrcode_refreshed_at) || 0;
+        if (refreshedAt && refreshedAt !== state.lastQrcodeRefresh) {
+          state.lastQrcodeRefresh = refreshedAt;
+          loadQrcodeImage(refreshedAt);
+        }
+        renderQrcodeLoginState(current);
+        startPolling();
+        return;
+      }
+    } catch {
+      /* 继续发起新任务 */
+    }
+  }
   const actionNames = { login: "扫码登录", refresh_all: "一键更新", refresh_status: "刷新任务状态", participate: "参与活动" };
   showToast(`正在启动${actionNames[action] || action}`, "running", "任务日志已展开，可查看实时进度");
   toggleLogDock(true);
@@ -1066,7 +1160,7 @@ async function startJob(action, params = {}) {
   if (action === "login") {
     state.qrcodeDismissed = false;
     state.lastQrcodeRefresh = 0;
-    showQrcodeModal();
+    openQrcodeModalFresh();
   }
   updateJobUI(await fetchJSON("/api/jobs/current"));
   startPolling();
@@ -1098,59 +1192,77 @@ function bindActionButtons() {
 
 function startPolling() {
   if (state.polling) return;
-  state.polling = window.setInterval(async () => {
-    const job = await fetchJSON("/api/jobs/current");
-    updateJobUI(job);
-    if (job.state === "running") {
-      if (job.action === "login" && !state.qrcodeDismissed) {
-        showQrcodeModal();
-        if (qrcodeStatus) qrcodeStatus.textContent = sanitizeUserText(job.message) || "等待扫码确认…";
-        const refreshedAt = Number(job.result?.qrcode_refreshed_at) || 0;
-        if (refreshedAt && refreshedAt !== state.lastQrcodeRefresh) {
-          state.lastQrcodeRefresh = refreshedAt;
-          if (qrcodeImg) qrcodeImg.src = `/api/login/qrcode?t=${refreshedAt}`;
+  const poll = async () => {
+    try {
+      const job = await fetchJSON("/api/jobs/current");
+      updateJobUI(job);
+      if (job.state === "running") {
+        if (job.action === "login" && !state.qrcodeDismissed) {
+          ensureQrcodeModalVisible();
+          renderQrcodeLoginState(job);
+          const refreshedAt = Number(job.result?.qrcode_refreshed_at) || 0;
+          if (refreshedAt && refreshedAt !== state.lastQrcodeRefresh) {
+            state.lastQrcodeRefresh = refreshedAt;
+            loadQrcodeImage(refreshedAt);
+          }
         }
+        return;
       }
-      return;
-    }
-    if (job.state === "idle" && job.action === "login") {
+      if (job.state === "idle" && job.action === "login") {
+        window.clearInterval(state.polling);
+        state.polling = null;
+        setButtonsDisabled(false);
+        hideQrcodeModal(false);
+        updateJobUI(job);
+        return;
+      }
+      const finishedDynamicId = job.action === "participate" ? job.result?.dynamic_id : null;
+      if (job.action === "login" && job.state === "success" && !state.qrcodeDismissed) {
+        renderQrcodeLoginState({ ...job, result: { ...(job.result || {}), login_phase: "success" }, message: "登录成功，账号已就绪" });
+        await new Promise((resolve) => window.setTimeout(resolve, 450));
+      }
+      if (job.state === "success") {
+        const detail = formatToastDetail(job);
+        showToast(sanitizeUserText(job.message) || "任务完成", "success", detail);
+      } else if (job.state === "error") {
+        if (job.action === "login" && !state.qrcodeDismissed) {
+          renderQrcodeLoginState({
+            ...job,
+            result: { ...(job.result || {}), login_phase: "error" },
+            message: sanitizeUserText(job.message) || "登录失败，请重试",
+          });
+        }
+        showToast(sanitizeUserText(job.message) || "任务失败", "error", formatToastDetail(job));
+      }
       window.clearInterval(state.polling);
       state.polling = null;
-      setButtonsDisabled(false);
-      hideQrcodeModal(false);
-      updateJobUI(job);
-      return;
-    }
-    const finishedDynamicId = job.action === "participate" ? job.result?.dynamic_id : null;
-    if (job.state === "success") {
-      const detail = formatToastDetail(job);
-      showToast(sanitizeUserText(job.message) || "任务完成", "success", detail);
-    } else if (job.state === "error") {
-      showToast(sanitizeUserText(job.message) || "任务失败", "error", formatToastDetail(job));
-    }
-    window.clearInterval(state.polling);
-    state.polling = null;
-    try {
-      await loadSummary();
-      await syncProjectState();
-      await loadActivities();
-    } catch (error) {
-      showToast(String(error.message || error), "error");
-    }
-    document.querySelectorAll("[data-action='participate'].is-loading").forEach((btn) => {
-      btn.textContent = "参与";
-      btn.classList.remove("is-loading");
-    });
-    if (finishedDynamicId) {
-      document.querySelectorAll("tr").forEach((row) => {
-        if (row.textContent?.includes(finishedDynamicId)) {
-          row.classList.add("row-flash");
-          window.setTimeout(() => row.classList.remove("row-flash"), 1800);
-        }
+      try {
+        await loadSummary();
+        await syncProjectState();
+        await loadActivities();
+      } catch (error) {
+        showToast(String(error.message || error), "error");
+      }
+      document.querySelectorAll("[data-action='participate'].is-loading").forEach((btn) => {
+        btn.textContent = "参与";
+        btn.classList.remove("is-loading");
       });
+      if (finishedDynamicId) {
+        document.querySelectorAll("tr").forEach((row) => {
+          if (row.textContent?.includes(finishedDynamicId)) {
+            row.classList.add("row-flash");
+            window.setTimeout(() => row.classList.remove("row-flash"), 1800);
+          }
+        });
+      }
+      if (job.action === "login" && job.state === "success") hideQrcodeModal(false);
+    } catch (error) {
+      console.error(error);
     }
-    if (job.action === "login") hideQrcodeModal(false);
-  }, 900);
+  };
+  poll();
+  const intervalMs = 200;
+  state.polling = window.setInterval(poll, intervalMs);
 }
 
 function bindFilterPills() {

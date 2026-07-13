@@ -113,29 +113,55 @@ def run_action(
         def on_qrcode_ready() -> None:
             nonlocal qrcode_refresh_count
             qrcode_refresh_count += 1
+            refreshed_at = int(time.time())
             if qrcode_refresh_count == 1:
-                progress(step=1, total=1, message="请使用哔哩哔哩 App 扫码登录", log_append="已生成登录二维码")
+                progress(
+                    step=1,
+                    total=1,
+                    message="请使用哔哩哔哩 App 扫码登录",
+                    log_append="已生成登录二维码",
+                    login_phase="waiting",
+                    qrcode_refreshed_at=refreshed_at,
+                )
             else:
                 progress(
                     step=1,
                     total=1,
                     message="二维码已刷新，请重新扫码",
                     log_append="二维码已自动刷新",
-                    qrcode_refreshed_at=int(time.time()),
+                    login_phase="waiting",
+                    qrcode_refreshed_at=refreshed_at,
                 )
 
-        progress(step=1, total=1, message="正在生成登录二维码…")
+        def on_login_status(phase: str, message: str) -> None:
+            log_append = {
+                "scanned": "已在手机扫码，等待确认",
+                "confirming": "用户已确认，正在写入登录信息",
+                "refreshing": "二维码已过期，请重新扫码",
+            }.get(phase)
+            progress(
+                step=1,
+                total=1,
+                message=message,
+                log_append=log_append,
+                login_phase=phase,
+            )
+
+        progress(step=1, total=1, message="正在生成登录二维码…", login_phase="waiting")
         _, log = _capture_output(
             login_with_qrcode,
             open_image=False,
-            auto_refresh_on_expire=True,
+            auto_refresh_on_expire=False,
             cancel_event=cancel_event,
             on_qrcode_ready=on_qrcode_ready,
+            on_status_change=on_login_status,
         )
+        progress(step=1, total=1, message="登录成功，账号已就绪", login_phase="success")
         return {
             "ok": True,
             "message": "登录成功，账号已就绪",
             "log": sanitize_log(log) or "登录成功",
+            "result": {"login_phase": "success"},
         }
 
     if action == "refresh_all":
