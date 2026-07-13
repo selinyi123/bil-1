@@ -53,6 +53,20 @@ def fetch_lottery_notice(
     return notice if notice.get("lottery_id") else None
 
 
+def extract_repost_count_from_detail(item: dict) -> int:
+    """从动态详情中提取转发数（热度）。"""
+    modules = item.get("modules") or {}
+    stat = modules.get("module_stat") or {}
+    forward = stat.get("forward") or {}
+    count = forward.get("count")
+    if count is None:
+        return 0
+    try:
+        return max(0, int(count))
+    except (TypeError, ValueError):
+        return 0
+
+
 def fetch_dynamic_detail(client: BilibiliClient, dynamic_id: str) -> dict | None:
     if not is_detail_api_enabled():
         return None
@@ -62,10 +76,11 @@ def fetch_dynamic_detail(client: BilibiliClient, dynamic_id: str) -> dict | None
             DYNAMIC_DETAIL_URL,
             {"id": dynamic_id},
             referer=referer,
-            retries=1,
+            retries=2,
         )
     except Exception:
-        disable_detail_api()
+        return None
+    if data.get("code") != 0:
         return None
     return (data.get("data") or {}).get("item") or None
 

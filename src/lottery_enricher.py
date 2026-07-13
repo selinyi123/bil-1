@@ -8,6 +8,8 @@ from src.activity_status import ActivityStatus, StatusSource, resolve_activity_s
 from src.bilibili_client import BilibiliClient
 from src.forward_parser import MIN_CONTENT_LEN, fetch_dynamic_content, parse_forward_content
 from src.lottery_api import (
+    extract_repost_count_from_detail,
+    fetch_dynamic_detail,
     fetch_notice_for_interact,
     fetch_notice_for_reserve,
     fetch_reserve_button_status,
@@ -55,6 +57,9 @@ class EnrichedActivity:
     winners: dict[str, list[WinnerEntry]] | None
     platform_participated: bool | None
     reserve_reserved: bool | None = None
+    repost_count: int = 0
+    repost_fetched: bool = False
+    repost_zero_confirmed: bool = False
     activity_status: ActivityStatus = "未参加"
     user_status_source: StatusSource = "default"
     lottery_detail_url: str = ""
@@ -72,6 +77,19 @@ class EnrichedActivity:
                 for tier, entries in self.winners.items()
             }
         return payload
+
+
+def _attach_repost_count(client: BilibiliClient, activity: EnrichedActivity) -> EnrichedActivity:
+    item = fetch_dynamic_detail(client, activity.dynamic_id)
+    if not item:
+        return activity
+    repost = extract_repost_count_from_detail(item)
+    return replace(
+        activity,
+        repost_count=repost,
+        repost_fetched=True,
+        repost_zero_confirmed=repost == 0,
+    )
 
 
 def apply_p2_to_activity(
@@ -280,7 +298,8 @@ def enrich_forward_activity(
         skipped=False,
         skip_reason=None,
     )
-    return apply_p2_to_activity(activity, participation=participation)
+    activity = apply_p2_to_activity(activity, participation=participation)
+    return _attach_repost_count(client, activity)
 
 
 def enrich_activity(
@@ -316,14 +335,15 @@ def enrich_activity(
             skipped=True,
             skip_reason="未获取到 lottery_notice 数据",
         )
-        return apply_p2_to_activity(activity, participation=participation)
+        activity = apply_p2_to_activity(activity, participation=participation)
+        return _attach_repost_count(client, activity)
 
     notice, business_type, business_id = resolved
     reserve_reserved = None
     if lottery_type == "预约抽奖":
         reserve_reserved = fetch_reserve_button_status(client, dynamic_id)
 
-    return _build_from_notice(
+    activity = _build_from_notice(
         dynamic_id=dynamic_id,
         lottery_type=lottery_type,
         notice=notice,
@@ -333,6 +353,7 @@ def enrich_activity(
         reserve_reserved=reserve_reserved,
         participation=participation,
     )
+    return _attach_repost_count(client, activity)
 
 
 def activity_from_cache(dynamic_id: str, lottery_type: LotteryType, cached: dict) -> EnrichedActivity | None:
@@ -368,6 +389,9 @@ def activity_from_cache(dynamic_id: str, lottery_type: LotteryType, cached: dict
             lottery_time=cached.get("lottery_time"),
             prizes=prizes,
             participants=int(cached.get("participants") or 0),
+            repost_count=int(cached.get("repost_count") or 0),
+            repost_fetched=bool(cached.get("repost_fetched")),
+            repost_zero_confirmed=bool(cached.get("repost_zero_confirmed")),
             conditions=dict(cached.get("conditions") or {}),
             winners=winners,
             platform_participated=cached.get("platform_participated"),

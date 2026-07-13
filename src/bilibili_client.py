@@ -58,7 +58,7 @@ def wbi_sign(params: dict, img_key: str, sub_key: str) -> dict:
 
 
 class BilibiliClient:
-    def __init__(self, timeout: float = 20.0) -> None:
+    def __init__(self, timeout: float = 25.0) -> None:
         headers = dict(DEFAULT_HEADERS)
         cookie = _load_cookie_string()
         if cookie:
@@ -67,6 +67,7 @@ class BilibiliClient:
             headers=headers,
             timeout=timeout,
             follow_redirects=True,
+            limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
         )
         self._img_key: str | None = None
         self._sub_key: str | None = None
@@ -117,7 +118,7 @@ class BilibiliClient:
         *,
         wbi: bool = False,
         referer: str | None = None,
-        retries: int = 2,
+        retries: int = 3,
     ) -> dict:
         last_error: Exception | None = None
         for attempt in range(retries + 1):
@@ -136,7 +137,7 @@ class BilibiliClient:
                 if code in (0, None):
                     return data
                 if code in (-352, -509) and attempt < retries:
-                    time.sleep(1.5 * (attempt + 1))
+                    time.sleep(1.2 * (attempt + 1))
                     last_error = RuntimeError(f"API error {code}: {data.get('message')}")
                     continue
                 raise RuntimeError(f"API error {code}: {data.get('message')}")
@@ -144,7 +145,7 @@ class BilibiliClient:
                 last_error = exc if isinstance(exc, Exception) else RuntimeError(str(exc))
                 if attempt < retries and (
                     isinstance(exc, (httpx.RequestError, json.JSONDecodeError))
-                    or (isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (412, 429))
+                    or (isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (408, 412, 429, 500, 502, 503, 504))
                 ):
                     time.sleep(2.0 * (attempt + 1))
                     continue
@@ -155,7 +156,7 @@ class BilibiliClient:
             raise last_error
         raise RuntimeError("请求失败")
 
-    def request_json(self, url: str, params: dict | None = None, *, referer: str | None = None, retries: int = 2) -> dict:
+    def request_json(self, url: str, params: dict | None = None, *, referer: str | None = None, retries: int = 3) -> dict:
         """请求 JSON 但不因业务 code 非 0 抛错（供 lottery_notice 等接口使用）。"""
         headers = {"Referer": referer} if referer else None
         last_error: Exception | None = None
@@ -168,7 +169,7 @@ class BilibiliClient:
                 last_error = exc
                 if attempt < retries and (
                     isinstance(exc, httpx.RequestError)
-                    or (isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (412, 429))
+                    or (isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (408, 412, 429, 500, 502, 503, 504))
                 ):
                     time.sleep(2.0 * (attempt + 1))
                     continue
@@ -185,7 +186,7 @@ class BilibiliClient:
         data: dict,
         *,
         referer: str | None = None,
-        retries: int = 2,
+        retries: int = 3,
         raise_on_code: bool = True,
     ) -> dict:
         headers = {"Referer": referer} if referer else None
@@ -204,7 +205,7 @@ class BilibiliClient:
                 last_error = exc if isinstance(exc, Exception) else RuntimeError(str(exc))
                 if attempt < retries and (
                     isinstance(exc, (httpx.RequestError, json.JSONDecodeError))
-                    or (isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (412, 429))
+                    or (isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (408, 412, 429, 500, 502, 503, 504))
                 ):
                     time.sleep(2.0 * (attempt + 1))
                     continue
@@ -224,7 +225,7 @@ class BilibiliClient:
         *,
         params: dict | None = None,
         referer: str | None = None,
-        retries: int = 2,
+        retries: int = 3,
         raise_on_code: bool = True,
     ) -> dict:
         headers = {"Referer": referer, "Content-Type": "application/json"} if referer else {
@@ -245,7 +246,7 @@ class BilibiliClient:
                 last_error = exc if isinstance(exc, Exception) else RuntimeError(str(exc))
                 if attempt < retries and (
                     isinstance(exc, (httpx.RequestError, json.JSONDecodeError))
-                    or (isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (412, 429))
+                    or (isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (408, 412, 429, 500, 502, 503, 504))
                 ):
                     time.sleep(2.0 * (attempt + 1))
                     continue
@@ -258,7 +259,7 @@ class BilibiliClient:
             raise last_error
         raise RuntimeError("请求失败")
 
-    def get_text(self, url: str, *, referer: str | None = None, retries: int = 2) -> str:
+    def get_text(self, url: str, *, referer: str | None = None, retries: int = 3) -> str:
         headers = {"Referer": referer} if referer else None
         last_error: Exception | None = None
         for attempt in range(retries + 1):

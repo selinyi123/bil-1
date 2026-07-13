@@ -1,7 +1,7 @@
 const state = {
   page: 1,
   pageSize: 30,
-  filters: { q: "", type: "", status: "", draw: "active" },
+  filters: { q: "", type: "", status: "", draw: "", sort: "", order: "" },
   polling: null,
   logDockOpen: false,
   qrcodeDismissed: false,
@@ -28,6 +28,10 @@ const progressBanner = document.getElementById("progress-banner");
 const progressLabel = document.getElementById("progress-label");
 const progressDetail = document.getElementById("progress-detail");
 const progressFill = document.getElementById("progress-fill");
+const progressFillGlow = document.getElementById("progress-fill-glow");
+const progressPercent = document.getElementById("progress-percent");
+const progressRing = document.getElementById("progress-ring");
+const progressChip = document.getElementById("progress-chip");
 const progressSteps = document.getElementById("progress-steps");
 const toastStack = document.getElementById("toast-stack");
 const logDock = document.getElementById("log-dock");
@@ -36,6 +40,7 @@ const logDockToggle = document.getElementById("log-dock-toggle");
 const logDockBadge = document.getElementById("log-dock-badge");
 
 const PARTICIPATE_STEP_LABELS = ["点赞", "关注", "收藏", "转发", "评论"];
+const REFRESH_ALL_PIPELINE = ["数据源", "合并", "分类", "详情", "状态"];
 const ACTION_LABELS = {
   like: "点赞",
   follow: "关注",
@@ -44,7 +49,8 @@ const ACTION_LABELS = {
   comment: "评论",
   reserve: "预约",
 };
-const LOGIN_REQUIRED_ACTIONS = new Set(["refresh_all", "participate"]);
+const LOGIN_REQUIRED_ACTIONS = new Set(["refresh_all", "refresh_status", "participate"]);
+const LLM_REQUIRED_ACTIONS = new Set(["refresh_all", "participate"]);
 
 function isLoggedIn() {
   return Boolean(state.account?.logged_in && !state.account?.expired);
@@ -66,9 +72,10 @@ function requireSetup(action) {
   if (action === "login") return true;
   if (!LOGIN_REQUIRED_ACTIONS.has(action)) return true;
   if (!isLoggedIn()) {
-    showToast("请先扫码登录", "info", "完成登录、保存 LLM 配置并通过连接测试后才能使用项目功能");
+    showToast("请先扫码登录", "info", "登录后才能使用此功能");
     return false;
   }
+  if (!LLM_REQUIRED_ACTIONS.has(action)) return true;
   if (!isLlmConfigured()) {
     showToast("请先配置 LLM", "info", "在概览页填写 API Key 与模型名称并保存");
     return false;
@@ -139,6 +146,7 @@ function formatLastParticipation(last) {
 
 function badgeClass(status) {
   if (status === "已参加") return "badge joined";
+  if (status === "已结束") return "badge ended";
   return "badge pending";
 }
 
@@ -251,9 +259,31 @@ function toggleLogDock(forceOpen) {
   setLogDockOpen(next);
 }
 
+function renderPipelineSteps(labels, activeIndex) {
+  if (!progressSteps) return;
+  progressSteps.hidden = false;
+  progressSteps.innerHTML = labels
+    .map((label, index) => {
+      let stepState = "pending";
+      if (index < activeIndex) stepState = "done";
+      else if (index === activeIndex) stepState = "active";
+      const connector = index < labels.length - 1 ? `<span class="pipeline-connector ${index < activeIndex ? "done" : ""}"></span>` : "";
+      return `
+        <div class="pipeline-node ${stepState}">
+          <span class="pipeline-dot" aria-hidden="true">${stepState === "done" ? "✓" : index + 1}</span>
+          <span class="pipeline-label">${label}</span>
+        </div>${connector}`;
+    })
+    .join("");
+}
+
 function renderParticipateSteps(job) {
   if (!progressSteps) return;
   if (job.state !== "running" || job.action !== "participate") {
+    if (job.state === "running" && job.action === "refresh_all") {
+      renderRefreshAllPipeline(job);
+      return;
+    }
     progressSteps.hidden = true;
     progressSteps.innerHTML = "";
     return;
@@ -261,16 +291,51 @@ function renderParticipateSteps(job) {
   const total = Number(job.progress_total) || PARTICIPATE_STEP_LABELS.length;
   const current = Number(job.progress_step) || 0;
   const labels = total === 1 ? ["预约"] : PARTICIPATE_STEP_LABELS.slice(0, total);
-  progressSteps.hidden = false;
-  progressSteps.innerHTML = labels
-    .map((label, index) => {
-      const stepNo = index + 1;
-      let stepState = "pending";
-      if (current > stepNo) stepState = "done";
-      else if (current === stepNo) stepState = "active";
-      return `<li class="progress-step ${stepState}"><span>${label}</span></li>`;
-    })
-    .join("");
+  const activeIndex = Math.max(0, Math.min(labels.length - 1, current > 0 ? current - 1 : 0));
+  renderPipelineSteps(labels, activeIndex);
+}
+
+function renderRefreshAllPipeline(job) {
+  if (!progressSteps) return;
+  const step = Number(job.progress_step) || 0;
+  let phase = 0;
+  if (step <= 5) phase = 0;
+  else if (step === 6) phase = 1;
+  else if (step === 7) phase = 2;
+  else if (step === 8) phase = 3;
+  else phase = 4;
+  renderPipelineSteps(REFRESH_ALL_PIPELINE, phase);
+}
+
+function calcJobProgressPercent(job) {
+  const total = Number(job.progress_total) || 0;
+  const step = Number(job.progress_step) || 0;
+  if (total <= 0) return 8;
+  if (job.action === "refresh_all") {
+    if (step <= 0) return 6;
+    if (step <= 5) return Math.round(10 + (step / 5) * 44);
+    if (step === 6) return 62;
+    if (step === 7) return 72;
+    if (step === 8) {
+      const detail = String(job.progress_message || "");
+      if (detail.includes("本地活动缓存") || detail.includes("跳过详情")) return 84;
+      const match = detail.match(/\((\d+)\s*\/\s*(\d+)\)/);
+      if (match) {
+        const ratio = Number(match[1]) / Math.max(1, Number(match[2]));
+        return Math.min(90, Math.round(74 + ratio * 14));
+      }
+      return 76;
+    }
+    if (step >= 9) return Math.min(100, 96);
+  }
+  if (job.action === "participate") {
+    const subTotal = Number(job.progress_total) || 5;
+    const subStep = Number(job.progress_step) || 0;
+    if (subTotal <= 0) return 12;
+    const ratio = Math.min(1, subStep / subTotal);
+    return Math.max(8, Math.min(98, Math.round(8 + ratio * 90)));
+  }
+  return Math.max(8, Math.min(100, Math.round((step / total) * 100)));
 }
 
 function setButtonsDisabled(disabled) {
@@ -286,6 +351,7 @@ function renderStats(summary) {
     { label: "活动总数", value: summary.total_count || 0 },
     { label: "未参加", value: counts["未参加"] || 0 },
     { label: "已参加", value: counts["已参加"] || 0 },
+    { label: "已结束", value: counts["已结束"] || 0 },
     { label: "进行中", value: drawCounts.active || 0 },
     { label: "新增链接", value: summary.new_count || 0 },
   ];
@@ -321,9 +387,9 @@ function renderAccountViews(account) {
     if (accountHero) accountHero.innerHTML = emptyHtml;
     if (sidebarAccountCard) {
       sidebarAccountCard.innerHTML = `
-        <div class="sidebar-account-mini">
+        <div class="sidebar-account-mini" title="${escapeHtml(account.message || "请扫码登录")}">
           <div class="account-avatar account-avatar-fallback"></div>
-          <div>
+          <div class="sidebar-account-text">
             <p class="sidebar-account-name">未登录</p>
             <p class="sidebar-account-sub">扫码登录后开始</p>
           </div>
@@ -355,9 +421,9 @@ function renderAccountViews(account) {
     : `<div class="account-avatar account-avatar-fallback"></div>`;
   if (sidebarAccountCard) {
     sidebarAccountCard.innerHTML = `
-      <div class="sidebar-account-mini">
+      <div class="sidebar-account-mini" title="${escapeHtml(account.uname || "B站用户")}">
         ${sidebarAvatar}
-        <div>
+        <div class="sidebar-account-text">
           <p class="sidebar-account-name">${escapeHtml(account.uname || "B站用户")}</p>
           <p class="sidebar-account-sub">UID ${escapeHtml(account.mid || "—")}</p>
         </div>
@@ -535,14 +601,30 @@ async function saveParticipateText() {
     return;
   }
   const input = document.getElementById("participate-text-input");
+  const button = document.getElementById("save-participate-text");
   const value = input?.value?.trim() || "";
-  const result = await fetchJSON("/api/settings/participate-text", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ participate_text: value }),
-  });
-  if (input) input.value = result.participate_text;
-  showToast("参与文案已保存", "success", result.participate_text);
+  const originalText = button?.textContent || "保存文案";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "保存中…";
+  }
+  try {
+    const result = await fetchJSON("/api/settings/participate-text", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ participate_text: value }),
+    });
+    if (input) input.value = result.participate_text;
+    if (state.settings) state.settings.participate_text = result.participate_text;
+    showToast("参与文案已保存", "success", result.participate_text);
+  } catch (error) {
+    showToast(String(error.message || error), "error");
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  }
 }
 
 async function resetParticipateText() {
@@ -592,7 +674,7 @@ function renderSources(sources) {
 function renderActivities(payload) {
   const items = payload.items || [];
   if (!items.length) {
-    activitiesBody.innerHTML = `<tr class="empty-row"><td colspan="6">没有匹配的活动</td></tr>`;
+    activitiesBody.innerHTML = `<tr class="empty-row"><td colspan="7">没有匹配的活动</td></tr>`;
   } else {
     activitiesBody.innerHTML = items
       .map((item) => {
@@ -613,6 +695,7 @@ function renderActivities(payload) {
             </td>
             <td class="link-cell">${linkCell}</td>
             <td class="chip-cell"><span class="type-chip">${escapeHtml(item.lottery_type)}</span></td>
+            <td class="heat-cell"><span class="heat-pill">${formatHeat(item.repost_count)}</span></td>
             <td class="chip-cell"><span class="${badgeClass(item.activity_status)}">${escapeHtml(item.activity_status)}</span></td>
             <td class="time-cell"><span class="time-pill">${escapeHtml(item.lottery_time || "—")}</span></td>
             <td class="chip-cell">${participateBtn}</td>
@@ -641,16 +724,37 @@ function renderActivities(payload) {
 
 function updateProgressUI(job) {
   const running = job.state === "running";
+  document.body.classList.toggle("job-running", running);
   progressBanner.hidden = !running;
   if (!running) {
     progressFill.style.width = "0%";
+    if (progressFillGlow) progressFillGlow.style.width = "0%";
+    const shine = document.getElementById("progress-fill-shine");
+    if (shine) shine.style.left = "0%";
+    if (progressPercent) progressPercent.textContent = "0";
+    if (progressRing) progressRing.style.strokeDashoffset = "97.4";
     renderParticipateSteps(job);
     return;
   }
-  const total = Number(job.progress_total) || 0;
-  const step = Number(job.progress_step) || 0;
-  const percent = total > 0 ? Math.min(100, Math.round((step / total) * 100)) : 12;
+  const percent = calcJobProgressPercent(job);
+  const prev = Number(progressBanner.dataset.percent || "0");
+  progressBanner.dataset.percent = String(percent);
+  if (percent > prev) progressBanner.classList.add("progress-tick");
+  else progressBanner.classList.remove("progress-tick");
+  window.setTimeout(() => progressBanner.classList.remove("progress-tick"), 420);
   progressFill.style.width = `${percent}%`;
+  if (progressFillGlow) progressFillGlow.style.width = `${percent}%`;
+  const shine = document.getElementById("progress-fill-shine");
+  if (shine) shine.style.left = `${Math.max(0, percent - 6)}%`;
+  if (progressPercent) progressPercent.textContent = String(percent);
+  if (progressRing) {
+    const circumference = 97.4;
+    progressRing.style.strokeDashoffset = String(circumference - (circumference * percent) / 100);
+  }
+  if (progressChip) {
+    const chipMap = { participate: "参与任务", refresh_all: "同步任务", login: "登录任务" };
+    progressChip.textContent = chipMap[job.action] || "任务进行中";
+  }
   progressLabel.textContent = job.label || "任务运行中…";
   progressDetail.textContent = job.progress_message || job.message || "请稍候，任务在后台执行中";
   renderParticipateSteps(job);
@@ -708,21 +812,56 @@ async function loadSummary() {
   return summary.job;
 }
 
+function formatHeat(count) {
+  const value = Number(count) || 0;
+  if (value >= 10000) return `${(value / 10000).toFixed(1)}万`;
+  return String(value);
+}
+
+async function refreshActivityStatus() {
+  if (!isLoggedIn()) {
+    showToast("请先扫码登录", "info", "登录后才能刷新活动状态");
+    return;
+  }
+  const button = document.getElementById("refresh-status-btn");
+  const originalText = button?.textContent || "刷新任务状态";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "刷新中…";
+  }
+  try {
+    const result = await fetchJSON("/api/activities/refresh-status", { method: "POST" });
+    showToast(result.message || "状态已刷新", "success");
+    await loadActivities();
+    const summary = await fetchJSON("/api/summary");
+    renderStats(summary);
+  } catch (error) {
+    showToast(sanitizeUserText(error.message || error), "error");
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  }
+}
+
 async function loadActivities() {
   const params = new URLSearchParams({
     page: String(state.page),
     page_size: String(state.pageSize),
-    draw: state.filters.draw || "active",
   });
+  if (state.filters.draw) params.set("draw", state.filters.draw);
   if (state.filters.q) params.set("q", state.filters.q);
   if (state.filters.type) params.set("type", state.filters.type);
   if (state.filters.status) params.set("status", state.filters.status);
+  if (state.filters.sort) params.set("sort", state.filters.sort);
+  if (state.filters.order) params.set("order", state.filters.order);
   renderActivities(await fetchJSON(`/api/activities?${params.toString()}`));
 }
 
 async function startJob(action, params = {}) {
   if (!requireSetup(action)) return;
-  const actionNames = { login: "扫码登录", refresh_all: "一键更新", participate: "参与活动" };
+  const actionNames = { login: "扫码登录", refresh_all: "一键更新", refresh_status: "刷新任务状态", participate: "参与活动" };
   showToast(`正在启动${actionNames[action] || action}`, "running", "任务日志已展开，可查看实时进度");
   toggleLogDock(true);
   try {
@@ -848,6 +987,16 @@ function bindFilterPills() {
       loadActivities();
     });
   });
+  document.querySelectorAll("[data-filter-sort]").forEach((button) => {
+    button.addEventListener("click", () => {
+      document.querySelectorAll("[data-filter-sort]").forEach((item) => item.classList.remove("active"));
+      button.classList.add("active");
+      state.filters.sort = button.dataset.filterSort || "";
+      state.filters.order = button.dataset.filterOrder || "";
+      state.page = 1;
+      loadActivities();
+    });
+  });
   const filterQ = document.getElementById("filter-q");
   let searchTimer = null;
   filterQ.addEventListener("input", () => {
@@ -927,6 +1076,7 @@ sidebarLogoutBtn?.addEventListener("click", async () => {
 });
 
 async function init() {
+  initSystemPreferences();
   bindNavigation();
   bindFilterPills();
   bindActionButtons();
@@ -934,6 +1084,46 @@ async function init() {
   const job = await loadSummary();
   await loadActivities();
   if (job?.state === "running") startPolling();
+}
+
+function initSystemPreferences() {
+  applySidebarCollapsed(localStorage.getItem("binggo-sidebar-collapsed") === "1");
+  applyTheme(localStorage.getItem("binggo-theme") === "dark" ? "dark" : "light");
+  document.getElementById("sidebar-collapse")?.addEventListener("click", () => {
+    const collapsed = !document.querySelector(".app-shell")?.classList.contains("sidebar-collapsed");
+    applySidebarCollapsed(collapsed);
+  });
+  document.getElementById("theme-toggle")?.addEventListener("click", () => {
+    const isDark = document.documentElement.dataset.theme === "dark";
+    applyTheme(isDark ? "light" : "dark");
+  });
+  document.getElementById("refresh-status-btn")?.addEventListener("click", refreshActivityStatus);
+}
+
+function applySidebarCollapsed(collapsed) {
+  document.querySelector(".app-shell")?.classList.toggle("sidebar-collapsed", collapsed);
+  const btn = document.getElementById("sidebar-collapse");
+  if (btn) {
+    btn.classList.toggle("active", collapsed);
+    btn.title = collapsed ? "展开侧边栏" : "收起侧边栏";
+    const text = btn.querySelector(".system-btn-text");
+    if (text) text.textContent = collapsed ? "展开侧栏" : "靠边收起";
+  }
+  localStorage.setItem("binggo-sidebar-collapsed", collapsed ? "1" : "0");
+}
+
+function applyTheme(theme) {
+  const next = theme === "dark" ? "dark" : "light";
+  document.documentElement.dataset.theme = next;
+  const btn = document.getElementById("theme-toggle");
+  if (btn) {
+    btn.classList.toggle("active", next === "dark");
+    const text = btn.querySelector(".system-btn-text");
+    if (text) text.textContent = next === "dark" ? "日间模式" : "夜间模式";
+    btn.querySelector(".icon-moon")?.toggleAttribute("hidden", next === "dark");
+    btn.querySelector(".icon-sun")?.toggleAttribute("hidden", next !== "dark");
+  }
+  localStorage.setItem("binggo-theme", next);
 }
 
 window.addEventListener("pageshow", (event) => {

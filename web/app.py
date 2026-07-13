@@ -18,10 +18,12 @@ from src.llm_settings import (
     save_llm_settings,
 )
 from src.user_settings import DEFAULT_PARTICIPATE_TEXT, get_participate_text, set_participate_text
-from web.account_service import clear_login_cookie, get_account_profile
-from web.activity_service import get_summary, list_activities
+from web.account_service import clear_login_cookie, get_account_profile, has_login_cookie
+from web.activity_service import get_summary, invalidate_activity_cache, list_activities
 from web.job_runner import runner
 from src.llm_client import test_llm_connection
+from src.fetch_activity_info import backfill_repost_counts
+from src.status_refresh import refresh_activity_statuses
 
 WEB_DIR = Path(__file__).resolve().parent
 STATIC_DIR = WEB_DIR / "static"
@@ -62,6 +64,8 @@ def api_activities(
     type: str | None = Query(default=None, alias="type"),
     draw: str | None = Query(default=None),
     q: str | None = Query(default=None),
+    sort: str | None = Query(default=None),
+    order: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=30, ge=1, le=100),
 ) -> dict[str, Any]:
@@ -70,17 +74,56 @@ def api_activities(
         lottery_type=type,
         draw=draw,
         q=q,
+        sort=sort,
+        order=order,
         page=page,
         page_size=page_size,
     )
 
 
+@app.post("/api/activities/refresh-status")
+def api_refresh_activity_status() -> dict[str, Any]:
+    account = get_account_profile()
+    if not account.get("logged_in"):
+        raise HTTPException(status_code=401, detail="请先扫码登录后再执行此操作")
+    try:
+        result = refresh_activity_statuses()
+        invalidate_activity_cache()
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"刷新活动状态失败：{exc}") from exc
+    counts = result.get("status_counts") or {}
+    listable = result.get("listable_counts") or {}
+    message = (
+        f"状态刷新完成：标记结束 {result.get('ended_marked', 0)} 条，"
+        f"列表展示 已参加 {listable.get('已参加', 0)} / 未参加 {listable.get('未参加', 0)} / "
+        f"已结束 {listable.get('已结束', 0)}"
+    )
+    return {"ok": True, "message": message, "result": result}
+
+
+@app.post("/api/activities/backfill-heat")
+def api_backfill_heat() -> dict[str, Any]:
+    account = get_account_profile()
+    if not account.get("logged_in"):
+        raise HTTPException(status_code=401, detail="请先扫码登录后再执行此操作")
+    try:
+        result = backfill_repost_counts()
+        invalidate_activity_cache()
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"热度补全失败：{exc}") from exc
+    message = f"热度补全完成：更新 {result.get('updated', 0)} 条"
+    if result.get("failed"):
+        message += f"，失败 {result['failed']} 条"
+    return {"ok": True, "message": message, "result": result}
+
+
 @app.post("/api/jobs")
 def api_start_job(request: JobRequest) -> dict[str, Any]:
-    if request.action in {"participate", "refresh_all"}:
-        account = get_account_profile()
+    account = get_account_profile()
+    if request.action in {"participate", "refresh_all", "refresh_status"}:
         if not account.get("logged_in"):
             raise HTTPException(status_code=401, detail="请先扫码登录后再执行此操作")
+    if request.action in {"participate", "refresh_all"}:
         if not is_llm_ready():
             raise HTTPException(status_code=401, detail="请先保存 LLM 配置并通过连接测试后再执行此操作")
     if not runner.start(request.action, request.params or {}):
@@ -185,8 +228,7 @@ def api_update_llm_settings(request: LlmSettingsRequest) -> dict[str, Any]:
 
 @app.put("/api/settings/participate-text")
 def api_update_participate_text(request: ParticipateTextRequest) -> dict[str, str]:
-    account = get_account_profile()
-    if not account.get("logged_in"):
+    if not has_login_cookie():
         raise HTTPException(status_code=401, detail="请先扫码登录后再修改参与文案")
     value = set_participate_text(request.participate_text)
     return {"participate_text": value}

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from src.bilibili_client import BilibiliClient
+from src.bilibili_client import BilibiliClient, COOKIE_PATH
 from src.bilibili_login import COOKIE_PATH
 
 NAV_URL = "https://api.bilibili.com/x/web-interface/nav"
@@ -27,6 +27,16 @@ def clear_login_cookie() -> None:
             COOKIE_PATH.write_text("", encoding="utf-8")
     else:
         COOKIE_PATH.write_text("", encoding="utf-8")
+
+
+def has_login_cookie() -> bool:
+    if not COOKIE_PATH.exists():
+        return False
+    try:
+        text = COOKIE_PATH.read_text(encoding="utf-8").strip()
+    except OSError:
+        return False
+    return bool(text) and "SESSDATA" in text
 
 
 def get_account_profile() -> dict[str, Any]:

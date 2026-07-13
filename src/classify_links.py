@@ -212,7 +212,12 @@ def classify_merged_links(
             }
 
             for future in as_completed(futures):
-                activity = future.result()
+                dynamic_id = futures[future]
+                try:
+                    activity = future.result()
+                except Exception as exc:
+                    print(f"活动 {dynamic_id} 分类失败: {exc}", file=sys.stderr, flush=True)
+                    continue
                 should_flush = False
                 with activities_lock:
                     newly_classified[activity.dynamic_id] = activity

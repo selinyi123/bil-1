@@ -59,10 +59,11 @@ def _get_dynamic_additional(client: BilibiliClient, dynamic_id: str) -> dict | N
             DYNAMIC_DETAIL_URL,
             {"id": dynamic_id},
             referer=referer,
-            retries=1,
+            retries=2,
         )
     except Exception:
-        disable_detail_api()
+        return None
+    if data.get("code") != 0:
         return None
     item = (data.get("data") or {}).get("item") or {}
     module_dynamic = (item.get("modules") or {}).get("module_dynamic") or {}

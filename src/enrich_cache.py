@@ -40,3 +40,17 @@ def merge_cache(updates: dict[str, dict]) -> Path:
         entries = load_cache()
         entries.update(updates)
         return save_cache(entries)
+
+
+def remove_cache_entries(dynamic_ids: list[str]) -> None:
+    if not dynamic_ids:
+        return
+    with _lock:
+        entries = load_cache()
+        changed = False
+        for dynamic_id in dynamic_ids:
+            if dynamic_id in entries:
+                del entries[dynamic_id]
+                changed = True
+        if changed:
+            save_cache(entries)

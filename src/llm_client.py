@@ -2,16 +2,18 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime
 from typing import Any
 
 import httpx
 
 from src.llm_config import LlmConfig, load_llm_config
+from src.retry_utils import is_transient_http_error, retry_call
 
 import threading
 
 _llm_lock = threading.Semaphore(3)
+_LLM_TIMEOUT = 90.0
+_LLM_RETRY_ATTEMPTS = 3
 
 
 def _format_llm_http_error(exc: httpx.HTTPStatusError) -> str:
@@ -29,7 +31,27 @@ def _format_llm_http_error(exc: httpx.HTTPStatusError) -> str:
         return f"API Key 无效或已过期{('：' + message) if message else ''}"
     if status == 404:
         return f"接口地址或模型不存在{('：' + message) if message else ''}"
+    if status in {408, 429, 500, 502, 503, 504}:
+        return f"LLM 服务暂时不可用（HTTP {status}）{('：' + message) if message else ''}"
     return f"连接失败（HTTP {status}）{('：' + message) if message else ''}"
+
+
+def _llm_retryable(exc: BaseException) -> bool:
+    if isinstance(exc, (json.JSONDecodeError, RuntimeError)):
+        message = str(exc)
+        if "无法解析为 JSON" in message or "不是对象" in message:
+            return True
+    return is_transient_http_error(exc)
+
+
+def _post_chat_completion(*, url: str, headers: dict[str, str], payload: dict[str, Any]) -> dict[str, Any]:
+    def _call() -> dict[str, Any]:
+        with httpx.Client(timeout=_LLM_TIMEOUT) as client:
+            resp = client.post(url, headers=headers, json=payload)
+            resp.raise_for_status()
+            return resp.json()
+
+    return retry_call(_call, attempts=_LLM_RETRY_ATTEMPTS, retry_on=_llm_retryable)
 
 
 def test_llm_connection(config: LlmConfig) -> str:
@@ -45,9 +67,7 @@ def test_llm_connection(config: LlmConfig) -> str:
     }
     url = f"{config.base_url}/chat/completions"
     try:
-        with httpx.Client(timeout=30.0) as client:
-            resp = client.post(url, headers=headers, json=payload)
-            resp.raise_for_status()
+        _post_chat_completion(url=url, headers=headers, payload=payload)
     except httpx.HTTPStatusError as exc:
         raise RuntimeError(_format_llm_http_error(exc)) from exc
     except httpx.RequestError as exc:
@@ -75,15 +95,21 @@ def chat_json(*, system: str, user: str, config: LlmConfig | None = None) -> dic
     url = f"{cfg.base_url}/chat/completions"
 
     with _llm_lock:
-        with httpx.Client(timeout=90.0) as client:
-            resp = client.post(url, headers=headers, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
+        try:
+            data = _post_chat_completion(url=url, headers=headers, payload=payload)
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(_format_llm_http_error(exc)) from exc
+        except httpx.RequestError as exc:
+            raise RuntimeError(f"无法连接 LLM 接口：{exc}") from exc
 
     content = (
         ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
     ).strip()
-    return _extract_json_object(content)
+
+    def _parse() -> dict[str, Any]:
+        return _extract_json_object(content)
+
+    return retry_call(_parse, attempts=2, base_delay=0.5, multiplier=1.5)
 
 
 def _extract_json_object(text: str) -> dict[str, Any]:

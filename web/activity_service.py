@@ -110,12 +110,22 @@ def _can_participate(item: dict, activity_status: str) -> bool:
 def _should_list_activity(item: dict, activity_status: str, can_participate: bool) -> bool:
     if activity_status == "已参加":
         return True
+    if activity_status == "已结束":
+        return True
     if activity_status == "未参加" and can_participate:
         return True
     return False
 
 
-def _sort_key(item: dict) -> tuple[int, int, str]:
+def invalidate_activity_cache() -> None:
+    _cached_json.cache_clear()
+
+
+def _sort_key(item: dict, *, sort: str, order: str) -> tuple:
+    if sort == "heat":
+        repost = int(item.get("repost_count") or 0)
+        heat_key = -repost if order == "desc" else repost
+        return (heat_key, str(item.get("dynamic_id") or ""))
     status_rank = {"未参加": 0, "已参加": 1, "已结束": 2}
     draw_rank = {"active": 0, "ended": 1}
     activity_status = str(item.get("activity_status") or "")
@@ -144,6 +154,7 @@ def _normalize_activity(
         "activity_status": activity_status,
         "draw_status": str(item.get("draw_status") or ""),
         "prize": _prize_summary(item),
+        "repost_count": int(item.get("repost_count") or 0),
         "lottery_time": lottery_time_text(item) or "—",
         "skipped": bool(item.get("skipped")),
         "skip_reason": str(item.get("skip_reason") or ""),
@@ -203,6 +214,8 @@ def list_activities(
     lottery_type: str | None = None,
     draw: str | None = None,
     q: str | None = None,
+    sort: str | None = None,
+    order: str | None = None,
     page: int = 1,
     page_size: int = 30,
 ) -> dict[str, Any]:
@@ -226,7 +239,7 @@ def list_activities(
         normalized = [item for item in normalized if item.get("activity_status") == status]
     if lottery_type:
         normalized = [item for item in normalized if item.get("lottery_type") == lottery_type]
-    if draw:
+    if draw and not status:
         normalized = [item for item in normalized if item.get("draw_status") == draw]
     if q:
         keyword = q.strip().lower()
@@ -244,7 +257,13 @@ def list_activities(
 
             normalized = [item for item in normalized if _matches(item)]
 
-    normalized.sort(key=_sort_key)
+    sort_mode = (sort or "default").strip().lower()
+    sort_order = (order or "desc").strip().lower()
+    if sort_order not in ("asc", "desc"):
+        sort_order = "desc"
+    if sort_mode not in ("heat", "default"):
+        sort_mode = "default"
+    normalized.sort(key=lambda item: _sort_key(item, sort=sort_mode, order=sort_order))
     total = len(normalized)
     page = max(1, page)
     page_size = max(1, min(page_size, 100))
