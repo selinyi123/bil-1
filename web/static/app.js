@@ -8,6 +8,7 @@ const state = {
   lastQrcodeRefresh: 0,
   account: null,
   settings: null,
+  atAlertShownKey: "",
 };
 
 const jobMessage = document.getElementById("job-message");
@@ -390,6 +391,60 @@ function formatAccountStat(value, loggedIn) {
   return value;
 }
 
+function renderAtAlertBanner(account) {
+  const alert = account.at_alert;
+  if (!alert?.increased) return "";
+  const delta = Number(alert.delta) || Math.max(Number(alert.current) - Number(alert.previous), 0);
+  const notifyUrl = account.at_notify_url || "https://message.bilibili.com/#/notify/at";
+  return `
+    <div class="account-at-alert" id="account-at-alert">
+      <div class="account-at-alert-copy">
+        <p class="account-at-alert-title">有新的 @ 通知</p>
+        <p class="account-at-alert-desc">@我的 未读较上次增加了 ${delta} 条，建议登录 B 站消息中心查看是否中奖。</p>
+      </div>
+      <div class="account-at-alert-actions">
+        <a class="btn btn-secondary btn-compact" href="${escapeHtml(notifyUrl)}" target="_blank" rel="noopener noreferrer">去 B 站查看</a>
+        <button type="button" class="btn btn-primary btn-compact" id="account-at-ack-btn">知道了</button>
+      </div>
+    </div>`;
+}
+
+function maybeShowAtUnreadAlert(account) {
+  const alert = account?.at_alert;
+  if (!alert?.increased) return;
+  const key = `${alert.previous}->${alert.current}`;
+  if (state.atAlertShownKey === key) return;
+  state.atAlertShownKey = key;
+  const delta = Number(alert.delta) || Math.max(Number(alert.current) - Number(alert.previous), 0);
+  showToast(
+    `@我的 未读增加了 ${delta} 条`,
+    "info",
+    "建议打开 B 站消息中心查看，中奖通知可能在此。"
+  );
+}
+
+async function acknowledgeAtUnread(current) {
+  await fetchJSON("/api/account/ack-at-unread", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ current: Number(current) || 0 }),
+    timeoutMs: 20000,
+  });
+  state.atAlertShownKey = "";
+  return loadAccount();
+}
+
+function bindAtAlertActions(account) {
+  document.getElementById("account-at-ack-btn")?.addEventListener("click", async () => {
+    try {
+      await acknowledgeAtUnread(account.unread_at ?? 0);
+      showToast("已记录当前 @ 未读数", "success");
+    } catch (error) {
+      showToast(String(error.message || error), "error");
+    }
+  });
+}
+
 function renderAccountViews(account) {
   state.account = account;
   const loggedIn = Boolean(account.logged_in);
@@ -425,21 +480,28 @@ function renderAccountViews(account) {
   const avatar = account.face
     ? `<img class="account-avatar account-avatar-lg" src="${escapeHtml(account.face)}" alt="头像" referrerpolicy="no-referrer" crossorigin="anonymous" />`
     : `<div class="account-avatar account-avatar-fallback account-avatar-lg"></div>`;
+  const atNotifyUrl = account.at_notify_url || "https://message.bilibili.com/#/notify/at";
   const heroHtml = `
     ${avatar}
     <div class="account-hero-body">
       <p class="eyebrow">当前账号</p>
       <h2 class="account-hero-name">${escapeHtml(account.uname || "B站用户")}</h2>
+      ${renderAtAlertBanner(account)}
       <div class="account-hero-stats">
         <div class="account-stat"><span class="account-stat-value">${account.following ?? "—"}</span><span class="account-stat-label">关注</span></div>
         <div class="account-stat"><span class="account-stat-value">${account.dynamic_count ?? "—"}</span><span class="account-stat-label">动态</span></div>
         <div class="account-stat"><span class="account-stat-value">${formatAccountStat(account.unread_messages, loggedIn)}</span><span class="account-stat-label">私信未读</span></div>
-        <div class="account-stat"><span class="account-stat-value">${formatAccountStat(account.unread_at, loggedIn)}</span><span class="account-stat-label">@我的</span></div>
+        <div class="account-stat account-stat-at">
+          <span class="account-stat-value">${formatAccountStat(account.unread_at, loggedIn)}</span>
+          <span class="account-stat-label">@我的</span>
+          <a class="account-stat-link" href="${escapeHtml(atNotifyUrl)}" target="_blank" rel="noopener noreferrer">去查看</a>
+        </div>
       </div>
       ${renderSetupChecklist()}
       <span class="account-status ${isSetupComplete() ? "ok" : "warn"}">${isSetupComplete() ? "已就绪" : account.expired ? "需重新扫码登录" : !isLlmTested() && isLlmConfigured() ? "请完成 LLM 连接测试" : "请完成 LLM 配置"}</span>
     </div>`;
   if (accountHero) accountHero.innerHTML = heroHtml;
+  bindAtAlertActions(account);
 
   const sidebarAvatar = account.face
     ? `<img class="account-avatar" src="${escapeHtml(account.face)}" alt="头像" referrerpolicy="no-referrer" crossorigin="anonymous" />`
@@ -459,6 +521,7 @@ function renderAccountViews(account) {
 async function loadAccount() {
   const account = await fetchJSON("/api/account", { timeoutMs: 20000 });
   renderAccountViews(account);
+  maybeShowAtUnreadAlert(account);
   return account;
 }
 
@@ -500,9 +563,10 @@ async function loadSettings() {
 }
 
 async function syncProjectState() {
-  await loadAccount();
+  const account = await loadAccount();
   await loadSettings();
   if (state.account) renderAccountViews(state.account);
+  return account;
 }
 
 function getLlmFormValues() {
@@ -1086,8 +1150,10 @@ sidebarRefreshBtn?.addEventListener("click", async () => {
   sidebarRefreshBtn.disabled = true;
   sidebarRefreshBtn.textContent = "刷新中…";
   try {
-    await syncProjectState();
-    showToast("状态已同步", "success");
+    const account = await syncProjectState();
+    if (!account?.at_alert?.increased) {
+      showToast("状态已同步", "success");
+    }
   } catch (error) {
     showToast(String(error.message || error), "error");
   } finally {

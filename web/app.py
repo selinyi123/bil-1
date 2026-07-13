@@ -19,7 +19,7 @@ from src.llm_settings import (
 )
 from src.user_settings import DEFAULT_PARTICIPATE_TEXT, get_participate_text, set_participate_text
 from src.sources.common import is_valid_dynamic_id
-from web.account_service import clear_login_cookie, get_account_profile, has_login_cookie
+from web.account_service import ack_at_unread_notice, clear_login_cookie, get_account_profile, has_login_cookie
 from web.activity_service import get_summary, invalidate_activity_cache, list_activities
 from web.job_runner import runner
 from src.llm_client import test_llm_connection
@@ -53,9 +53,21 @@ class LlmSettingsRequest(BaseModel):
     model_name: str = Field(default="")
 
 
+class AckAtUnreadRequest(BaseModel):
+    current: int = Field(default=0, ge=0)
+
+
 @app.get("/api/account")
 def api_account() -> dict[str, Any]:
     return get_account_profile()
+
+
+@app.post("/api/account/ack-at-unread")
+def api_ack_at_unread(request: AckAtUnreadRequest) -> dict[str, Any]:
+    try:
+        return ack_at_unread_notice(request.current)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
 
 
 @app.get("/api/summary")

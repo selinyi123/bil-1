@@ -1022,6 +1022,49 @@ input {
   color: var(--foreground-muted);
 }
 
+.account-stat-at .account-stat-link {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.account-stat-at .account-stat-link:hover {
+  text-decoration: underline;
+}
+
+.account-at-alert {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+}
+
+.account-at-alert-title {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.account-at-alert-desc {
+  margin: 0;
+  font-size: 13px;
+  color: var(--foreground-muted);
+  line-height: 1.5;
+}
+
+.account-at-alert-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .account-empty {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

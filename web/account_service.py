@@ -3,9 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from src.bilibili_auth import get_login_uid
 from src.bilibili_client import BilibiliClient
 from src.bilibili_login import COOKIE_PATH
 from src.message_api import get_unread_summary
+from src.message_watch import BILIBILI_AT_NOTIFY_URL, acknowledge_at_unread, evaluate_at_unread_alert
 
 NAV_URL = "https://api.bilibili.com/x/web-interface/nav"
 NAV_STAT_URL = "https://api.bilibili.com/x/web-interface/nav/stat"
@@ -99,7 +101,34 @@ def get_account_profile() -> dict[str, Any]:
                 profile["unread_messages"] = profile.get("unread_messages", 0)
                 profile["unread_at"] = profile.get("unread_at", 0)
 
+            if mid:
+                alert = evaluate_at_unread_alert(mid, int(profile.get("unread_at") or 0))
+                profile["at_alert"] = alert.to_dict()
+                profile["at_notify_url"] = BILIBILI_AT_NOTIFY_URL
+            else:
+                profile["at_alert"] = {
+                    "increased": False,
+                    "delta": 0,
+                    "previous": 0,
+                    "current": int(profile.get("unread_at") or 0),
+                }
+                profile["at_notify_url"] = BILIBILI_AT_NOTIFY_URL
+
             return profile
     except RuntimeError as exc:
         empty["message"] = str(exc)
         return empty
+
+
+def ack_at_unread_notice(current: int) -> dict[str, Any]:
+    uid = get_login_uid()
+    if not uid:
+        raise RuntimeError("未登录，请先扫码登录")
+    baseline = acknowledge_at_unread(uid, current)
+    alert = evaluate_at_unread_alert(uid, current)
+    return {
+        "acknowledged": True,
+        "last_seen_unread_at": baseline,
+        "at_alert": alert.to_dict(),
+        "at_notify_url": BILIBILI_AT_NOTIFY_URL,
+    }
