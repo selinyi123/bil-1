@@ -23,6 +23,8 @@ from src.lottery_enricher import (
 )
 from src.lottery_classifier import CLASSIFIABLE_TYPES, LotteryType, PARTICIPATABLE_TYPES
 from src.participation_store import ParticipationRecord, load_participations
+from src.lottery_classifier import migrate_stored_charging_lotteries
+from src.lottery_time import migrate_stored_lottery_times
 from src.sources.common import load_previous_output
 from src.state_store import DATA_DIR
 from src.app_logging import get_logger
@@ -667,6 +669,12 @@ def mark_enriched_joined(dynamic_id: str) -> Path | None:
 
 
 def save_enriched(result: EnrichResult) -> Path:
+    migrated_times = migrate_stored_lottery_times(result.activities)
+    migrated_charging = migrate_stored_charging_lotteries(result.activities)
+    if migrated_times:
+        logger.info("开奖时间已规范化 %s 条", migrated_times)
+    if migrated_charging:
+        logger.info("充电抽奖已标记跳过 %s 条", migrated_charging)
     ENRICHED_OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = ENRICHED_OUTPUT_PATH.with_suffix(".json.tmp")
     tmp_path.write_text(

@@ -5,6 +5,7 @@ import re
 import threading
 
 from src.bilibili_client import BilibiliClient
+from src.lottery_classifier import UPOWER_BUSINESS_TYPE
 from src.sources.common import opus_link
 
 try:
@@ -255,15 +256,27 @@ def fetch_reserve_button_status(client: BilibiliClient, dynamic_id: str) -> bool
 
 def fetch_notice_for_interact(client: BilibiliClient, dynamic_id: str) -> tuple[dict, int, str] | None:
     referer = opus_link(dynamic_id)
-    for business_type in (1, 12):
-        notice = fetch_lottery_notice(
-            client,
-            business_id=dynamic_id,
-            business_type=business_type,
-            referer=referer,
-        )
-        if notice:
-            return notice, business_type, dynamic_id
+    notice = fetch_lottery_notice(
+        client,
+        business_id=dynamic_id,
+        business_type=1,
+        referer=referer,
+    )
+    if notice:
+        return notice, 1, dynamic_id
+    return None
+
+
+def fetch_notice_for_upower(client: BilibiliClient, dynamic_id: str) -> tuple[dict, int, str] | None:
+    referer = opus_link(dynamic_id)
+    notice = fetch_lottery_notice(
+        client,
+        business_id=dynamic_id,
+        business_type=UPOWER_BUSINESS_TYPE,
+        referer=referer,
+    )
+    if notice:
+        return notice, UPOWER_BUSINESS_TYPE, dynamic_id
     return None
 
 

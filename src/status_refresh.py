@@ -8,7 +8,8 @@ from typing import Any
 from src.activity_status import DrawStatus, resolve_activity_status
 from src.draw_reminder import compute_draw_reminders
 from src.fetch_activity_info import ENRICHED_OUTPUT_PATH
-from src.lottery_time import lottery_time_unix
+from src.lottery_classifier import is_charging_lottery_activity, migrate_stored_charging_lotteries
+from src.lottery_time import lottery_time_unix, migrate_stored_lottery_times
 from src.participation_store import ParticipationRecord, load_participations
 
 
@@ -38,6 +39,8 @@ def refresh_activity_statuses(*, path: Path | None = None) -> dict[str, Any]:
         return {
             "updated": 0,
             "ended_marked": 0,
+            "migrated_times": 0,
+            "migrated_charging": 0,
             "status_counts": {"已结束": 0, "已参加": 0, "未参加": 0},
             "listable_counts": {"已结束": 0, "已参加": 0, "未参加": 0},
             "total": 0,
@@ -48,6 +51,8 @@ def refresh_activity_statuses(*, path: Path | None = None) -> dict[str, Any]:
     activities = [item for item in (payload.get("activities") or []) if isinstance(item, dict)]
     participations = load_participations()
     now = int(time.time())
+    migrated_times = migrate_stored_lottery_times(activities)
+    migrated_charging = migrate_stored_charging_lotteries(activities)
 
     ended_marked = 0
     updated = 0
@@ -76,6 +81,7 @@ def refresh_activity_statuses(*, path: Path | None = None) -> dict[str, Any]:
             not item.get("skipped")
             and draw_status == "active"
             and status == "未参加"
+            and not is_charging_lottery_activity(item)
         )
         if status == "已参加" or status == "已结束" or (status == "未参加" and can_participate):
             if status in listable_counts:
@@ -103,6 +109,8 @@ def refresh_activity_statuses(*, path: Path | None = None) -> dict[str, Any]:
     return {
         "updated": updated,
         "ended_marked": ended_marked,
+        "migrated_times": migrated_times,
+        "migrated_charging": migrated_charging,
         "status_counts": status_counts,
         "listable_counts": listable_counts,
         "total": len(activities),

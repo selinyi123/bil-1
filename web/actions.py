@@ -347,6 +347,8 @@ def run_action(
         status_line = (
             f"=== 刷新活动状态 ===\n"
             f"共 {status_result['total']} 条，标记结束 {status_result['ended_marked']} 条，"
+            f"修正开奖时间 {status_result.get('migrated_times', 0)} 条，"
+            f"排除充电抽奖 {status_result.get('migrated_charging', 0)} 条，"
             f"列表可展示 {sum(status_result['listable_counts'].values())} 条"
         )
         log_lines.append(status_line)
@@ -409,6 +411,8 @@ def run_action(
             f"=== 刷新活动状态 ===\n"
             f"共 {status_result.get('total', 0)} 条活动（历史记录全部保留）\n"
             f"标记结束 {status_result.get('ended_marked', 0)} 条\n"
+            f"修正开奖时间 {status_result.get('migrated_times', 0)} 条\n"
+            f"排除充电抽奖 {status_result.get('migrated_charging', 0)} 条\n"
             f"当前统计：已结束 {counts.get('已结束', 0)} / 已参加 {counts.get('已参加', 0)} / "
             f"未参加 {counts.get('未参加', 0)}"
         )

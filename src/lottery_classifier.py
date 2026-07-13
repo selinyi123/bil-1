@@ -12,6 +12,8 @@ LotteryType = Literal["转发抽奖", "预约抽奖", "互动抽奖", "充电抽
 
 PARTICIPATABLE_TYPES: tuple[LotteryType, ...] = ("互动抽奖", "转发抽奖", "预约抽奖")
 CLASSIFIABLE_TYPES: tuple[LotteryType, ...] = ("转发抽奖", "预约抽奖", "互动抽奖", "充电抽奖")
+UPOWER_BUSINESS_TYPE = 12
+CHARGING_SKIP_REASON = "充电专属抽奖，不参与"
 
 LOTTERY_NOTICE_URL = "https://api.vc.bilibili.com/lottery_svr/v1/lottery_svr/lottery_notice"
 DYNAMIC_DETAIL_URL = "https://api.bilibili.com/x/polymer/web-dynamic/v1/detail"
@@ -88,6 +90,42 @@ def _is_upower_lottery(additional: dict) -> bool:
     )
 
 
+def is_charging_lottery_activity(item: dict) -> bool:
+    """判断活动是否为充电专属抽奖（不参与）。"""
+    if item.get("lottery_type") == "充电抽奖":
+        return True
+    try:
+        return int(item.get("business_type") or 0) == UPOWER_BUSINESS_TYPE
+    except (TypeError, ValueError):
+        return False
+
+
+def migrate_charging_lottery_fields(item: dict) -> bool:
+    """将误存的充电抽奖活动标记为跳过，返回是否有改动。"""
+    if not is_charging_lottery_activity(item):
+        return False
+    changed = False
+    if item.get("lottery_type") != "充电抽奖":
+        item["lottery_type"] = "充电抽奖"
+        changed = True
+    if not item.get("skipped"):
+        item["skipped"] = True
+        changed = True
+    if item.get("skip_reason") != CHARGING_SKIP_REASON:
+        item["skip_reason"] = CHARGING_SKIP_REASON
+        changed = True
+    return changed
+
+
+def migrate_stored_charging_lotteries(activities: list[dict]) -> int:
+    """批量修正已保存数据中的充电抽奖活动。"""
+    migrated = 0
+    for item in activities:
+        if isinstance(item, dict) and migrate_charging_lottery_fields(item):
+            migrated += 1
+    return migrated
+
+
 def classify_lottery_type(
     client: BilibiliClient,
     dynamic_id: str,
@@ -104,8 +142,8 @@ def classify_lottery_type(
 
     if _has_lottery_notice(client, dynamic_id, business_type=1):
         return "互动抽奖"
-    if _has_lottery_notice(client, dynamic_id, business_type=12):
-        return "互动抽奖"
+    if _has_lottery_notice(client, dynamic_id, business_type=UPOWER_BUSINESS_TYPE):
+        return "充电抽奖"
 
     if hint == "转发抽奖":
         return "转发抽奖"

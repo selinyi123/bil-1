@@ -7,8 +7,8 @@ from typing import Any
 
 from src.activity_status import resolve_activity_status
 from src.fetch_activity_info import ENRICHED_OUTPUT_PATH
-from src.lottery_classifier import PARTICIPATABLE_TYPES
-from src.draw_reminder import should_recommend_at_check
+from src.lottery_classifier import PARTICIPATABLE_TYPES, is_charging_lottery_activity
+from src.draw_reminder import matches_draw_window_filter, should_recommend_at_check
 from src.lottery_time import format_timestamp, lottery_time_text
 from src.merge_links import MERGED_OUTPUT_PATH
 from src.participation_store import ParticipationRecord, load_participations
@@ -113,6 +113,8 @@ def _can_participate(item: dict, activity_status: str) -> bool:
 
 
 def _should_list_activity(item: dict, activity_status: str, can_participate: bool) -> bool:
+    if is_charging_lottery_activity(item):
+        return False
     if activity_status == "已参加":
         return True
     if activity_status == "已结束":
@@ -226,6 +228,7 @@ def list_activities(
     status: str | None = None,
     lottery_type: str | None = None,
     draw: str | None = None,
+    draw_window: str | None = None,
     q: str | None = None,
     sort: str | None = None,
     order: str | None = None,
@@ -238,9 +241,16 @@ def list_activities(
     items = [item for item in (enriched.get("activities") or []) if isinstance(item, dict)]
 
     normalized: list[dict[str, Any]] = []
+    draw_window_value = (draw_window or "").strip().lower()
+    if draw_window_value not in {"", "drawn", "soon"}:
+        draw_window_value = ""
     for item in items:
         dynamic_id = str(item.get("dynamic_id") or "")
         participation = participations.get(dynamic_id)
+        if draw_window_value and not matches_draw_window_filter(
+            item, participation, draw_window_value
+        ):
+            continue
         activity_status = _resolve_activity_status(item, participation)
         can_participate = _can_participate(item, activity_status)
         if not _should_list_activity(item, activity_status, can_participate):
@@ -248,6 +258,9 @@ def list_activities(
         row = _normalize_activity(item, action_map, participation)
         normalized.append(row)
 
+    # 开奖时间筛选仅针对已参加记录；与「状态」胶囊互斥（已开奖多为已结束，会与「已参加」冲突）
+    if draw_window_value:
+        status = None
     if status:
         normalized = [item for item in normalized if item.get("activity_status") == status]
     if lottery_type:

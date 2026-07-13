@@ -15,7 +15,8 @@ from src.lottery_api import (
     fetch_reserve_button_status,
     is_upower_dynamic,
 )
-from src.lottery_classifier import LotteryType
+from src.lottery_classifier import LotteryType, UPOWER_BUSINESS_TYPE
+from src.lottery_time import migrate_lottery_time_fields
 from src.participation_store import ParticipationRecord
 from src.sources.common import opus_link
 
@@ -79,6 +80,17 @@ class EnrichedActivity:
                 for tier, entries in self.winners.items()
             }
         return payload
+
+
+def normalize_enriched_lottery_time(activity: EnrichedActivity) -> EnrichedActivity:
+    """将活动开奖时间字段规范为统一存储格式。"""
+    payload = activity.to_dict()
+    migrate_lottery_time_fields(payload)
+    return replace(
+        activity,
+        lottery_time=payload.get("lottery_time"),
+        conditions=dict(payload.get("conditions") or {}),
+    )
 
 
 def _attach_repost_count(client: BilibiliClient, activity: EnrichedActivity) -> EnrichedActivity:
@@ -328,7 +340,7 @@ def enrich_forward_activity(
         skip_reason=None,
     )
     activity = apply_p2_to_activity(activity, participation=participation)
-    return _attach_repost_count(client, activity)
+    return normalize_enriched_lottery_time(_attach_repost_count(client, activity))
 
 
 def enrich_activity(
@@ -381,6 +393,11 @@ def enrich_activity(
         return _attach_repost_count(client, activity)
 
     notice, business_type, business_id = resolved
+    if business_type == UPOWER_BUSINESS_TYPE:
+        return _attach_repost_count(
+            client,
+            build_skipped_charging(dynamic_id=dynamic_id, participation=participation),
+        )
     reserve_reserved = None
     if lottery_type == "预约抽奖":
         reserve_reserved = fetch_reserve_button_status(client, dynamic_id)
@@ -420,32 +437,34 @@ def activity_from_cache(dynamic_id: str, lottery_type: LotteryType, cached: dict
                 ]
                 for tier, entries in winners_raw.items()
             }
-        return EnrichedActivity(
-            dynamic_id=dynamic_id,
-            source_url=str(cached.get("source_url") or opus_link(dynamic_id)),
-            lottery_type=lottery_type,
-            enriched_at=int(cached.get("enriched_at") or 0),
-            business_id=str(cached.get("business_id") or dynamic_id),
-            business_type=int(cached.get("business_type") or 0),
-            draw_status=cached.get("draw_status") or "active",
-            lottery_time=cached.get("lottery_time"),
-            prizes=prizes,
-            participants=int(cached.get("participants") or 0),
-            repost_count=int(cached.get("repost_count") or 0),
-            repost_fetched=bool(cached.get("repost_fetched")),
-            repost_zero_confirmed=bool(cached.get("repost_zero_confirmed")),
-            heat_from_reserve=bool(cached.get("heat_from_reserve")),
-            conditions=dict(cached.get("conditions") or {}),
-            winners=winners,
-            platform_participated=cached.get("platform_participated"),
-            reserve_reserved=cached.get("reserve_reserved"),
-            activity_status=cached.get("activity_status") or "未参加",
-            user_status_source=cached.get("user_status_source") or "default",
-            lottery_detail_url=str(cached.get("lottery_detail_url") or ""),
-            status_code=cached.get("status_code"),
-            skipped=bool(cached.get("skipped")),
-            skip_reason=cached.get("skip_reason"),
-            from_cache=True,
+        return normalize_enriched_lottery_time(
+            EnrichedActivity(
+                dynamic_id=dynamic_id,
+                source_url=str(cached.get("source_url") or opus_link(dynamic_id)),
+                lottery_type=lottery_type,
+                enriched_at=int(cached.get("enriched_at") or 0),
+                business_id=str(cached.get("business_id") or dynamic_id),
+                business_type=int(cached.get("business_type") or 0),
+                draw_status=cached.get("draw_status") or "active",
+                lottery_time=cached.get("lottery_time"),
+                prizes=prizes,
+                participants=int(cached.get("participants") or 0),
+                repost_count=int(cached.get("repost_count") or 0),
+                repost_fetched=bool(cached.get("repost_fetched")),
+                repost_zero_confirmed=bool(cached.get("repost_zero_confirmed")),
+                heat_from_reserve=bool(cached.get("heat_from_reserve")),
+                conditions=dict(cached.get("conditions") or {}),
+                winners=winners,
+                platform_participated=cached.get("platform_participated"),
+                reserve_reserved=cached.get("reserve_reserved"),
+                activity_status=cached.get("activity_status") or "未参加",
+                user_status_source=cached.get("user_status_source") or "default",
+                lottery_detail_url=str(cached.get("lottery_detail_url") or ""),
+                status_code=cached.get("status_code"),
+                skipped=bool(cached.get("skipped")),
+                skip_reason=cached.get("skip_reason"),
+                from_cache=True,
+            )
         )
     except (TypeError, ValueError):
         return None

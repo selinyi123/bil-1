@@ -8,8 +8,6 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from src.bilibili_auth import get_login_uid
-from src.draw_reminder import load_draw_reminder_snapshot, save_draw_reminder_snapshot
 from src.llm_settings import (
     build_llm_config_from_inputs,
     get_llm_settings_public,
@@ -83,6 +81,7 @@ def api_activities(
     status: str | None = Query(default=None),
     type: str | None = Query(default=None, alias="type"),
     draw: str | None = Query(default=None),
+    draw_window: str | None = Query(default=None),
     q: str | None = Query(default=None),
     sort: str | None = Query(default=None),
     order: str | None = Query(default=None),
@@ -93,6 +92,7 @@ def api_activities(
         status=status,
         lottery_type=type,
         draw=draw,
+        draw_window=draw_window,
         q=q,
         sort=sort,
         order=order,
@@ -112,9 +112,6 @@ def api_refresh_activity_status() -> dict[str, Any]:
     except OSError as exc:
         raise HTTPException(status_code=500, detail=f"刷新活动状态失败：{exc}") from exc
     draw_reminder = result.get("draw_reminder") or {}
-    uid = get_login_uid()
-    if uid:
-        draw_reminder = save_draw_reminder_snapshot(uid, draw_reminder)
     counts = result.get("status_counts") or {}
     listable = result.get("listable_counts") or {}
     message = (
@@ -123,28 +120,12 @@ def api_refresh_activity_status() -> dict[str, Any]:
         f"已结束 {listable.get('已结束', 0)}"
     )
     drawn_count = int(draw_reminder.get("drawn_participated_count") or 0)
+    soon_count = int(draw_reminder.get("drawing_soon_count") or 0)
     if drawn_count:
-        message += f"；{drawn_count} 个已参加活动已开奖，建议查看 @我的 通知"
-    return {"ok": True, "message": message, "result": result, "draw_reminder": draw_reminder}
-
-
-@app.get("/api/activities/draw-reminder")
-def api_draw_reminder() -> dict[str, Any]:
-    account = get_account_profile()
-    if not account.get("logged_in"):
-        raise HTTPException(status_code=401, detail="请先扫码登录后再执行此操作")
-    uid = get_login_uid()
-    snapshot = load_draw_reminder_snapshot(uid) if uid else None
-    if not snapshot:
-        return {
-            "drawn_participated_count": 0,
-            "drawing_soon_count": 0,
-            "drawn_participated": [],
-            "drawing_soon": [],
-            "updated_at": None,
-            "at_notify_url": "https://message.bilibili.com/#/notify/at",
-        }
-    return snapshot
+        message += f"；近 3 天已开奖 {drawn_count} 个"
+    if soon_count:
+        message += f"；3 天内即将开奖 {soon_count} 个"
+    return {"ok": True, "message": message, "result": result}
 
 
 @app.post("/api/activities/backfill-heat")

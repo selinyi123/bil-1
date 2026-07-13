@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import time
 
-import pytest
-
 from src.draw_reminder import (
+    DRAWING_SOON_SECONDS,
     classify_participated_draw,
     compute_draw_reminders,
-    save_draw_reminder_snapshot,
+    matches_draw_window_filter,
     should_recommend_at_check,
 )
 from src.participation_store import ParticipationRecord
@@ -76,9 +75,46 @@ def test_compute_draw_reminders_groups_counts() -> None:
     assert reminder["drawing_soon"][0]["dynamic_id"] == "2"
 
 
-def test_save_draw_reminder_snapshot(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    uid = 10001
-    monkeypatch.setattr("src.draw_reminder.user_dir", lambda value: tmp_path / str(value))
-    snapshot = compute_draw_reminders([], {}, now=123)
-    saved = save_draw_reminder_snapshot(uid, snapshot)
-    assert saved["updated_at"] == 123
+def test_classify_drawn_only_within_three_day_window() -> None:
+    now = 1_700_000_000
+    item = {
+        "dynamic_id": "old",
+        "lottery_time": now - DRAWING_SOON_SECONDS - 1,
+        "prizes": [{"description": "过期"}],
+    }
+    participation = _participation("old")
+    assert classify_participated_draw(item, participation, now=now) == "pending"
+    assert matches_draw_window_filter(item, participation, "drawn", now=now) is False
+
+
+def test_classify_soon_only_within_three_day_window() -> None:
+    now = 1_700_000_000
+    item = {
+        "dynamic_id": "far",
+        "lottery_time": now + DRAWING_SOON_SECONDS + 1,
+        "prizes": [{"description": "太远"}],
+    }
+    participation = _participation("far")
+    assert classify_participated_draw(item, participation, now=now) == "pending"
+    assert matches_draw_window_filter(item, participation, "soon", now=now) is False
+
+
+def test_matches_draw_window_filter_respects_participation() -> None:
+    now = 1_700_000_000
+    item = {
+        "dynamic_id": "123",
+        "lottery_time": now - 3600,
+        "prizes": [{"description": "键盘"}],
+    }
+    assert matches_draw_window_filter(item, None, "drawn", now=now) is False
+    assert matches_draw_window_filter(item, _participation("123"), "drawn", now=now) is True
+
+
+def test_list_activities_draw_window_ignores_status_filter() -> None:
+    from web.activity_service import list_activities
+
+    drawn = list_activities(draw_window="drawn")
+    if not drawn["total"]:
+        return
+    with_status = list_activities(draw_window="drawn", status="已参加")
+    assert with_status["total"] == drawn["total"]

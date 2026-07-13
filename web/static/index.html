@@ -282,7 +282,6 @@
               <p class="section-desc">未参加且已过期的活动会自动从列表隐藏，本地历史记录仍会保留。</p>
               <button class="btn btn-secondary" id="refresh-status-btn">刷新任务状态</button>
             </div>
-            <div class="draw-reminder-banner" id="draw-reminder-banner" hidden></div>
             <div class="filters">
               <input type="search" id="filter-q" class="input" placeholder="搜索奖品名称…" />
               <div class="filter-group" id="filter-type-group" role="group" aria-label="活动类型">
@@ -302,7 +301,12 @@
                 <button type="button" class="filter-pill" data-filter-sort="heat" data-filter-order="asc">热度 ↑</button>
                 <button type="button" class="filter-pill active" data-filter-sort="" data-filter-order="">默认排序</button>
               </div>
+              <div class="filter-group" id="filter-draw-window-group" role="group" aria-label="开奖时间">
+                <button type="button" class="filter-pill" data-filter-draw-window="drawn">已开奖</button>
+                <button type="button" class="filter-pill" data-filter-draw-window="soon">即将开奖</button>
+              </div>
             </div>
+            <p class="filter-hint" id="filter-draw-window-hint" hidden>仅筛选你已参加的活动（近 3 天开奖区间）</p>
             <div class="table-wrap">
               <table class="data-table">
                 <thead>

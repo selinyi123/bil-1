@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from src.lottery_classifier import is_charging_lottery_activity
 from src.lottery_time import format_timestamp, lottery_time_text, lottery_time_unix
 from src.message_watch import BILIBILI_AT_NOTIFY_URL
 from src.participation_store import ParticipationRecord
@@ -56,11 +57,26 @@ def classify_participated_draw(
     if not lottery_ts:
         return None
     current = int(now if now is not None else time.time())
-    if lottery_ts <= current:
+    window_start = current - DRAWING_SOON_SECONDS
+    if window_start <= lottery_ts <= current:
         return "drawn"
-    if lottery_ts <= current + DRAWING_SOON_SECONDS:
+    if current < lottery_ts <= current + DRAWING_SOON_SECONDS:
         return "soon"
     return "pending"
+
+
+def matches_draw_window_filter(
+    item: dict,
+    participation: ParticipationRecord | None,
+    draw_window: str | None,
+    *,
+    now: int | None = None,
+) -> bool:
+    if not draw_window:
+        return True
+    if draw_window not in {"drawn", "soon"}:
+        return True
+    return classify_participated_draw(item, participation, now=now) == draw_window
 
 
 def should_recommend_at_check(
@@ -87,6 +103,8 @@ def compute_draw_reminders(
             continue
         dynamic_id = str(item.get("dynamic_id") or "")
         if not dynamic_id:
+            continue
+        if is_charging_lottery_activity(item):
             continue
         participation = participations.get(dynamic_id)
         phase = classify_participated_draw(item, participation, now=current)

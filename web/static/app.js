@@ -1,7 +1,7 @@
 const state = {
   page: 1,
   pageSize: 30,
-  filters: { q: "", type: "", status: "", draw: "", sort: "", order: "" },
+  filters: { q: "", type: "", status: "", draw: "", drawWindow: "", sort: "", order: "" },
   polling: null,
   logDockOpen: false,
   qrcodeDismissed: false,
@@ -9,7 +9,6 @@ const state = {
   account: null,
   settings: null,
   atAlertShownKey: "",
-  drawReminder: null,
 };
 
 const jobMessage = document.getElementById("job-message");
@@ -22,7 +21,7 @@ const sidebarLoginBtn = document.getElementById("sidebar-login");
 const sidebarLogoutBtn = document.getElementById("sidebar-logout");
 const sidebarRefreshBtn = document.getElementById("sidebar-refresh-account");
 const activitiesBody = document.getElementById("activities-body");
-const drawReminderBanner = document.getElementById("draw-reminder-banner");
+const filterDrawWindowHint = document.getElementById("filter-draw-window-hint");
 const pagination = document.getElementById("pagination");
 const qrcodeModal = document.getElementById("qrcode-modal");
 const qrcodeImg = document.getElementById("qrcode-img");
@@ -99,8 +98,15 @@ function renderSetupChecklist() {
       <span class="setup-pill ${loggedIn ? "ok" : "warn"}">账号${loggedIn ? "已登录" : "未登录"}</span>
       <span class="setup-pill ${llmOk ? "ok" : "warn"}">LLM${llmOk ? "已配置" : "未配置"}</span>
       <span class="setup-pill ${llmTested ? "ok" : "warn"}">连接${llmTested ? "已通过" : "未测试"}</span>
-      ${isSetupComplete() ? '<span class="setup-pill ready">可以开始使用</span>' : ""}
     </div>`;
+}
+
+function renderAccountStatusLabel(account) {
+  if (isSetupComplete()) return "已就绪";
+  if (account.expired) return "需重新扫码登录";
+  if (!isLlmConfigured()) return "请完成 LLM 配置";
+  if (!isLlmTested()) return "请完成 LLM 连接测试";
+  return "请完成登录与配置";
 }
 
 function sanitizeUserText(text) {
@@ -483,6 +489,7 @@ function renderAccountViews(account) {
     ? `<img class="account-avatar account-avatar-lg" src="${escapeHtml(account.face)}" alt="头像" referrerpolicy="no-referrer" crossorigin="anonymous" />`
     : `<div class="account-avatar account-avatar-fallback account-avatar-lg"></div>`;
   const atNotifyUrl = account.at_notify_url || "https://message.bilibili.com/#/notify/at";
+  const atUnread = Number(formatAccountStat(account.unread_at, loggedIn)) || 0;
   const heroHtml = `
     ${avatar}
     <div class="account-hero-body">
@@ -490,17 +497,30 @@ function renderAccountViews(account) {
       <h2 class="account-hero-name">${escapeHtml(account.uname || "B站用户")}</h2>
       ${renderAtAlertBanner(account)}
       <div class="account-hero-stats">
-        <div class="account-stat"><span class="account-stat-value">${account.following ?? "—"}</span><span class="account-stat-label">关注</span></div>
-        <div class="account-stat"><span class="account-stat-value">${account.dynamic_count ?? "—"}</span><span class="account-stat-label">动态</span></div>
-        <div class="account-stat"><span class="account-stat-value">${formatAccountStat(account.unread_messages, loggedIn)}</span><span class="account-stat-label">私信未读</span></div>
-        <div class="account-stat account-stat-at">
+        <div class="account-stat">
+          <span class="account-stat-value">${account.following ?? "—"}</span>
+          <span class="account-stat-label">关注</span>
+        </div>
+        <div class="account-stat">
+          <span class="account-stat-value">${account.dynamic_count ?? "—"}</span>
+          <span class="account-stat-label">动态</span>
+        </div>
+        <div class="account-stat">
+          <span class="account-stat-value">${formatAccountStat(account.unread_messages, loggedIn)}</span>
+          <span class="account-stat-label">私信未读</span>
+        </div>
+        <div class="account-stat account-stat-at${atUnread > 0 ? " has-unread" : ""}">
           <span class="account-stat-value">${formatAccountStat(account.unread_at, loggedIn)}</span>
-          <span class="account-stat-label">@我的</span>
-          <a class="account-stat-link" href="${escapeHtml(atNotifyUrl)}" target="_blank" rel="noopener noreferrer">去查看</a>
+          <span class="account-stat-label">
+            <span>@我的</span>
+            <a class="account-stat-inline-link" href="${escapeHtml(atNotifyUrl)}" target="_blank" rel="noopener noreferrer" title="在 B 站查看 @ 我的通知">查看</a>
+          </span>
         </div>
       </div>
-      ${renderSetupChecklist()}
-      <span class="account-status ${isSetupComplete() ? "ok" : "warn"}">${isSetupComplete() ? "已就绪" : account.expired ? "需重新扫码登录" : !isLlmTested() && isLlmConfigured() ? "请完成 LLM 连接测试" : "请完成 LLM 配置"}</span>
+      <div class="account-hero-footer">
+        ${renderSetupChecklist()}
+        <span class="account-status ${isSetupComplete() ? "ok" : "warn"}">${escapeHtml(renderAccountStatusLabel(account))}</span>
+      </div>
     </div>`;
   if (accountHero) accountHero.innerHTML = heroHtml;
   bindAtAlertActions(account);
@@ -763,79 +783,6 @@ function renderSources(sources) {
     .join("");
 }
 
-function renderDrawReminderBanner(reminder) {
-  if (!drawReminderBanner) return;
-  if (!reminder) {
-    drawReminderBanner.hidden = true;
-    drawReminderBanner.innerHTML = "";
-    state.drawReminder = null;
-    return;
-  }
-  state.drawReminder = reminder;
-  const drawnCount = Number(reminder?.drawn_participated_count) || 0;
-  const soonCount = Number(reminder?.drawing_soon_count) || 0;
-  if (!drawnCount && !soonCount) {
-    drawReminderBanner.hidden = true;
-    drawReminderBanner.innerHTML = "";
-    return;
-  }
-
-  const notifyUrl = reminder?.at_notify_url || "https://message.bilibili.com/#/notify/at";
-  const drawnItems = (reminder?.drawn_participated || [])
-    .slice(0, 3)
-    .map(
-      (item) =>
-        `<li><span class="draw-reminder-item-title">${escapeHtml(item.title || item.dynamic_id)}</span><span class="draw-reminder-item-time">${escapeHtml(item.lottery_time_text || "—")}</span></li>`
-    )
-    .join("");
-  const soonItems = (reminder?.drawing_soon || [])
-    .slice(0, 3)
-    .map(
-      (item) =>
-        `<li><span class="draw-reminder-item-title">${escapeHtml(item.title || item.dynamic_id)}</span><span class="draw-reminder-item-time">${escapeHtml(item.lottery_time_text || "—")}</span></li>`
-    )
-    .join("");
-
-  const drawnBlock = drawnCount
-    ? `<div class="draw-reminder-block">
-        <p class="draw-reminder-block-title">已开奖 ${drawnCount} 个（建议查看 @我的）</p>
-        ${drawnItems ? `<ul class="draw-reminder-list">${drawnItems}</ul>` : ""}
-      </div>`
-    : "";
-  const soonBlock = soonCount
-    ? `<div class="draw-reminder-block">
-        <p class="draw-reminder-block-title">3 天内即将开奖 ${soonCount} 个</p>
-        ${soonItems ? `<ul class="draw-reminder-list">${soonItems}</ul>` : ""}
-      </div>`
-    : "";
-
-  drawReminderBanner.hidden = false;
-  drawReminderBanner.innerHTML = `
-    <div class="draw-reminder-copy">
-      <p class="draw-reminder-title">开奖提醒</p>
-      <p class="draw-reminder-desc">以下是你已参加活动的开奖时间汇总。已开奖的活动建议去 B 站查看 @我的 通知。</p>
-      ${drawnBlock}
-      ${soonBlock}
-    </div>
-    <div class="draw-reminder-actions">
-      <a class="btn btn-secondary btn-compact" href="${escapeHtml(notifyUrl)}" target="_blank" rel="noopener noreferrer">去 B 站查看 @我的</a>
-    </div>`;
-}
-
-async function loadDrawReminder() {
-  if (!isLoggedIn()) {
-    renderDrawReminderBanner(null);
-    return null;
-  }
-  try {
-    const reminder = await fetchJSON("/api/activities/draw-reminder", { timeoutMs: 15000 });
-    renderDrawReminderBanner(reminder);
-    return reminder;
-  } catch {
-    return null;
-  }
-}
-
 function renderActivities(payload) {
   const items = payload.items || [];
   if (!items.length) {
@@ -866,7 +813,7 @@ function renderActivities(payload) {
             <td class="chip-cell"><span class="type-chip">${escapeHtml(item.lottery_type)}</span></td>
             <td class="heat-cell"><span class="heat-pill${item.heat_missing ? " heat-pill-missing" : ""}">${formatHeat(item)}</span></td>
             <td class="chip-cell"><span class="${badgeClass(item.activity_status)}">${escapeHtml(item.activity_status)}</span></td>
-            <td class="time-cell"><span class="time-pill">${escapeHtml(item.lottery_time || "—")}</span></td>
+            <td class="time-cell"><span class="time-pill">${escapeHtml(formatLotteryTime(item.lottery_time))}</span></td>
             <td class="chip-cell">${participateBtn}</td>
           </tr>`;
       })
@@ -955,9 +902,6 @@ function switchSection(sectionId) {
     }
   });
   document.getElementById("sidebar")?.classList.remove("open");
-  if (sectionId === "activities") {
-    loadDrawReminder();
-  }
 }
 
 function bindNavigation() {
@@ -991,6 +935,13 @@ function formatHeat(item) {
   return String(value);
 }
 
+function formatLotteryTime(value) {
+  const text = String(value || "").trim();
+  if (!text || text === "—") return "—";
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(text)) return text;
+  return "—";
+}
+
 async function refreshActivityStatus() {
   if (!isLoggedIn()) {
     showToast("请先扫码登录", "info", "登录后才能刷新活动状态");
@@ -1004,9 +955,6 @@ async function refreshActivityStatus() {
   }
   try {
     const result = await fetchJSON("/api/activities/refresh-status", { method: "POST" });
-    if (result.draw_reminder) {
-      renderDrawReminderBanner(result.draw_reminder);
-    }
     const drawnCount = Number(result.draw_reminder?.drawn_participated_count) || 0;
     if (drawnCount > 0) {
       showToast(
@@ -1030,6 +978,48 @@ async function refreshActivityStatus() {
   }
 }
 
+function setFilterPillGroup(selector, activeButton) {
+  document.querySelectorAll(selector).forEach((item) => {
+    const active = item === activeButton;
+    item.classList.toggle("active", active);
+    item.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+}
+
+function setStatusFilter(value) {
+  state.filters.status = value || "";
+  const buttons = document.querySelectorAll("[data-filter-status]");
+  let matched = false;
+  buttons.forEach((button) => {
+    const isActive = (button.getAttribute("data-filter-status") || "") === state.filters.status;
+    button.classList.toggle("active", isActive);
+    button.setAttribute("aria-pressed", isActive ? "true" : "false");
+    if (isActive) matched = true;
+  });
+  if (!matched && buttons[0]) {
+    buttons[0].classList.add("active");
+    buttons[0].setAttribute("aria-pressed", "true");
+  }
+}
+
+function setDrawWindowFilter(value) {
+  state.filters.drawWindow = value || "";
+  document.querySelectorAll("[data-filter-draw-window]").forEach((button) => {
+    const isActive = (button.getAttribute("data-filter-draw-window") || "") === state.filters.drawWindow;
+    button.classList.toggle("active", isActive);
+    button.setAttribute("aria-pressed", isActive ? "true" : "false");
+  });
+  if (filterDrawWindowHint) {
+    filterDrawWindowHint.hidden = !state.filters.drawWindow;
+  }
+}
+
+function updateDrawWindowHint() {
+  if (!filterDrawWindowHint || !state.filters.drawWindow) return;
+  const label = state.filters.drawWindow === "drawn" ? "已开奖" : "即将开奖";
+  filterDrawWindowHint.textContent = `仅筛选你已参加的活动 · ${label}（近 3 天）`;
+}
+
 async function loadActivities() {
   const params = new URLSearchParams({
     page: String(state.page),
@@ -1039,9 +1029,14 @@ async function loadActivities() {
   if (state.filters.q) params.set("q", state.filters.q);
   if (state.filters.type) params.set("type", state.filters.type);
   if (state.filters.status) params.set("status", state.filters.status);
+  if (state.filters.drawWindow) params.set("draw_window", state.filters.drawWindow);
   if (state.filters.sort) params.set("sort", state.filters.sort);
   if (state.filters.order) params.set("order", state.filters.order);
-  renderActivities(await fetchJSON(`/api/activities?${params.toString()}`));
+  try {
+    renderActivities(await fetchJSON(`/api/activities?${params.toString()}`));
+  } catch (error) {
+    showToast(String(error.message || error), "error");
+  }
 }
 
 async function startJob(action, params = {}) {
@@ -1161,33 +1156,49 @@ function startPolling() {
 function bindFilterPills() {
   document.querySelectorAll("[data-filter-type]").forEach((button) => {
     button.addEventListener("click", () => {
-      document.querySelectorAll("[data-filter-type]").forEach((item) => item.classList.remove("active"));
-      button.classList.add("active");
-      state.filters.type = button.dataset.filterType || "";
+      setFilterPillGroup("[data-filter-type]", button);
+      state.filters.type = button.getAttribute("data-filter-type") || "";
       state.page = 1;
       loadActivities();
     });
   });
   document.querySelectorAll("[data-filter-status]").forEach((button) => {
     button.addEventListener("click", () => {
-      document.querySelectorAll("[data-filter-status]").forEach((item) => item.classList.remove("active"));
-      button.classList.add("active");
-      state.filters.status = button.dataset.filterStatus || "";
+      if (state.filters.drawWindow) {
+        setDrawWindowFilter("");
+      }
+      setFilterPillGroup("[data-filter-status]", button);
+      state.filters.status = button.getAttribute("data-filter-status") || "";
       state.page = 1;
       loadActivities();
     });
   });
   document.querySelectorAll("[data-filter-sort]").forEach((button) => {
     button.addEventListener("click", () => {
-      document.querySelectorAll("[data-filter-sort]").forEach((item) => item.classList.remove("active"));
-      button.classList.add("active");
-      state.filters.sort = button.dataset.filterSort || "";
-      state.filters.order = button.dataset.filterOrder || "";
+      setFilterPillGroup("[data-filter-sort]", button);
+      state.filters.sort = button.getAttribute("data-filter-sort") || "";
+      state.filters.order = button.getAttribute("data-filter-order") || "";
+      state.page = 1;
+      loadActivities();
+    });
+  });
+  document.querySelectorAll("[data-filter-draw-window]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const value = button.getAttribute("data-filter-draw-window") || "";
+      const isActive = button.classList.contains("active");
+      if (isActive) {
+        setDrawWindowFilter("");
+      } else {
+        setStatusFilter("");
+        setDrawWindowFilter(value);
+        updateDrawWindowHint();
+      }
       state.page = 1;
       loadActivities();
     });
   });
   const filterQ = document.getElementById("filter-q");
+  if (!filterQ) return;
   let searchTimer = null;
   filterQ.addEventListener("input", () => {
     window.clearTimeout(searchTimer);
@@ -1275,7 +1286,6 @@ async function init() {
   await syncProjectState();
   const job = await loadSummary();
   await loadActivities();
-  await loadDrawReminder();
   if (job?.state === "running") startPolling();
 }
 

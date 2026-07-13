@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import time
 from datetime import datetime, timedelta, timezone
 
 # 活动列表开奖时间统一格式：YYYY-MM-DD HH:mm（北京时间）
@@ -13,7 +14,7 @@ _NOISE_SUFFIX_RE = re.compile(r"(?:前|后|左右|左右开奖|直播.*|录屏.*
 _CHINESE_WEEKDAY = {"一": 0, "二": 1, "三": 2, "四": 3, "五": 4, "六": 5, "日": 6, "天": 6}
 _RELATIVE_WEEKDAY_RE = re.compile(r"下(?:周|星期|礼拜)([一二三四五六日天])")
 _RELATIVE_TIME_RE = re.compile(
-    r"^(?:下|本|上)?(?:周|星期|礼拜)[一二三四五六日天]?|"
+    r"^(?:下|本|上)?(?:周|星期|礼拜)[一二三四五六日天]?$|"
     r"^(?:明天|后天|大后天|今天|今晚|明晚)(?:[晚早]?\d{1,2}[:：点]\d{0,2})?$"
 )
 
@@ -95,6 +96,9 @@ def _parse_clock(raw: str) -> tuple[int, int] | None:
     point = re.search(r"(?P<hour>\d{1,2})点(?P<minute>\d{1,2})?分?", raw)
     if point:
         return int(point.group("hour")), int(point.group("minute") or 0)
+
+    if re.search(r"日晚$|晚上$", raw):
+        return 20, 0
 
     return None
 
@@ -227,8 +231,6 @@ def lottery_time_unix(item: dict, *, ref_ts: int | None = None) -> int | None:
 
 def migrate_lottery_time_fields(item: dict) -> bool:
     """修正单条已保存活动的时间字段，返回是否有改动。"""
-    import time
-
     changed = False
     conditions = item.get("conditions")
     if not isinstance(conditions, dict):
