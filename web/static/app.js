@@ -383,6 +383,13 @@ function renderStats(summary) {
     .join("");
 }
 
+function formatAccountStat(value, loggedIn) {
+  if (value === null || value === undefined) {
+    return loggedIn ? 0 : "—";
+  }
+  return value;
+}
+
 function renderAccountViews(account) {
   state.account = account;
   const loggedIn = Boolean(account.logged_in);
@@ -426,7 +433,8 @@ function renderAccountViews(account) {
       <div class="account-hero-stats">
         <div class="account-stat"><span class="account-stat-value">${account.following ?? "—"}</span><span class="account-stat-label">关注</span></div>
         <div class="account-stat"><span class="account-stat-value">${account.dynamic_count ?? "—"}</span><span class="account-stat-label">动态</span></div>
-        <div class="account-stat"><span class="account-stat-value">${account.unread_messages ?? "—"}</span><span class="account-stat-label">私信未读</span></div>
+        <div class="account-stat"><span class="account-stat-value">${formatAccountStat(account.unread_messages, loggedIn)}</span><span class="account-stat-label">私信未读</span></div>
+        <div class="account-stat"><span class="account-stat-value">${formatAccountStat(account.unread_at, loggedIn)}</span><span class="account-stat-label">@我的</span></div>
       </div>
       ${renderSetupChecklist()}
       <span class="account-status ${isSetupComplete() ? "ok" : "warn"}">${isSetupComplete() ? "已就绪" : account.expired ? "需重新扫码登录" : !isLlmTested() && isLlmConfigured() ? "请完成 LLM 连接测试" : "请完成 LLM 配置"}</span>
@@ -476,6 +484,7 @@ async function logoutAccount() {
       following: null,
       dynamic_count: null,
       unread_messages: null,
+      unread_at: null,
     });
   }
   showToast("已退出登录", "success", "本地 Cookie 已清除，请重新扫码登录");
@@ -712,7 +721,7 @@ function renderActivities(payload) {
             </td>
             <td class="link-cell">${linkCell}</td>
             <td class="chip-cell"><span class="type-chip">${escapeHtml(item.lottery_type)}</span></td>
-            <td class="heat-cell"><span class="heat-pill">${formatHeat(item.repost_count)}</span></td>
+            <td class="heat-cell"><span class="heat-pill${item.heat_missing ? " heat-pill-missing" : ""}">${formatHeat(item)}</span></td>
             <td class="chip-cell"><span class="${badgeClass(item.activity_status)}">${escapeHtml(item.activity_status)}</span></td>
             <td class="time-cell"><span class="time-pill">${escapeHtml(item.lottery_time || "—")}</span></td>
             <td class="chip-cell">${participateBtn}</td>
@@ -829,8 +838,9 @@ async function loadSummary() {
   return summary.job;
 }
 
-function formatHeat(count) {
-  const value = Number(count) || 0;
+function formatHeat(item) {
+  if (item?.heat_missing) return "—";
+  const value = Number(item?.repost_count) || 0;
   if (value >= 10000) return `${(value / 10000).toFixed(1)}万`;
   return String(value);
 }

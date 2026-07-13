@@ -6,6 +6,10 @@ from datetime import datetime, timezone
 LOTTERY_TIME_DISPLAY_FMT = "%Y-%m-%d %H:%M"
 _WEEKDAY_SUFFIX_RE = re.compile(r"[（(][^）)]*[）)]")
 _NOISE_SUFFIX_RE = re.compile(r"(?:前|后|左右|左右开奖|直播.*|录屏.*|开奖.*)$")
+_RELATIVE_TIME_RE = re.compile(
+    r"^(?:下|本|上)?(?:周|星期|礼拜)[一二三四五六日天]?|"
+    r"^(?:明天|后天|大后天|今天|今晚|明晚)(?:[晚早]?\d{1,2}[:：点]\d{0,2})?$"
+)
 
 
 def format_timestamp(ts: int | None) -> str:
@@ -36,9 +40,18 @@ def _clean_text(text: str) -> str:
     return raw
 
 
+def is_relative_lottery_time_text(text: str) -> bool:
+    raw = text.strip()
+    if not raw:
+        return False
+    return bool(_RELATIVE_TIME_RE.search(raw))
+
+
 def normalize_lottery_time_text(text: str) -> str:
     raw = _clean_text(text)
     if not raw:
+        return ""
+    if is_relative_lottery_time_text(raw):
         return ""
 
     if re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw):
@@ -66,6 +79,7 @@ def normalize_lottery_time_text(text: str) -> str:
             "md_hm",
         ),
         (re.compile(r"^(?P<month>\d{1,2})月(?P<day>\d{1,2})日$"), "md"),
+        (re.compile(r"^(?P<month>\d{1,2})月(?P<day>\d{1,2})号$"), "md_hao"),
         (
             re.compile(r"^(?P<month>\d{1,2})\.(?P<day>\d{1,2})号?$"),
             "dot_md",
@@ -95,7 +109,7 @@ def normalize_lottery_time_text(text: str) -> str:
         return _compose(year, month, day, hour, minute)
 
     loose = re.search(
-        r"(?P<year>\d{4})?年?(?P<month>\d{1,2})月(?P<day>\d{1,2})日",
+        r"(?P<year>\d{4})?年?(?P<month>\d{1,2})月(?P<day>\d{1,2})[日号]",
         raw,
     )
     if loose:
@@ -111,7 +125,10 @@ def normalize_lottery_time_text(text: str) -> str:
     if dot_loose:
         return _compose(_default_year(), int(dot_loose.group(1)), int(dot_loose.group(2)))
 
-    return raw
+    if is_relative_lottery_time_text(raw):
+        return ""
+
+    return ""
 
 
 def lottery_time_text(item: dict) -> str:
@@ -122,4 +139,4 @@ def lottery_time_text(item: dict) -> str:
     normalized = normalize_lottery_time_text(str(conditions.get("lottery_time_text") or ""))
     if normalized and re.fullmatch(r"\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}", normalized):
         return normalized
-    return normalized or ""
+    return ""

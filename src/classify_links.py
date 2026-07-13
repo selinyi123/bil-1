@@ -11,6 +11,7 @@ from pathlib import Path
 from src.bilibili_client import BilibiliClient
 from src.classify_cache import get_cached_type, merge_cache
 from src.lottery_classifier import (
+    CLASSIFIABLE_TYPES,
     LotteryType,
     classify_lottery_type_safe,
     is_detail_api_enabled,
@@ -40,10 +41,10 @@ class ClassifiedActivity:
     def from_dict(cls, payload: dict) -> ClassifiedActivity | None:
         lottery_type = payload.get("lottery_type")
         dynamic_id = str(payload.get("dynamic_id") or "")
-        if not dynamic_id or lottery_type not in ("转发抽奖", "预约抽奖", "互动抽奖"):
+        if not dynamic_id or lottery_type not in CLASSIFIABLE_TYPES:
             return None
         hint = payload.get("source_hint")
-        if hint not in ("转发抽奖", "预约抽奖", "互动抽奖"):
+        if hint not in CLASSIFIABLE_TYPES:
             hint = None
         return cls(
             dynamic_id=dynamic_id,
@@ -71,18 +72,14 @@ class ClassifyResult:
 
 
 def _build_counts(activities: list[ClassifiedActivity]) -> dict[str, int]:
-    counts = {"转发抽奖": 0, "预约抽奖": 0, "互动抽奖": 0}
+    counts = {name: 0 for name in CLASSIFIABLE_TYPES}
     for activity in activities:
         counts[activity.lottery_type] += 1
     return counts
 
 
 def _build_by_type(activities: list[ClassifiedActivity]) -> dict[str, list[str]]:
-    by_type: dict[str, list[str]] = {
-        "转发抽奖": [],
-        "预约抽奖": [],
-        "互动抽奖": [],
-    }
+    by_type: dict[str, list[str]] = {name: [] for name in CLASSIFIABLE_TYPES}
     for activity in activities:
         by_type[activity.lottery_type].append(activity.source_url)
     return by_type
@@ -108,7 +105,7 @@ def _classify_one(
 ) -> ClassifiedActivity:
     if use_cache:
         cached_type = get_cached_type(dynamic_id)
-        if cached_type in ("转发抽奖", "预约抽奖", "互动抽奖"):
+        if cached_type in CLASSIFIABLE_TYPES:
             return ClassifiedActivity(
                 dynamic_id=dynamic_id,
                 source_url=opus_link(dynamic_id),
@@ -158,7 +155,7 @@ def classify_merged_links(
         if not dynamic_id:
             continue
         hint = link_hints.get(dynamic_id)
-        if hint not in ("转发抽奖", "预约抽奖", "互动抽奖"):
+        if hint not in CLASSIFIABLE_TYPES:
             hint = None
         if not force and dynamic_id in existing_by_id:
             continue
@@ -191,9 +188,9 @@ def classify_merged_links(
             classified_at=classified_at,
             total_count=0,
             new_count=0,
-            counts={"转发抽奖": 0, "预约抽奖": 0, "互动抽奖": 0},
+            counts={name: 0 for name in CLASSIFIABLE_TYPES},
             activities=[],
-            by_type={"转发抽奖": [], "预约抽奖": [], "互动抽奖": []},
+            by_type={name: [] for name in CLASSIFIABLE_TYPES},
             cache_hits=0,
             complete=True,
         )

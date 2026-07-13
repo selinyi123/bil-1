@@ -16,7 +16,7 @@ def test_all_registries_include_ds6() -> None:
 
 
 def test_refresh_all_total_matches_handlers() -> None:
-    assert REFRESH_ALL_TOTAL == len(DS_HANDLERS) + 4
+    assert REFRESH_ALL_TOTAL == len(DS_HANDLERS) + 5
 
 
 def test_ds6_metadata() -> None:

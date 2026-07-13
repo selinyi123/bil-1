@@ -16,16 +16,18 @@ from src.lottery_api import (
     fetch_dynamic_detail,
     fetch_notice_for_interact,
     fetch_notice_for_reserve,
+    is_upower_dynamic,
 )
 from src.participation_log import (
     ParticipationActionRecord,
     ParticipationOutcome,
-    all_core_actions_ok,
+    participation_succeeded,
     append_action_record,
     serialize_actions,
 )
 from src.participation_store import set_participation
 from src.fetch_activity_info import mark_enriched_joined
+from src.lottery_classifier import PARTICIPATABLE_TYPES
 from src.sources.common import opus_link
 
 RESERVE_CLICK_URL = "https://api.bilibili.com/x/dynamic/feed/reserve/click"
@@ -135,6 +137,23 @@ def participate_five_action_lottery(
     notice: dict | None = None
     sender_uid: int | None = None
 
+    try:
+        detail_item = fetch_dynamic_detail(client, dynamic_id)
+        if is_upower_dynamic(detail_item):
+            result = ParticipateResult(
+                dynamic_id=dynamic_id,
+                lottery_type=lottery_type,
+                status="skipped",
+                message="充电专属抽奖，不参与",
+                action_text=text,
+                actions=[],
+                context_snapshot={},
+            )
+            _persist_result(result=result, persist=persist, dry_run=dry_run)
+            return result
+    except RuntimeError:
+        pass
+
     if lottery_type == "互动抽奖":
         resolved = fetch_notice_for_interact(client, dynamic_id)
         if not resolved:
@@ -165,21 +184,41 @@ def participate_five_action_lottery(
             return result
         sender_uid = int(notice.get("sender_uid") or 0) or None
 
-    actions, context = execute_full_participation(
-        client,
-        dynamic_id=dynamic_id,
-        sender_uid=sender_uid,
-        action_text=text,
-        dry_run=dry_run,
-        on_step=on_step,
-    )
+    try:
+        actions, context = execute_full_participation(
+            client,
+            dynamic_id=dynamic_id,
+            sender_uid=sender_uid,
+            action_text=text,
+            dry_run=dry_run,
+            on_step=on_step,
+        )
+    except RuntimeError as exc:
+        message = str(exc).strip() or "参与失败"
+        if "无法获取动态详情" in message:
+            message = "无法获取动态详情，请稍后重试"
+        result = ParticipateResult(
+            dynamic_id=dynamic_id,
+            lottery_type=lottery_type,
+            status="failed",
+            message=message,
+            action_text=text,
+            actions=[],
+            context_snapshot=_notice_snapshot(notice),
+        )
+        _persist_result(result=result, persist=persist, dry_run=dry_run)
+        return result
 
     if dry_run:
         status: ParticipationOutcome = "dry_run"
         message = "预演完成，未实际请求 B 站"
-    elif all_core_actions_ok(actions):
+    elif participation_succeeded(actions, lottery_type=lottery_type):
         status = "joined"
-        message = "五项操作均已完成"
+        comment = next((item for item in actions if item.action == "comment"), None)
+        if lottery_type == "互动抽奖" and comment and not comment.ok:
+            message = "核心操作已完成（评论受限，已视为参与成功）"
+        else:
+            message = "五项操作均已完成" if lottery_type == "转发抽奖" else "核心操作均已完成"
     else:
         status = "failed"
         failed = [item for item in actions if not item.ok]
@@ -347,6 +386,20 @@ def participate_activity(
     persist: bool = True,
     on_step: Callable[[int, int, str, str], None] | None = None,
 ) -> ParticipateResult:
+    if lottery_type == "充电抽奖":
+        result = ParticipateResult(
+            dynamic_id=dynamic_id,
+            lottery_type=lottery_type,
+            status="skipped",
+            message="充电专属抽奖，不参与",
+            action_text=action_text,
+            actions=[],
+            context_snapshot={},
+        )
+        _persist_result(result=result, persist=persist, dry_run=dry_run)
+        return result
+    if lottery_type not in PARTICIPATABLE_TYPES:
+        raise RuntimeError(f"不支持的抽奖类型: {lottery_type}")
     if lottery_type == "互动抽奖":
         return participate_five_action_lottery(
             client,

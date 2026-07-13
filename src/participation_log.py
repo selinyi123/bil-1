@@ -10,6 +10,8 @@ from src.user_data import participation_actions_path
 
 ParticipationOutcome = Literal["joined", "failed", "skipped", "dry_run"]
 CORE_ACTIONS = ("like", "follow", "favorite", "repost", "comment")
+INTERACT_REQUIRED_ACTIONS = ("like", "follow", "favorite", "repost")
+COMMENT_OPTIONAL_ERROR_CODES = {12078}
 
 
 @dataclass
@@ -49,6 +51,35 @@ def _save_raw(data: dict) -> None:
 
 def serialize_actions(actions: list[ActionResult]) -> list[dict]:
     return [{"action": item.action, "ok": item.ok, "detail": item.detail} for item in actions]
+
+
+def _comment_failure_optional(action: ActionResult) -> bool:
+    if action.action != "comment" or action.ok:
+        return False
+    detail = action.detail or ""
+    if any(token in detail for token in ("关注UP主", "关注 up", "7天", "7 天")):
+        return True
+    for code in COMMENT_OPTIONAL_ERROR_CODES:
+        if f"code={code}" in detail:
+            return True
+    return False
+
+
+def participation_succeeded(actions: list[ActionResult], *, lottery_type: str) -> bool:
+    action_map = {item.action: item for item in actions}
+    if lottery_type == "互动抽奖":
+        required = INTERACT_REQUIRED_ACTIONS
+    else:
+        required = CORE_ACTIONS
+    for name in required:
+        item = action_map.get(name)
+        if not item or not item.ok:
+            return False
+    if lottery_type == "互动抽奖":
+        comment = action_map.get("comment")
+        if comment and not comment.ok and not _comment_failure_optional(comment):
+            return False
+    return True
 
 
 def all_core_actions_ok(actions: list[ActionResult]) -> bool:

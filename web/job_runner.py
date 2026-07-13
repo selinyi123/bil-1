@@ -9,6 +9,9 @@ from typing import Any, Callable, Literal
 from src.bilibili_login import LoginCancelledError
 from web.actions import run_action
 from web.user_messages import JOB_ACTION_LABELS, friendly_error, sanitize_log
+from src.app_logging import get_logger
+
+logger = get_logger("job")
 
 JobState = Literal["idle", "running", "success", "error"]
 ProgressCallback = Callable[..., None]
@@ -157,6 +160,7 @@ class JobRunner:
                 self._status.log = "登录流程已结束"
                 self._status.result = None
         except Exception as exc:
+            logger.exception("任务失败 action=%s", action)
             with self._lock:
                 self._status.state = "error"
                 self._status.finished_at = int(time.time())

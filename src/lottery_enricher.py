@@ -8,11 +8,12 @@ from src.activity_status import ActivityStatus, StatusSource, resolve_activity_s
 from src.bilibili_client import BilibiliClient
 from src.forward_parser import MIN_CONTENT_LEN, fetch_dynamic_content, parse_forward_content
 from src.lottery_api import (
-    extract_repost_count_from_detail,
+    extract_activity_heat,
     fetch_dynamic_detail,
     fetch_notice_for_interact,
     fetch_notice_for_reserve,
     fetch_reserve_button_status,
+    is_upower_dynamic,
 )
 from src.lottery_classifier import LotteryType
 from src.participation_store import ParticipationRecord
@@ -60,6 +61,7 @@ class EnrichedActivity:
     repost_count: int = 0
     repost_fetched: bool = False
     repost_zero_confirmed: bool = False
+    heat_from_reserve: bool = False
     activity_status: ActivityStatus = "未参加"
     user_status_source: StatusSource = "default"
     lottery_detail_url: str = ""
@@ -83,13 +85,40 @@ def _attach_repost_count(client: BilibiliClient, activity: EnrichedActivity) -> 
     item = fetch_dynamic_detail(client, activity.dynamic_id)
     if not item:
         return activity
-    repost = extract_repost_count_from_detail(item)
+    heat, from_reserve = extract_activity_heat(item, lottery_type=activity.lottery_type)
     return replace(
         activity,
-        repost_count=repost,
+        repost_count=heat,
         repost_fetched=True,
-        repost_zero_confirmed=repost == 0,
+        repost_zero_confirmed=heat == 0,
+        heat_from_reserve=from_reserve,
     )
+
+
+def build_skipped_charging(
+    *,
+    dynamic_id: str,
+    participation: ParticipationRecord | None = None,
+) -> EnrichedActivity:
+    activity = EnrichedActivity(
+        dynamic_id=dynamic_id,
+        source_url=opus_link(dynamic_id),
+        lottery_type="充电抽奖",
+        enriched_at=int(time.time()),
+        business_id=dynamic_id,
+        business_type=0,
+        draw_status="active",
+        lottery_time=None,
+        prizes=[],
+        participants=0,
+        conditions={},
+        winners=None,
+        platform_participated=None,
+        reserve_reserved=None,
+        skipped=True,
+        skip_reason="充电专属抽奖，不参与",
+    )
+    return apply_p2_to_activity(activity, participation=participation)
 
 
 def apply_p2_to_activity(
@@ -309,6 +338,19 @@ def enrich_activity(
     lottery_type: LotteryType,
     participation: ParticipationRecord | None = None,
 ) -> EnrichedActivity:
+    if lottery_type == "充电抽奖":
+        return _attach_repost_count(
+            client,
+            build_skipped_charging(dynamic_id=dynamic_id, participation=participation),
+        )
+
+    detail_item = fetch_dynamic_detail(client, dynamic_id)
+    if is_upower_dynamic(detail_item):
+        return _attach_repost_count(
+            client,
+            build_skipped_charging(dynamic_id=dynamic_id, participation=participation),
+        )
+
     if lottery_type == "互动抽奖":
         resolved = fetch_notice_for_interact(client, dynamic_id)
     elif lottery_type == "预约抽奖":
@@ -392,6 +434,7 @@ def activity_from_cache(dynamic_id: str, lottery_type: LotteryType, cached: dict
             repost_count=int(cached.get("repost_count") or 0),
             repost_fetched=bool(cached.get("repost_fetched")),
             repost_zero_confirmed=bool(cached.get("repost_zero_confirmed")),
+            heat_from_reserve=bool(cached.get("heat_from_reserve")),
             conditions=dict(cached.get("conditions") or {}),
             winners=winners,
             platform_participated=cached.get("platform_participated"),

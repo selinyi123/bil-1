@@ -13,7 +13,7 @@ from typing import Callable
 from src.bilibili_client import BilibiliClient
 from src.classify_links import CLASSIFIED_OUTPUT_PATH
 from src.enrich_cache import get_cached_entry, merge_cache, remove_cache_entries
-from src.lottery_api import extract_repost_count_from_detail, fetch_dynamic_detail, reset_detail_api_state
+from src.lottery_api import extract_activity_heat, fetch_dynamic_detail, reset_detail_api_state
 from src.lottery_enricher import (
     EnrichedActivity,
     activity_from_cache,
@@ -21,13 +21,17 @@ from src.lottery_enricher import (
     enrich_activity,
     enrich_forward_activity,
 )
-from src.lottery_classifier import LotteryType
+from src.lottery_classifier import CLASSIFIABLE_TYPES, LotteryType, PARTICIPATABLE_TYPES
 from src.participation_store import ParticipationRecord, load_participations
 from src.sources.common import load_previous_output
 from src.state_store import DATA_DIR
+from src.app_logging import get_logger
+
+logger = get_logger("fetch")
 
 ENRICHED_OUTPUT_PATH = DATA_DIR / "output" / "enriched_latest.json"
 DEFAULT_WORKERS = 12
+DEFAULT_HEAT_WORKERS = 6
 DEFAULT_SAVE_EVERY = 10
 ENRICH_RETRY_ATTEMPTS = 3
 EnrichProgressCallback = Callable[[int, int, str], None]
@@ -70,6 +74,9 @@ def _build_user_status_counts(activities: list[EnrichedActivity]) -> dict[str, i
 
 
 def _cache_missing_repost_count(cached: dict) -> bool:
+    lottery_type = cached.get("lottery_type")
+    if lottery_type == "预约抽奖" and not cached.get("heat_from_reserve"):
+        return True
     if not cached.get("repost_fetched"):
         return True
     if int(cached.get("repost_count") or 0) == 0 and not cached.get("repost_zero_confirmed"):
@@ -91,17 +98,31 @@ def count_missing_repost(existing_by_id: dict[str, dict]) -> int:
     return sum(1 for item in existing_by_id.values() if _cache_missing_repost_count(item))
 
 
+def count_pending_heat_backfill() -> int:
+    """已有活动但尚未确认热度（转发数）的数量。"""
+    existing = _load_existing_activities()
+    count = 0
+    for cached in existing.values():
+        lottery_type = cached.get("lottery_type")
+        if lottery_type not in PARTICIPATABLE_TYPES:
+            continue
+        if _cache_missing_repost_count(cached):
+            count += 1
+    return count
+
+
 def load_existing_activity_map() -> dict[str, dict]:
     return _load_existing_activities()
 
 
-def _fetch_repost_count(dynamic_id: str) -> tuple[int, bool]:
-    """返回 (转发数, 是否成功获取详情)。"""
+def _fetch_repost_count(dynamic_id: str, lottery_type: LotteryType) -> tuple[int, bool, bool]:
+    """返回 (热度, 是否成功, 是否来自预约人数)。"""
     with BilibiliClient() as client:
         item = fetch_dynamic_detail(client, dynamic_id)
         if not item:
-            return 0, False
-        return extract_repost_count_from_detail(item), True
+            return 0, False, False
+        heat, from_reserve = extract_activity_heat(item, lottery_type=lottery_type)
+        return heat, True, from_reserve
 
 
 def _backfill_repost_one(
@@ -114,7 +135,7 @@ def _backfill_repost_one(
     last_error: Exception | None = None
     for attempt in range(ENRICH_RETRY_ATTEMPTS):
         try:
-            repost, ok = _fetch_repost_count(dynamic_id)
+            repost, ok, from_reserve = _fetch_repost_count(dynamic_id, lottery_type)
             if not ok:
                 return None
             restored = _restore_existing_activity(
@@ -130,6 +151,7 @@ def _backfill_repost_one(
                 repost_count=repost,
                 repost_fetched=True,
                 repost_zero_confirmed=repost == 0,
+                heat_from_reserve=from_reserve,
                 enriched_at=int(time.time()),
             )
         except Exception as exc:
@@ -167,7 +189,7 @@ def backfill_repost_counts(
     existing_by_id = _load_existing_activities()
     stale_reset = _reset_stale_heat_flags(existing_by_id)
     if stale_reset:
-        print(f"重置 {stale_reset} 条错误热度标记", file=sys.stderr, flush=True)
+        logger.info("重置 %s 条错误热度标记", stale_reset)
     classified = load_previous_output(CLASSIFIED_OUTPUT_PATH) or {}
     classified_items = classified.get("activities") or []
     participations = load_participations()
@@ -176,7 +198,7 @@ def backfill_repost_counts(
     tasks: list[tuple[str, LotteryType, dict]] = []
     for dynamic_id, cached in existing_by_id.items():
         lottery_type = cached.get("lottery_type")
-        if lottery_type not in ("转发抽奖", "预约抽奖", "互动抽奖"):
+        if lottery_type not in PARTICIPATABLE_TYPES:
             continue
         if _cache_missing_repost_count(cached):
             tasks.append((dynamic_id, lottery_type, cached))
@@ -232,7 +254,7 @@ def backfill_repost_counts(
                 activity = future.result()
             except Exception as exc:
                 failed += 1
-                print(f"热度补全失败 {dynamic_id}: {exc}", file=sys.stderr, flush=True)
+                logger.warning("热度补全失败 %s: %s", dynamic_id, exc)
                 continue
             if activity:
                 with activities_lock:
@@ -351,7 +373,7 @@ def _merge_activities(
     for item in classified_items:
         dynamic_id = str(item.get("dynamic_id") or "")
         lottery_type = item.get("lottery_type")
-        if not dynamic_id or lottery_type not in ("转发抽奖", "预约抽奖", "互动抽奖"):
+        if not dynamic_id or lottery_type not in CLASSIFIABLE_TYPES:
             continue
         seen.add(dynamic_id)
 
@@ -397,7 +419,7 @@ def count_pending_enrich() -> int:
             continue
         dynamic_id = str(item.get("dynamic_id") or "")
         lottery_type = item.get("lottery_type")
-        if not dynamic_id or lottery_type not in ("转发抽奖", "预约抽奖", "互动抽奖"):
+        if not dynamic_id or lottery_type not in CLASSIFIABLE_TYPES:
             continue
         if dynamic_id not in existing:
             count += 1
@@ -415,7 +437,7 @@ def load_cached_enrich_result() -> EnrichResult:
             continue
         dynamic_id = str(item.get("dynamic_id") or "")
         lottery_type = item.get("lottery_type")
-        if not dynamic_id or lottery_type not in ("转发抽奖", "预约抽奖", "互动抽奖"):
+        if not dynamic_id or lottery_type not in CLASSIFIABLE_TYPES:
             continue
         restored = activity_from_cache(dynamic_id, lottery_type, item)
         if restored:
@@ -451,6 +473,10 @@ def fetch_activity_info(
 
     classified_items = classified.get("activities") or []
     existing_by_id = _load_existing_activities()
+    if backfill_heat and not force:
+        stale_reset = _reset_stale_heat_flags(existing_by_id)
+        if stale_reset:
+            logger.info("重置 %s 条错误热度标记", stale_reset)
     initial_existing_ids = set(existing_by_id.keys())
     participations = load_participations()
     reset_detail_api_state()
@@ -467,7 +493,7 @@ def fetch_activity_info(
     for item in classified_items:
         dynamic_id = str(item.get("dynamic_id") or "")
         lottery_type = item.get("lottery_type")
-        if not dynamic_id or lottery_type not in ("转发抽奖", "预约抽奖", "互动抽奖"):
+        if not dynamic_id or lottery_type not in CLASSIFIABLE_TYPES:
             continue
         if not force and dynamic_id in existing_by_id:
             if backfill_heat and _cache_missing_repost_count(existing_by_id[dynamic_id]):
@@ -482,7 +508,7 @@ def fetch_activity_info(
             if dynamic_id in task_ids:
                 continue
             lottery_type = cached.get("lottery_type")
-            if lottery_type not in ("转发抽奖", "预约抽奖", "互动抽奖"):
+            if lottery_type not in CLASSIFIABLE_TYPES:
                 continue
             if _cache_missing_repost_count(cached):
                 backfill_tasks.append((dynamic_id, lottery_type, cached))
@@ -549,7 +575,7 @@ def fetch_activity_info(
                 try:
                     activity = future.result()
                 except Exception as exc:
-                    print(f"活动 {dynamic_id} 拉取失败: {exc}", file=sys.stderr, flush=True)
+                    logger.warning("活动 %s 拉取失败: %s", dynamic_id, exc)
                     continue
                 should_flush = False
                 with activities_lock:
@@ -565,7 +591,7 @@ def fetch_activity_info(
                     if on_progress and (processed % 5 == 0 or processed == enrich_total):
                         on_progress(processed, enrich_total, f"正在拉取活动详情 ({processed}/{enrich_total})")
                     if processed % 20 == 0 or processed == enrich_total:
-                        print(f"信息拉取进度: {processed}/{enrich_total}", file=sys.stderr, flush=True)
+                        logger.info("信息拉取进度: %s/%s", processed, enrich_total)
                     should_flush = save_every > 0 and processed % save_every == 0
 
                 if should_flush:
@@ -598,7 +624,7 @@ def fetch_activity_info(
                 try:
                     activity = future.result()
                 except Exception as exc:
-                    print(f"热度补全失败 {dynamic_id}: {exc}", file=sys.stderr, flush=True)
+                    logger.warning("热度补全失败 %s: %s", dynamic_id, exc)
                     continue
                 if activity:
                     with activities_lock:
@@ -612,6 +638,8 @@ def fetch_activity_info(
                     )
                 if save_every > 0 and backfill_processed % save_every == 0:
                     flush_partial(complete=False)
+
+        flush_partial(complete=True)
 
     if not new_tasks and not backfill_tasks:
         if on_progress:

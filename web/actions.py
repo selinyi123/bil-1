@@ -11,11 +11,14 @@ from src.bilibili_client import BilibiliClient
 from src.bilibili_login import login_with_qrcode
 from src.classify_links import classify_merged_links, save_classified
 from src.fetch_activity_info import (
+    backfill_repost_counts,
     count_pending_enrich,
+    count_pending_heat_backfill,
     fetch_activity_info,
     load_cached_enrich_result,
     save_enriched,
 )
+from src.app_logging import get_logger
 from src.user_settings import get_participate_text
 from src.merge_links import merge_activity_links, save_merged
 from src.participation import participate_activity
@@ -33,6 +36,10 @@ from src.sources.common import is_valid_dynamic_id
 from web.activity_service import invalidate_activity_cache, lookup_lottery_type
 from web.user_messages import format_participation_log, sanitize_log
 
+logger = get_logger("job")
+
+HEAT_BACKFILL_WORKERS = 6
+
 
 def _append_log_detail(log_lines: list[str], detail: str) -> None:
     cleaned = sanitize_log(detail.strip())
@@ -48,7 +55,7 @@ DS_HANDLERS: list[tuple[str, Callable[..., Any], Callable[[Any], Any]]] = [
     ("DS-6", ds6_nuomi.check_update, ds6_nuomi.save_result),
 ]
 
-REFRESH_ALL_TOTAL = len(DS_HANDLERS) + 4
+REFRESH_ALL_TOTAL = len(DS_HANDLERS) + 5
 ProgressCallback = Callable[..., None]
 
 
@@ -229,7 +236,7 @@ def run_action(
         enrich_step = len(DS_HANDLERS) + 3
         pending_enrich = count_pending_enrich()
         if classify_result.new_count > 0 or pending_enrich > 0:
-            enrich_message = f"正在拉取 {pending_enrich} 条新活动详情…"
+            enrich_message = f"正在拉取 {pending_enrich} 条新活动详情…" if pending_enrich > 0 else "正在拉取新活动详情…"
             progress(step=enrich_step, total=REFRESH_ALL_TOTAL, message=enrich_message)
 
             def on_enrich_progress(done: int, total: int, phase: str) -> None:
@@ -279,7 +286,61 @@ def run_action(
             )
             log_lines.append(enrich_line)
 
-        status_step = len(DS_HANDLERS) + 4
+        heat_step = len(DS_HANDLERS) + 4
+        pending_heat = count_pending_heat_backfill()
+        heat_backfilled = 0
+        heat_failed = 0
+        if pending_heat > 0:
+            logger.info("开始补全活动热度：待处理 %s 条", pending_heat)
+            progress(
+                step=heat_step,
+                total=REFRESH_ALL_TOTAL,
+                message=f"正在检查并补全 {pending_heat} 条缺失热度的活动…",
+            )
+
+            def on_heat_progress(done: int, total: int, phase: str) -> None:
+                if total > 0:
+                    message = f"{phase} ({done}/{total})"
+                else:
+                    message = phase
+                progress(step=heat_step, total=REFRESH_ALL_TOTAL, message=message)
+
+            heat_result, heat_log = _capture_output(
+                backfill_repost_counts,
+                workers=HEAT_BACKFILL_WORKERS,
+                on_progress=on_heat_progress,
+            )
+            if heat_log.strip():
+                _append_log_detail(log_lines, heat_log)
+            heat_backfilled = int(heat_result.get("updated") or 0)
+            heat_failed = int(heat_result.get("failed") or 0)
+            remaining_heat = count_pending_heat_backfill()
+            heat_line = (
+                f"=== 热度补全 ===\n"
+                f"待补全 {pending_heat} 条，成功 {heat_backfilled} 条"
+                + (f"，失败 {heat_failed} 条" if heat_failed > 0 else "")
+                + (f"，仍缺失 {remaining_heat} 条" if remaining_heat > 0 else "")
+            )
+            log_lines.append(heat_line)
+            invalidate_activity_cache()
+            enrich_result = load_cached_enrich_result()
+            progress(
+                step=heat_step,
+                total=REFRESH_ALL_TOTAL,
+                message=(
+                    f"热度补全完成：更新 {heat_backfilled} 条"
+                    + (f"，仍缺失 {remaining_heat} 条" if remaining_heat > 0 else "")
+                ),
+                log_append=heat_line,
+            )
+        else:
+            progress(
+                step=heat_step,
+                total=REFRESH_ALL_TOTAL,
+                message="活动热度数据已完整，跳过补全…",
+            )
+
+        status_step = len(DS_HANDLERS) + 5
         progress(step=status_step, total=REFRESH_ALL_TOTAL, message="正在刷新活动状态…")
         status_result = refresh_activity_statuses()
         invalidate_activity_cache()
@@ -301,9 +362,17 @@ def run_action(
             f"新增链接 {merge_result.new_count} 条",
             f"新分类 {classify_result.new_count} 条",
             f"新拉取详情 {enrich_result.new_count} 条",
+            f"补全热度 {heat_backfilled} 条",
             f"当前共 {enrich_result.total_count} 条活动记录",
             f"标记结束 {status_result['ended_marked']} 条",
         ]
+
+        logger.info(
+            "一键更新完成：新链接 %s，新详情 %s，热度补全 %s",
+            merge_result.new_count,
+            enrich_result.new_count,
+            heat_backfilled,
+        )
 
         return {
             "ok": True,
@@ -354,9 +423,14 @@ def run_action(
         dynamic_id = str(params.get("dynamic_id") or "").strip()
         if not is_valid_dynamic_id(dynamic_id):
             raise ValueError("活动 ID 无效")
-        lottery_type = lookup_lottery_type(dynamic_id)
+        try:
+            lottery_type = lookup_lottery_type(dynamic_id)
+        except RuntimeError as exc:
+            logger.warning("参与失败：未找到活动类型 %s — %s", dynamic_id, exc)
+            raise ValueError(f"未找到活动 {dynamic_id} 的类型信息，请先一键更新") from exc
         total_steps = 1 if lottery_type == "预约抽奖" else 5
         progress(step=0, total=total_steps, message="准备参与活动…")
+        logger.info("开始参与活动 %s (%s)", dynamic_id, lottery_type)
 
         def on_step(step: int, total: int, message: str, _action_name: str) -> None:
             progress(step=step, total=total, message=message, log_append=message)
@@ -374,8 +448,18 @@ def run_action(
                 )
                 return result.to_dict()
 
-        payload, _ = _capture_output(_participate)
+        try:
+            payload, _ = _capture_output(_participate)
+        except Exception as exc:
+            logger.exception("参与活动异常 %s", dynamic_id)
+            raise
         ok = payload.get("status") == "joined"
+        logger.info(
+            "参与活动结束 %s status=%s message=%s",
+            dynamic_id,
+            payload.get("status"),
+            payload.get("message"),
+        )
         action_log = format_participation_log(payload)
         return {
             "ok": ok,

@@ -15,7 +15,7 @@ SECTION_HEADING_RE = re.compile(
     r"^(?:#+\s*)?(?:【)?(充电抽奖|预约抽奖|互动抽奖|官方抽奖|非方?官方抽奖|转发抽奖)(?:】)?"
 )
 
-LotteryHint = Literal["转发抽奖", "预约抽奖", "互动抽奖"]
+LotteryHint = Literal["转发抽奖", "预约抽奖", "互动抽奖", "充电抽奖"]
 SECTION_TO_HINT: dict[str, LotteryHint] = {
     "转发抽奖": "转发抽奖",
     "预约抽奖": "预约抽奖",
@@ -23,7 +23,7 @@ SECTION_TO_HINT: dict[str, LotteryHint] = {
     "官方抽奖": "互动抽奖",
     "非官方抽奖": "转发抽奖",
     "非方官方抽奖": "转发抽奖",
-    "充电抽奖": "互动抽奖",
+    "充电抽奖": "充电抽奖",
 }
 
 

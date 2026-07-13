@@ -502,6 +502,10 @@ input {
   font-variant-numeric: tabular-nums;
 }
 
+.heat-pill-missing {
+  opacity: 0.55;
+}
+
 .main-shell {
   min-width: 0;
 }

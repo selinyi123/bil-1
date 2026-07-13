@@ -8,7 +8,10 @@ from typing import Literal
 from src.bilibili_client import BilibiliClient
 from src.sources.common import opus_link
 
-LotteryType = Literal["转发抽奖", "预约抽奖", "互动抽奖"]
+LotteryType = Literal["转发抽奖", "预约抽奖", "互动抽奖", "充电抽奖"]
+
+PARTICIPATABLE_TYPES: tuple[LotteryType, ...] = ("互动抽奖", "转发抽奖", "预约抽奖")
+CLASSIFIABLE_TYPES: tuple[LotteryType, ...] = ("转发抽奖", "预约抽奖", "互动抽奖", "充电抽奖")
 
 LOTTERY_NOTICE_URL = "https://api.vc.bilibili.com/lottery_svr/v1/lottery_svr/lottery_notice"
 DYNAMIC_DETAIL_URL = "https://api.bilibili.com/x/polymer/web-dynamic/v1/detail"
@@ -78,6 +81,13 @@ def _has_reserve_from_page(client: BilibiliClient, dynamic_id: str) -> bool:
     return bool(RESERVE_MARKER_RE.search(html))
 
 
+def _is_upower_lottery(additional: dict) -> bool:
+    return bool(
+        additional.get("upower_lottery")
+        or additional.get("type") == "ADDITIONAL_TYPE_UPOWER_LOTTERY"
+    )
+
+
 def classify_lottery_type(
     client: BilibiliClient,
     dynamic_id: str,
@@ -85,6 +95,13 @@ def classify_lottery_type(
     hint: LotteryType | None = None,
 ) -> LotteryType:
     """根据 B 站 API 特征判定抽奖类型（短路 + 分区提示加速）。"""
+    additional = _get_dynamic_additional(client, dynamic_id)
+    if additional and _is_upower_lottery(additional):
+        return "充电抽奖"
+
+    if hint == "充电抽奖":
+        return "充电抽奖"
+
     if _has_lottery_notice(client, dynamic_id, business_type=1):
         return "互动抽奖"
     if _has_lottery_notice(client, dynamic_id, business_type=12):
@@ -98,10 +115,7 @@ def classify_lottery_type(
             return "预约抽奖"
         return "预约抽奖"
 
-    additional = _get_dynamic_additional(client, dynamic_id)
     if additional:
-        if additional.get("upower_lottery") or additional.get("type") == "ADDITIONAL_TYPE_UPOWER_LOTTERY":
-            return "互动抽奖"
         if additional.get("reserve"):
             return "预约抽奖"
 
@@ -111,7 +125,7 @@ def classify_lottery_type(
     if _has_reserve_from_page(client, dynamic_id):
         return "预约抽奖"
 
-    if hint in ("转发抽奖", "预约抽奖", "互动抽奖"):
+    if hint in CLASSIFIABLE_TYPES:
         return hint
 
     return "转发抽奖"

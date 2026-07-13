@@ -25,6 +25,10 @@ from web.job_runner import runner
 from src.llm_client import test_llm_connection
 from src.fetch_activity_info import backfill_repost_counts
 from src.status_refresh import refresh_activity_statuses
+from src.app_logging import setup_logging, get_logger
+
+setup_logging(console=False)
+logger = get_logger("api")
 
 WEB_DIR = Path(__file__).resolve().parent
 STATIC_DIR = WEB_DIR / "static"

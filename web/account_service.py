@@ -5,10 +5,10 @@ from typing import Any
 
 from src.bilibili_client import BilibiliClient
 from src.bilibili_login import COOKIE_PATH
+from src.message_api import get_unread_summary
 
 NAV_URL = "https://api.bilibili.com/x/web-interface/nav"
 NAV_STAT_URL = "https://api.bilibili.com/x/web-interface/nav/stat"
-UNREAD_URL = "https://api.vc.bilibili.com/session_svr/v1/session_svr/single_unread"
 
 
 def _api_code(payload: dict[str, Any]) -> int:
@@ -50,6 +50,7 @@ def get_account_profile() -> dict[str, Any]:
         "following": None,
         "dynamic_count": None,
         "unread_messages": None,
+        "unread_at": None,
     }
     try:
         with BilibiliClient() as client:
@@ -71,7 +72,8 @@ def get_account_profile() -> dict[str, Any]:
                 "mid": mid,
                 "following": None,
                 "dynamic_count": None,
-                "unread_messages": None,
+                "unread_messages": 0,
+                "unread_at": 0,
             }
 
             try:
@@ -89,19 +91,13 @@ def get_account_profile() -> dict[str, Any]:
                 pass
 
             try:
-                unread_payload = client.request_json(
-                    UNREAD_URL,
-                    params={"build": 0, "mobi_app": "web"},
-                    referer="https://www.bilibili.com",
-                    retries=1,
-                )
-                if _api_code(unread_payload) == 0:
-                    unread = unread_payload.get("data") or {}
-                    profile["unread_messages"] = int(unread.get("follow_unread") or 0) + int(
-                        unread.get("unfollow_unread") or 0
-                    )
+                unread_summary = get_unread_summary(client)
+                profile["unread_messages"] = unread_summary.get("dm", 0)
+                profile["unread_at"] = unread_summary.get("at", 0)
+                profile["unread_by_type"] = unread_summary
             except RuntimeError:
-                pass
+                profile["unread_messages"] = profile.get("unread_messages", 0)
+                profile["unread_at"] = profile.get("unread_at", 0)
 
             return profile
     except RuntimeError as exc:

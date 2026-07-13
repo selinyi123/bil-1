@@ -7,6 +7,7 @@ from typing import Any
 
 from src.activity_status import resolve_activity_status
 from src.fetch_activity_info import ENRICHED_OUTPUT_PATH
+from src.lottery_classifier import PARTICIPATABLE_TYPES
 from src.lottery_time import format_timestamp, lottery_time_text
 from src.merge_links import MERGED_OUTPUT_PATH
 from src.participation_store import ParticipationRecord, load_participations
@@ -88,7 +89,7 @@ def _prize_summary(item: dict) -> str:
 
 def _resolve_activity_status(item: dict, participation: ParticipationRecord | None) -> str:
     lottery_type = item.get("lottery_type")
-    if lottery_type not in ("互动抽奖", "转发抽奖", "预约抽奖"):
+    if lottery_type not in PARTICIPATABLE_TYPES:
         return str(item.get("activity_status") or "未参加")
     status, _ = resolve_activity_status(
         draw_status=item.get("draw_status") or "active",
@@ -149,6 +150,11 @@ def _normalize_activity(
     last_action = action_map.get(dynamic_id)
     activity_status = _resolve_activity_status(item, participation)
     can_participate = _can_participate(item, activity_status)
+    repost_count = int(item.get("repost_count") or 0)
+    repost_fetched = bool(item.get("repost_fetched"))
+    heat_missing = not repost_fetched or (
+        repost_count == 0 and not item.get("repost_zero_confirmed")
+    )
     return {
         "dynamic_id": dynamic_id,
         "source_url": str(item.get("source_url") or ""),
@@ -157,7 +163,9 @@ def _normalize_activity(
         "activity_status": activity_status,
         "draw_status": str(item.get("draw_status") or ""),
         "prize": _prize_summary(item),
-        "repost_count": int(item.get("repost_count") or 0),
+        "repost_count": repost_count,
+        "repost_fetched": repost_fetched,
+        "heat_missing": heat_missing,
         "lottery_time": lottery_time_text(item) or "—",
         "skipped": bool(item.get("skipped")),
         "skip_reason": str(item.get("skip_reason") or ""),
@@ -287,6 +295,6 @@ def lookup_lottery_type(dynamic_id: str) -> str:
     for item in enriched.get("activities") or []:
         if str(item.get("dynamic_id") or "") == dynamic_id:
             lottery_type = str(item.get("lottery_type") or "")
-            if lottery_type in ("互动抽奖", "转发抽奖", "预约抽奖"):
+            if lottery_type in PARTICIPATABLE_TYPES:
                 return lottery_type
     raise RuntimeError(f"未找到活动 {dynamic_id} 的类型信息")

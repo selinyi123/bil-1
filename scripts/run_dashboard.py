@@ -10,6 +10,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from src.app_logging import setup_logging
+
 
 def main() -> int:
     try:
@@ -21,6 +23,8 @@ def main() -> int:
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
+    log_path = setup_logging()
+    print(f"日志文件: {log_path}")
     print("控制台地址: http://127.0.0.1:8787")
     uvicorn.run("web.app:app", host="127.0.0.1", port=8787, reload=False)
     return 0
