@@ -43,7 +43,7 @@ def friendly_error(exc: BaseException) -> str:
 
     msg = str(exc).strip()
     if isinstance(exc, ValueError):
-        if "缺少 dynamic_id" in msg:
+        if "缺少 dynamic_id" in msg or "活动 ID 无效" in msg:
             return "未找到活动信息，请刷新页面后重试"
         if msg.startswith("未知操作"):
             return "暂不支持该操作"

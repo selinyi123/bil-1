@@ -6,6 +6,8 @@ from pathlib import Path
 
 from src.llm_config import LLM_ENV_PATH, LlmConfig, _parse_env_file
 
+from urllib.parse import urlparse
+
 DEFAULT_LLM_BASE_URL = "https://www.autodl.art/api/v1"
 DEFAULT_LLM_MODEL_NAME = "DeepSeek-V4-Flash"
 
@@ -76,7 +78,14 @@ def is_llm_ready() -> bool:
 
 def _resolve_base_url(raw: str) -> str:
     cleaned = (raw or "").strip().rstrip("/")
-    return cleaned or DEFAULT_LLM_BASE_URL
+    if not cleaned:
+        return DEFAULT_LLM_BASE_URL
+    parsed = urlparse(cleaned)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError("LLM 接口地址仅支持 http 或 https")
+    if not parsed.netloc:
+        raise ValueError("LLM 接口地址格式无效")
+    return cleaned
 
 
 def get_llm_config() -> LlmConfig | None:
@@ -114,7 +123,11 @@ def build_llm_config_from_inputs(
     current = _read_values()
     next_key = (api_key or "").strip() or current.get("LLM_API_KEY", "").strip()
     if base_url is not None:
-        next_base = (base_url or "").strip().rstrip("/")
+        next_base_raw = (base_url or "").strip().rstrip("/")
+        if next_base_raw:
+            next_base = _resolve_base_url(next_base_raw)
+        else:
+            next_base = current.get("LLM_BASE_URL", "").strip().rstrip("/")
     else:
         next_base = current.get("LLM_BASE_URL", "").strip().rstrip("/")
     next_model = (model_name or "").strip() or current.get("LLM_MODEL_NAME", "").strip()
@@ -146,7 +159,11 @@ def save_llm_settings(
     next_key = (api_key or "").strip()
     if not next_key:
         next_key = current.get("LLM_API_KEY", "").strip()
-    next_base = (base_url or "").strip().rstrip("/")
+    next_base_raw = (base_url or "").strip().rstrip("/")
+    if next_base_raw:
+        next_base = _resolve_base_url(next_base_raw)
+    else:
+        next_base = current.get("LLM_BASE_URL", "").strip().rstrip("/")
     next_model = (model_name or "").strip()
     if not next_key:
         raise ValueError("请填写 LLM API Key")
@@ -168,7 +185,11 @@ def save_llm_settings(
 def mark_llm_test_passed(*, api_key: str, base_url: str, model_name: str) -> dict[str, str | bool]:
     values = _read_values()
     next_key = (api_key or "").strip()
-    next_base = (base_url or "").strip().rstrip("/")
+    next_base_raw = (base_url or "").strip().rstrip("/")
+    if next_base_raw:
+        next_base = _resolve_base_url(next_base_raw)
+    else:
+        next_base = values.get("LLM_BASE_URL", "").strip().rstrip("/")
     next_model = (model_name or "").strip()
     if not next_key or not next_model:
         raise ValueError("请先保存完整的 LLM 配置")

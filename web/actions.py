@@ -22,6 +22,7 @@ from src.participation import participate_activity
 from src.status_refresh import refresh_activity_statuses
 from src.sources import ds1_xiaozhuli, ds2_fanqiao, ds3_gongjuren, ds4_junming, ds5_hudong
 
+from src.sources.common import is_valid_dynamic_id
 from web.activity_service import invalidate_activity_cache, lookup_lottery_type
 from web.user_messages import format_participation_log, sanitize_log
 
@@ -333,8 +334,8 @@ def run_action(
 
     if action == "participate":
         dynamic_id = str(params.get("dynamic_id") or "").strip()
-        if not dynamic_id:
-            raise ValueError("缺少 dynamic_id")
+        if not is_valid_dynamic_id(dynamic_id):
+            raise ValueError("活动 ID 无效")
         lottery_type = lookup_lottery_type(dynamic_id)
         total_steps = 1 if lottery_type == "预约抽奖" else 5
         progress(step=0, total=total_steps, message="准备参与活动…")

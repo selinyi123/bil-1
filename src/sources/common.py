@@ -64,6 +64,11 @@ def normalize_activity_url(url: str) -> str | None:
     return None
 
 
+def is_valid_dynamic_id(dynamic_id: str) -> bool:
+    """校验 B 站动态 ID 格式（18–19 位数字）。"""
+    return bool(VALID_OPUS_ID_RE.fullmatch(str(dynamic_id or "").strip()))
+
+
 def load_previous_output(path: Path) -> dict | None:
     if not path.exists():
         return None
@@ -78,10 +83,12 @@ def save_result(path: Path, result: CheckResult) -> Path | None:
         return None
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
+    tmp_path = path.with_suffix(".json.tmp")
+    tmp_path.write_text(
         json.dumps(result.to_dict(), ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    tmp_path.replace(path)
     return path
 
 

@@ -115,8 +115,10 @@ def merge_activity_links() -> MergeResult:
 
 def save_merged(result: MergeResult) -> Path:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    MERGED_OUTPUT_PATH.write_text(
+    tmp_path = MERGED_OUTPUT_PATH.with_suffix(".json.tmp")
+    tmp_path.write_text(
         json.dumps(result.to_dict(), ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    tmp_path.replace(MERGED_OUTPUT_PATH)
     return MERGED_OUTPUT_PATH

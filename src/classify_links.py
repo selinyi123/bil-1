@@ -286,8 +286,10 @@ def _merge_classified(
 
 def save_classified(result: ClassifyResult) -> Path:
     CLASSIFIED_OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CLASSIFIED_OUTPUT_PATH.write_text(
+    tmp_path = CLASSIFIED_OUTPUT_PATH.with_suffix(".json.tmp")
+    tmp_path.write_text(
         json.dumps(result.to_dict(), ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    tmp_path.replace(CLASSIFIED_OUTPUT_PATH)
     return CLASSIFIED_OUTPUT_PATH

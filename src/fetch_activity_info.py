@@ -640,8 +640,10 @@ def mark_enriched_joined(dynamic_id: str) -> Path | None:
 
 def save_enriched(result: EnrichResult) -> Path:
     ENRICHED_OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    ENRICHED_OUTPUT_PATH.write_text(
+    tmp_path = ENRICHED_OUTPUT_PATH.with_suffix(".json.tmp")
+    tmp_path.write_text(
         json.dumps(result.to_dict(), ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    tmp_path.replace(ENRICHED_OUTPUT_PATH)
     return ENRICHED_OUTPUT_PATH

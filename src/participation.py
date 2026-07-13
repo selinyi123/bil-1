@@ -110,7 +110,9 @@ def _persist_result(
         mark_enriched_joined(result.dynamic_id)
 
 
-def _is_notice_active(notice: dict) -> tuple[bool, str]:
+def _is_notice_active(notice: dict | None) -> tuple[bool, str]:
+    if not notice:
+        return False, "未找到抽奖信息"
     if int(notice.get("status") or 0) != 0:
         return False, "抽奖已结束或不可参与"
     lottery_time = int(notice.get("lottery_time") or 0)
@@ -134,7 +136,20 @@ def participate_five_action_lottery(
     sender_uid: int | None = None
 
     if lottery_type == "互动抽奖":
-        notice, _, _ = fetch_notice_for_interact(client, dynamic_id)
+        resolved = fetch_notice_for_interact(client, dynamic_id)
+        if not resolved:
+            result = ParticipateResult(
+                dynamic_id=dynamic_id,
+                lottery_type=lottery_type,
+                status="failed",
+                message="未找到互动抽奖信息",
+                action_text=text,
+                actions=[],
+                context_snapshot={},
+            )
+            _persist_result(result=result, persist=persist, dry_run=dry_run)
+            return result
+        notice, _, _ = resolved
         active, reason = _is_notice_active(notice)
         if not active:
             result = ParticipateResult(

@@ -18,6 +18,7 @@ from src.llm_settings import (
     save_llm_settings,
 )
 from src.user_settings import DEFAULT_PARTICIPATE_TEXT, get_participate_text, set_participate_text
+from src.sources.common import is_valid_dynamic_id
 from web.account_service import clear_login_cookie, get_account_profile, has_login_cookie
 from web.activity_service import get_summary, invalidate_activity_cache, list_activities
 from web.job_runner import runner
@@ -29,6 +30,8 @@ WEB_DIR = Path(__file__).resolve().parent
 STATIC_DIR = WEB_DIR / "static"
 
 app = FastAPI(title="bilibili_binggo 控制台", version="1.0.0")
+
+ALLOWED_JOB_ACTIONS = frozenset({"login", "refresh_all", "refresh_status", "participate"})
 
 
 class JobRequest(BaseModel):
@@ -119,6 +122,8 @@ def api_backfill_heat() -> dict[str, Any]:
 
 @app.post("/api/jobs")
 def api_start_job(request: JobRequest) -> dict[str, Any]:
+    if request.action not in ALLOWED_JOB_ACTIONS:
+        raise HTTPException(status_code=400, detail="暂不支持该操作")
     account = get_account_profile()
     if request.action in {"participate", "refresh_all", "refresh_status"}:
         if not account.get("logged_in"):
@@ -126,7 +131,12 @@ def api_start_job(request: JobRequest) -> dict[str, Any]:
     if request.action in {"participate", "refresh_all"}:
         if not is_llm_ready():
             raise HTTPException(status_code=401, detail="请先保存 LLM 配置并通过连接测试后再执行此操作")
-    if not runner.start(request.action, request.params or {}):
+    params = request.params or {}
+    if request.action == "participate":
+        dynamic_id = str(params.get("dynamic_id") or "").strip()
+        if not is_valid_dynamic_id(dynamic_id):
+            raise HTTPException(status_code=400, detail="活动 ID 无效")
+    if not runner.start(request.action, params):
         raise HTTPException(status_code=409, detail="已有任务正在运行")
     return {"ok": True, "job": runner.get_status().to_dict()}
 
