@@ -229,10 +229,3 @@ MIT
 </picture>
 <!-- star-history:end -->
 
-图表由仓库内静态 SVG 展示，通过 GitHub Actions 定期重新生成（见 `.github/workflows/star-history.yml`）。
-
-- **定时刷新**：每 6 小时自动跑一次
-- **有人 Star 时**：`watch` 事件会立即触发更新
-- **手动刷新**：仓库 → Actions → Star History → Run workflow
-
-若图表长时间不变化，请到 Actions 页查看是否失败。常见原因是 GitHub API 限流（`403 rate limit`）。可在仓库 Settings → Secrets 添加 `STAR_HISTORY_TOKEN`（只需 `public_repo` 只读权限的 PAT）后重试。
