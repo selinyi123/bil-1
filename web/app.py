@@ -18,10 +18,20 @@ from src.llm_settings import (
     mark_llm_test_passed,
     save_llm_settings,
 )
-from src.user_settings import DEFAULT_PARTICIPATE_TEXT, get_participate_text, set_participate_text
+from src.user_settings import (
+    DEFAULT_PARTICIPATE_FALLBACK_TEXT,
+    DEFAULT_PARTICIPATE_TEXT,
+    DEFAULT_PARTICIPATE_TEXT_MODE,
+    get_participate_fallback_text,
+    get_participate_text,
+    get_participate_text_mode,
+    set_participate_fallback_text,
+    set_participate_text,
+    set_participate_text_mode,
+)
 from src.sources.common import is_valid_dynamic_id
-from web.account_service import ack_at_unread_notice, clear_login_cookie, get_account_profile
-from web.activity_service import get_summary, invalidate_activity_cache, list_activities
+from web.account_service import ack_at_unread_notice, clear_login_cookie, get_account_extras, get_account_profile
+from web.activity_service import get_summary, invalidate_activity_cache, list_activities, summarize_triple_participate_targets
 from web.job_runner import runner
 from src.llm_client import test_llm_connection
 from src.fetch_activity_info import backfill_repost_counts
@@ -36,7 +46,7 @@ STATIC_DIR = WEB_DIR / "static"
 
 app = FastAPI(title="bilibili_binggo 控制台", version="1.0.0")
 
-ALLOWED_JOB_ACTIONS = frozenset({"login", "refresh_all", "refresh_status", "participate"})
+ALLOWED_JOB_ACTIONS = frozenset({"login", "refresh_all", "refresh_status", "participate", "participate_triple"})
 
 
 class JobRequest(BaseModel):
@@ -45,7 +55,9 @@ class JobRequest(BaseModel):
 
 
 class ParticipateTextRequest(BaseModel):
-    participate_text: str = Field(default="", max_length=233)
+    participate_text: str | None = Field(default=None, max_length=233)
+    participate_fallback_text: str | None = Field(default=None, max_length=233)
+    participate_text_mode: str | None = None
 
 
 class LlmSettingsRequest(BaseModel):
@@ -61,6 +73,14 @@ class AckAtUnreadRequest(BaseModel):
 @app.get("/api/account")
 def api_account() -> dict[str, Any]:
     return get_account_profile()
+
+
+@app.get("/api/account/extras")
+def api_account_extras() -> dict[str, Any]:
+    try:
+        return get_account_extras()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
 
 
 @app.post("/api/account/ack-at-unread")
@@ -102,6 +122,27 @@ def api_activities(
         order=order,
         page=page,
         page_size=page_size,
+    )
+
+
+@app.get("/api/activities/triple-targets")
+def api_triple_participate_targets(
+    status: str | None = Query(default=None),
+    type: str | None = Query(default=None, alias="type"),
+    draw: str | None = Query(default=None),
+    draw_window: str | None = Query(default=None),
+    q: str | None = Query(default=None),
+    sort: str | None = Query(default=None),
+    order: str | None = Query(default=None),
+) -> dict[str, Any]:
+    return summarize_triple_participate_targets(
+        status=status,
+        lottery_type=type,
+        draw=draw,
+        draw_window=draw_window,
+        q=q,
+        sort=sort,
+        order=order,
     )
 
 
@@ -157,10 +198,10 @@ def api_start_job(request: JobRequest) -> dict[str, Any]:
     if request.action not in ALLOWED_JOB_ACTIONS:
         raise HTTPException(status_code=400, detail="暂不支持该操作")
     account = get_account_profile()
-    if request.action in {"participate", "refresh_all", "refresh_status"}:
+    if request.action in {"participate", "participate_triple", "refresh_all", "refresh_status"}:
         if not account.get("logged_in"):
             raise HTTPException(status_code=401, detail="请先扫码登录后再执行此操作")
-    if request.action in {"participate", "refresh_all"}:
+    if request.action in {"participate", "participate_triple", "refresh_all"}:
         if not is_llm_ready():
             raise HTTPException(status_code=401, detail="请先保存 LLM 配置并通过连接测试后再执行此操作")
     params = request.params or {}
@@ -192,6 +233,10 @@ def _build_settings_payload() -> dict[str, Any]:
     return {
         "participate_text": get_participate_text(),
         "default_participate_text": DEFAULT_PARTICIPATE_TEXT,
+        "participate_fallback_text": get_participate_fallback_text(),
+        "default_participate_fallback_text": DEFAULT_PARTICIPATE_FALLBACK_TEXT,
+        "participate_text_mode": get_participate_text_mode(),
+        "default_participate_text_mode": DEFAULT_PARTICIPATE_TEXT_MODE,
         "llm": llm,
         "setup_complete": logged_in and bool(llm.get("ready")),
     }
@@ -271,15 +316,41 @@ def api_update_llm_settings(request: LlmSettingsRequest) -> dict[str, Any]:
 
 
 @app.put("/api/settings/participate-text")
-def api_update_participate_text(request: ParticipateTextRequest) -> dict[str, str]:
+@app.post("/api/settings/participate-text")
+def api_update_participate_text(request: ParticipateTextRequest) -> dict[str, Any]:
     account = get_account_profile()
     if not account.get("logged_in"):
         raise HTTPException(status_code=401, detail="请先扫码登录后再修改参与文案")
+    payload: dict[str, Any] = {}
     try:
-        value = set_participate_text(request.participate_text)
+        if request.participate_text_mode is not None:
+            payload["participate_text_mode"] = set_participate_text_mode(request.participate_text_mode)
+        if request.participate_text is not None:
+            payload["participate_text"] = set_participate_text(request.participate_text)
+        if request.participate_fallback_text is not None:
+            payload["participate_fallback_text"] = set_participate_fallback_text(
+                request.participate_fallback_text
+            )
     except OSError as exc:
         raise HTTPException(status_code=500, detail=f"保存参与文案失败：{exc}") from exc
-    return {"participate_text": value}
+    if not payload:
+        raise HTTPException(status_code=400, detail="未提供可保存的设置")
+    return payload
+
+
+@app.put("/api/settings/participate-text-mode")
+@app.post("/api/settings/participate-text-mode")
+def api_update_participate_text_mode(request: ParticipateTextRequest) -> dict[str, str]:
+    account = get_account_profile()
+    if not account.get("logged_in"):
+        raise HTTPException(status_code=401, detail="请先扫码登录后再修改参与文案模式")
+    if request.participate_text_mode is None:
+        raise HTTPException(status_code=400, detail="缺少 participate_text_mode")
+    try:
+        value = set_participate_text_mode(request.participate_text_mode)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"保存参与文案模式失败：{exc}") from exc
+    return {"participate_text_mode": value}
 
 
 @app.post("/api/logout")
@@ -302,6 +373,24 @@ def api_login_qrcode() -> FileResponse:
             "Cache-Control": "no-store, no-cache, must-revalidate",
             "Pragma": "no-cache",
         },
+    )
+
+
+@app.get("/app.js")
+def api_app_js() -> FileResponse:
+    return FileResponse(
+        STATIC_DIR / "app.js",
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
+    )
+
+
+@app.get("/styles.css")
+def api_styles_css() -> FileResponse:
+    return FileResponse(
+        STATIC_DIR / "styles.css",
+        media_type="text/css",
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
     )
 
 

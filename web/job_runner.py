@@ -148,7 +148,10 @@ class JobRunner:
                 cancel_event=cancel_event,
             )
             with self._lock:
-                self._status.state = "success" if payload.get("ok", True) else "error"
+                action_ok = payload.get("ok")
+                if action_ok is None and action in {"participate", "participate_triple"}:
+                    action_ok = False
+                self._status.state = "success" if action_ok else "error"
                 self._status.finished_at = int(time.time())
                 self._status.message = str(payload.get("message") or "完成")
                 if payload.get("log"):

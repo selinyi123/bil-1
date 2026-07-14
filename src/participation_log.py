@@ -68,6 +68,9 @@ def _comment_failure_optional(action: ActionResult) -> bool:
 
 def participation_succeeded(actions: list[ActionResult], *, lottery_type: str) -> bool:
     action_map = {item.action: item for item in actions}
+    if lottery_type == "预约抽奖":
+        reserve = action_map.get("reserve")
+        return bool(reserve and reserve.ok)
     if lottery_type == "互动抽奖":
         required = INTERACT_REQUIRED_ACTIONS
     else:

@@ -2,11 +2,16 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Literal
 
 from src.user_data import get_active_uid, user_dir
 
 DEFAULT_PARTICIPATE_TEXT = "好运连连！"
+DEFAULT_PARTICIPATE_FALLBACK_TEXT = "好运连连！"
 MAX_PARTICIPATE_TEXT_LEN = 233
+ParticipateTextMode = Literal["custom", "random_comment"]
+DEFAULT_PARTICIPATE_TEXT_MODE: ParticipateTextMode = "custom"
+VALID_PARTICIPATE_TEXT_MODES = frozenset({"custom", "random_comment"})
 GLOBAL_SETTINGS_PATH = Path(__file__).resolve().parents[1] / "config" / "participate_settings.json"
 
 
@@ -54,5 +59,49 @@ def set_participate_text(text: str) -> str:
     value = normalize_participate_text(text)
     data = _load_raw()
     data["participate_text"] = value
+    _save_raw(data)
+    return value
+
+
+def normalize_participate_fallback_text(text: str) -> str:
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return DEFAULT_PARTICIPATE_FALLBACK_TEXT
+    return cleaned[:MAX_PARTICIPATE_TEXT_LEN]
+
+
+def get_participate_fallback_text() -> str:
+    raw = _load_raw().get("participate_fallback_text")
+    if isinstance(raw, str) and raw.strip():
+        return normalize_participate_fallback_text(raw)
+    return DEFAULT_PARTICIPATE_FALLBACK_TEXT
+
+
+def set_participate_fallback_text(text: str) -> str:
+    value = normalize_participate_fallback_text(text)
+    data = _load_raw()
+    data["participate_fallback_text"] = value
+    _save_raw(data)
+    return value
+
+
+def normalize_participate_text_mode(mode: str) -> ParticipateTextMode:
+    value = (mode or "").strip().lower()
+    if value in VALID_PARTICIPATE_TEXT_MODES:
+        return value  # type: ignore[return-value]
+    return DEFAULT_PARTICIPATE_TEXT_MODE
+
+
+def get_participate_text_mode() -> ParticipateTextMode:
+    raw = _load_raw().get("participate_text_mode")
+    if isinstance(raw, str):
+        return normalize_participate_text_mode(raw)
+    return DEFAULT_PARTICIPATE_TEXT_MODE
+
+
+def set_participate_text_mode(mode: str) -> ParticipateTextMode:
+    value = normalize_participate_text_mode(mode)
+    data = _load_raw()
+    data["participate_text_mode"] = value
     _save_raw(data)
     return value

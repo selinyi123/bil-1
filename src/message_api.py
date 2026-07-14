@@ -44,7 +44,7 @@ def _require_ok(payload: dict[str, Any], *, action: str) -> dict[str, Any]:
     return data
 
 
-def get_unread_summary(client: BilibiliClient) -> dict[str, int]:
+def get_unread_summary(client: BilibiliClient, *, retries: int = 1) -> dict[str, int]:
     """返回五类未读数。"""
     summary = {msg_type.value: 0 for msg_type in MessageType}
 
@@ -52,7 +52,7 @@ def get_unread_summary(client: BilibiliClient) -> dict[str, int]:
         SINGLE_UNREAD_URL,
         params={**_WEB_PARAMS, "unread_type": 0, "show_unfollow_list": 1},
         referer=MESSAGE_REFERER,
-        retries=1,
+        retries=retries,
     )
     if _api_code(dm_payload) == 0:
         dm_data = dm_payload.get("data") or {}
@@ -64,7 +64,7 @@ def get_unread_summary(client: BilibiliClient) -> dict[str, int]:
         MSGFEED_UNREAD_URL,
         params=_WEB_PARAMS,
         referer=MESSAGE_REFERER,
-        retries=1,
+        retries=retries,
     )
     if _api_code(feed_payload) == 0:
         feed_data = feed_payload.get("data") or {}

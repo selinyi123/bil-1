@@ -19,9 +19,11 @@ from src.fetch_activity_info import (
     save_enriched,
 )
 from src.app_logging import get_logger
-from src.user_settings import get_participate_text
 from src.merge_links import merge_activity_links, save_merged
+from src.lottery_classifier import PARTICIPATABLE_TYPES
+from src.lottery_actions import ActionResult
 from src.participation import participate_activity
+from src.participation_log import participation_succeeded
 from src.status_refresh import refresh_activity_statuses
 from src.sources import (
     ds1_xiaozhuli,
@@ -33,12 +35,116 @@ from src.sources import (
 )
 
 from src.sources.common import is_valid_dynamic_id
-from web.activity_service import invalidate_activity_cache, lookup_lottery_type
-from web.user_messages import format_participation_log, sanitize_log
+from web.activity_service import (
+    build_triple_progress_plan,
+    invalidate_activity_cache,
+    lookup_lottery_type,
+    pick_triple_participate_targets,
+    participate_step_budget,
+    resolve_participate_lottery_type,
+)
+from src.participation_store import set_participation
+from web.user_messages import format_participation_log, friendly_error, sanitize_log
 
 logger = get_logger("job")
 
 HEAT_BACKFILL_WORKERS = 6
+PARTICIPATE_TRIPLE_WORKERS = 1
+
+
+def _deserialize_payload_actions(payload: dict[str, Any]) -> list[ActionResult]:
+    actions: list[ActionResult] = []
+    for item in payload.get("actions") or []:
+        if not isinstance(item, dict):
+            continue
+        action_name = str(item.get("action") or "").strip()
+        if not action_name:
+            continue
+        actions.append(
+            ActionResult(
+                action=action_name,  # type: ignore[arg-type]
+                ok=bool(item.get("ok")),
+                detail=str(item.get("detail") or ""),
+            )
+        )
+    return actions
+
+
+def _payload_joined_success(payload: dict[str, Any]) -> bool:
+    if str(payload.get("status") or "") != "joined":
+        return False
+    lottery_type = str(payload.get("lottery_type") or "")
+    actions = _deserialize_payload_actions(payload)
+    if not actions:
+        return False
+    if lottery_type in ("互动抽奖", "转发抽奖", "预约抽奖"):
+        return participation_succeeded(actions, lottery_type=lottery_type)
+    return all(item.ok for item in actions)
+
+
+def _normalize_participate_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(payload)
+    dynamic_id = str(normalized.get("dynamic_id") or "")
+    if normalized.get("status") == "joined" and not _payload_joined_success(normalized):
+        normalized["status"] = "failed"
+        normalized["message"] = str(normalized.get("message") or "参与未完成")
+        if dynamic_id:
+            set_participation(dynamic_id, "未参加")
+    return normalized
+
+
+def _participate_dynamic_payload(
+    dynamic_id: str,
+    on_step: Callable[[int, int, str, str], None],
+    *,
+    lottery_type_hint: str | None = None,
+) -> dict[str, Any]:
+    resolved_type = resolve_participate_lottery_type(dynamic_id, hint=lottery_type_hint)
+    payload, _detail = _capture_output(
+        _execute_participate,
+        dynamic_id,
+        on_step,
+        lottery_type=resolved_type,
+    )
+    return _normalize_participate_payload(payload)
+
+
+def _list_filter_params(params: dict[str, Any]) -> dict[str, str | None]:
+    return {
+        "status": str(params.get("status") or "").strip() or None,
+        "lottery_type": str(params.get("lottery_type") or params.get("type") or "").strip() or None,
+        "draw": str(params.get("draw") or "").strip() or None,
+        "draw_window": str(params.get("draw_window") or "").strip() or None,
+        "q": str(params.get("q") or "").strip() or None,
+        "sort": str(params.get("sort") or "").strip() or None,
+        "order": str(params.get("order") or "").strip() or None,
+    }
+
+
+def _execute_participate(
+    dynamic_id: str,
+    on_step: Callable[[int, int, str, str], None],
+    *,
+    lottery_type: str | None = None,
+) -> dict[str, Any]:
+    dynamic_id = str(dynamic_id or "").strip()
+    if not is_valid_dynamic_id(dynamic_id):
+        raise ValueError(f"活动 ID 无效: {dynamic_id}")
+    resolved_type = str(lottery_type or "").strip()
+    if resolved_type not in PARTICIPATABLE_TYPES:
+        resolved_type = resolve_participate_lottery_type(dynamic_id)
+    with BilibiliClient() as client:
+        result = participate_activity(
+            client,
+            dynamic_id=dynamic_id,
+            lottery_type=resolved_type,
+            dry_run=False,
+            persist=True,
+            on_step=on_step,
+        )
+        payload = result.to_dict()
+        payload["lottery_type"] = resolved_type
+        return payload
 
 
 def _append_log_detail(log_lines: list[str], detail: str) -> None:
@@ -459,32 +565,19 @@ def run_action(
         except RuntimeError as exc:
             logger.warning("参与失败：未找到活动类型 %s — %s", dynamic_id, exc)
             raise ValueError(f"未找到活动 {dynamic_id} 的类型信息，请先一键更新") from exc
-        total_steps = 1 if lottery_type == "预约抽奖" else 5
+        total_steps = participate_step_budget(lottery_type, dynamic_id=dynamic_id)
         progress(step=0, total=total_steps, message="准备参与活动…")
         logger.info("开始参与活动 %s (%s)", dynamic_id, lottery_type)
 
         def on_step(step: int, total: int, message: str, _action_name: str) -> None:
             progress(step=step, total=total, message=message, log_append=message)
 
-        def _participate() -> dict:
-            with BilibiliClient() as client:
-                result = participate_activity(
-                    client,
-                    dynamic_id=dynamic_id,
-                    lottery_type=lottery_type,
-                    action_text=get_participate_text(),
-                    dry_run=False,
-                    persist=True,
-                    on_step=on_step,
-                )
-                return result.to_dict()
-
         try:
-            payload, _ = _capture_output(_participate)
+            payload = _participate_dynamic_payload(dynamic_id, on_step, lottery_type_hint=lottery_type)
         except Exception as exc:
             logger.exception("参与活动异常 %s", dynamic_id)
             raise
-        ok = payload.get("status") == "joined"
+        ok = _payload_joined_success(payload)
         logger.info(
             "参与活动结束 %s status=%s message=%s",
             dynamic_id,
@@ -492,11 +585,197 @@ def run_action(
             payload.get("message"),
         )
         action_log = format_participation_log(payload)
+        invalidate_activity_cache()
         return {
             "ok": ok,
             "message": payload.get("message") or ("参与成功" if ok else "参与未完成，请查看步骤结果"),
             "result": payload,
             "log": action_log,
+        }
+
+    if action == "participate_triple":
+        if cancel_event and cancel_event.is_set():
+            raise ValueError("任务已取消")
+
+        filters = _list_filter_params(params)
+        targets = pick_triple_participate_targets(**filters)
+        if not targets:
+            raise ValueError("当前列表没有可参与的未参加活动")
+
+        target_ids = [str(item.get("dynamic_id") or "") for item in targets]
+        total_steps, progress_plan = build_triple_progress_plan(targets)
+        if total_steps <= 0:
+            raise ValueError("当前列表没有可参与的未参加活动")
+
+        logger.info("三连参与开始：%s", ", ".join(target_ids))
+        progress(
+            step=0,
+            total=total_steps,
+            message=f"准备三连参与 {len(targets)} 个活动…",
+            log_append=f"目标活动：{', '.join(target_ids)}",
+        )
+
+        progress_lock = threading.Lock()
+        task_states: dict[str, str] = {dynamic_id: "排队中…" for dynamic_id in target_ids}
+        task_step_progress: dict[str, int] = {dynamic_id: 0 for dynamic_id in target_ids}
+
+        def _overall_progress_step() -> int:
+            total_done = 0
+            for dynamic_id in target_ids:
+                plan_entry = progress_plan.get(dynamic_id)
+                if not plan_entry:
+                    continue
+                _, budget = plan_entry
+                total_done += min(task_step_progress.get(dynamic_id, 0), budget)
+            return min(total_done, total_steps)
+
+        def _emit_triple_progress(*, log_append: str | None = None) -> None:
+            progress(
+                step=_overall_progress_step(),
+                total=total_steps,
+                message=_progress_snapshot(),
+                log_append=log_append,
+            )
+
+        def _progress_snapshot() -> str:
+            return " | ".join(f"{dynamic_id[-6:]}: {task_states[dynamic_id]}" for dynamic_id in target_ids)
+
+        def _report_task_progress(dynamic_id: str, step: int, _total: int, message: str) -> None:
+            if cancel_event and cancel_event.is_set():
+                return
+            if dynamic_id not in progress_plan:
+                return
+            with progress_lock:
+                task_states[dynamic_id] = message
+                task_step_progress[dynamic_id] = max(task_step_progress.get(dynamic_id, 0), step)
+            _emit_triple_progress(log_append=f"{dynamic_id}: {message}")
+
+        def _mark_task_done(dynamic_id: str, message: str) -> None:
+            plan_entry = progress_plan.get(dynamic_id)
+            if not plan_entry:
+                return
+            _, budget = plan_entry
+            with progress_lock:
+                task_states[dynamic_id] = message
+                task_step_progress[dynamic_id] = budget
+            _emit_triple_progress()
+
+        def _run_one(target: dict[str, Any]) -> dict[str, Any]:
+            dynamic_id = str(target.get("dynamic_id") or "")
+            title = str(target.get("activity_title") or dynamic_id)
+
+            if cancel_event and cancel_event.is_set():
+                return {
+                    "dynamic_id": dynamic_id,
+                    "activity_title": title,
+                    "lottery_type": str(target.get("lottery_type") or ""),
+                    "payload": {
+                        "dynamic_id": dynamic_id,
+                        "lottery_type": str(target.get("lottery_type") or ""),
+                        "status": "failed",
+                        "message": "已取消",
+                        "actions": [],
+                    },
+                    "detail": "",
+                }
+
+            target_lottery_type = str(target.get("lottery_type") or "").strip() or None
+
+            def on_step(step: int, total: int, message: str, _action_name: str) -> None:
+                _report_task_progress(dynamic_id, step, total, message)
+
+            try:
+                payload = _participate_dynamic_payload(
+                    dynamic_id,
+                    on_step,
+                    lottery_type_hint=target_lottery_type,
+                )
+                detail = ""
+            except Exception as exc:
+                logger.exception("三连参与异常 %s", dynamic_id)
+                payload = {
+                    "dynamic_id": dynamic_id,
+                    "lottery_type": target_lottery_type or "",
+                    "status": "failed",
+                    "message": friendly_error(exc),
+                    "actions": [],
+                }
+                detail = ""
+            with progress_lock:
+                task_states[dynamic_id] = str(payload.get("message") or "完成")
+            _mark_task_done(dynamic_id, str(payload.get("message") or "完成"))
+            return {
+                "dynamic_id": dynamic_id,
+                "activity_title": title,
+                "lottery_type": str(payload.get("lottery_type") or target.get("lottery_type") or ""),
+                "payload": payload,
+                "detail": detail,
+            }
+
+        results: list[dict[str, Any]] = []
+        for target in targets:
+            if cancel_event and cancel_event.is_set():
+                break
+            results.append(_run_one(target))
+
+        results.sort(key=lambda item: target_ids.index(item["dynamic_id"]))
+        joined_count = sum(1 for item in results if _payload_joined_success(item["payload"]))
+        skipped_count = sum(
+            1 for item in results if str(item["payload"].get("status") or "") == "skipped"
+        )
+        failed_count = len(results) - joined_count - skipped_count
+        log_blocks = [format_participation_log(item["payload"]) for item in results]
+        for item in results:
+            if item.get("detail"):
+                _append_log_detail(log_blocks, item["detail"])
+
+        invalidate_activity_cache()
+        cancelled = bool(cancel_event and cancel_event.is_set())
+        if cancelled:
+            message = "三连参与已取消"
+            ok = False
+        elif joined_count == len(results):
+            message = f"三连参与完成：{joined_count} 个活动全部成功"
+            ok = True
+        elif joined_count > 0:
+            message = (
+                f"三连参与结束：成功 {joined_count} 个"
+                + (f"，失败 {failed_count} 个" if failed_count else "")
+                + (f"，跳过 {skipped_count} 个" if skipped_count else "")
+            )
+            ok = False
+        else:
+            message = "三连参与未完成，请查看各活动步骤结果"
+            ok = False
+
+        progress(step=total_steps, total=total_steps, message=message)
+        logger.info(
+            "三连参与结束 joined=%s failed=%s skipped=%s cancelled=%s ids=%s",
+            joined_count,
+            failed_count,
+            skipped_count,
+            cancelled,
+            target_ids,
+        )
+        return {
+            "ok": ok,
+            "message": message,
+            "result": {
+                "targets": [
+                    {
+                        "dynamic_id": item["dynamic_id"],
+                        "activity_title": item["activity_title"],
+                        "lottery_type": item["lottery_type"],
+                    }
+                    for item in results
+                ],
+                "items": [item["payload"] for item in results],
+                "joined": joined_count,
+                "failed": failed_count,
+                "skipped": skipped_count,
+                "cancelled": cancelled,
+            },
+            "log": sanitize_log("\n\n".join(log_blocks).strip()),
         }
 
     raise ValueError(f"未知操作: {action}")

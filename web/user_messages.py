@@ -19,10 +19,29 @@ JOB_ACTION_LABELS: dict[str, str] = {
     "refresh_all": "一键更新活动链接",
     "refresh_status": "刷新任务状态",
     "participate": "参与活动",
+    "participate_triple": "三连参与",
 }
 
 _PATH_PATTERN = re.compile(r"[A-Za-z]:\\[^\s\"']+")
 _UNIX_PATH_PATTERN = re.compile(r"(?<!\w)/(?:[\w.-]+/)+[\w.-]+\.(?:py|json|txt|png)")
+
+
+def friendly_network_error(message: str) -> str:
+    lowered = message.lower()
+    markers = (
+        "handshake",
+        "timed out",
+        "timeout",
+        "connecttimeout",
+        "connecterror",
+        "ssl",
+        "network",
+        "网络请求失败",
+        "connection",
+    )
+    if any(marker in lowered for marker in markers):
+        return "无法连接 B 站服务器，请检查网络、代理或 DNS 后点击「刷新账号」"
+    return message.strip() or "网络异常，请稍后重试"
 
 
 def friendly_error(exc: BaseException) -> str:
@@ -51,9 +70,11 @@ def friendly_error(exc: BaseException) -> str:
             return "暂不支持该操作"
 
     if _looks_like_internal_error(msg):
-        return "操作失败，请稍后重试"
+        return friendly_network_error(msg) if any(
+            token in msg.lower() for token in ("handshake", "timeout", "ssl", "connect", "网络")
+        ) else "操作失败，请稍后重试"
 
-    return msg or "操作失败，请稍后重试"
+    return friendly_network_error(msg) if "网络请求失败" in msg else (msg or "操作失败，请稍后重试")
 
 
 def _looks_like_internal_error(message: str) -> bool:

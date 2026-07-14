@@ -46,6 +46,21 @@
       </div>
     </div>
   </div>
+  <div class="job-result-banner" id="job-result-banner" hidden>
+    <div class="job-result-shell">
+      <div class="job-result-head">
+        <div class="job-result-icon" id="job-result-icon" aria-hidden="true">✓</div>
+        <div class="job-result-copy">
+          <p class="job-result-eyebrow" id="job-result-eyebrow">参与结果</p>
+          <h2 class="job-result-title" id="job-result-title">任务完成</h2>
+          <p class="job-result-summary" id="job-result-summary"></p>
+        </div>
+        <button type="button" class="job-result-close" id="job-result-close" aria-label="关闭">×</button>
+      </div>
+      <div class="job-result-body" id="job-result-body"></div>
+      <div class="job-result-progress" id="job-result-progress" aria-hidden="true"></div>
+    </div>
+  </div>
   <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
 
   <div class="qrcode-modal" id="qrcode-modal" hidden>
@@ -179,15 +194,26 @@
               <div class="participate-settings-head">
                 <div>
                   <h2 class="section-title">参与文案</h2>
-                  <p class="section-desc participate-settings-desc">用于转发与评论，建议格式：<strong>@好友昵称 + 一句话</strong>。例如 <code>@小明 好运连连！</code></p>
+                  <p class="section-desc participate-settings-desc" id="participate-settings-desc">用于转发与评论，建议格式：<strong>@好友昵称 + 一句话</strong>。例如 <code>@小明 好运连连！</code></p>
                 </div>
                 <button type="button" class="btn btn-secondary btn-pill" id="reset-participate-text">恢复默认</button>
               </div>
-              <label class="field-label" for="participate-text-input">当前文案</label>
-              <textarea id="participate-text-input" class="textarea" rows="2" maxlength="233" placeholder="好运连连！"></textarea>
-              <div class="participate-settings-foot">
-                <span class="caption" id="participate-text-hint">最多 233 字</span>
-                <button type="button" class="btn btn-primary btn-pill" id="save-participate-text">保存文案</button>
+              <div class="participate-mode-bar">
+                <div class="participate-mode-group" role="group" aria-label="文案来源">
+                  <button type="button" class="participate-mode-pill active" data-participate-mode="custom" aria-pressed="true">自定义文案</button>
+                  <button type="button" class="participate-mode-pill" data-participate-mode="random_comment" aria-pressed="false">随机借用评论</button>
+                </div>
+              </div>
+              <p class="participate-mode-note" id="participate-random-note" hidden>
+                参与时拉取活动评论，跳过前 5 条后从第 6～65 条中随机抽取一条作为转发与评论内容；若评论不足，自动使用下方兜底文案。
+              </p>
+              <div class="participate-text-fields" id="participate-text-fields">
+                <label class="field-label" for="participate-text-input" id="participate-text-label">当前文案</label>
+                <textarea id="participate-text-input" class="textarea" rows="2" maxlength="233" placeholder="好运连连！"></textarea>
+                <div class="participate-settings-foot">
+                  <span class="caption" id="participate-text-hint">最多 233 字</span>
+                  <button type="button" class="btn btn-primary btn-pill" id="save-participate-text">保存文案</button>
+                </div>
               </div>
             </article>
 
@@ -284,6 +310,23 @@
               <p class="section-desc">未参加且已过期的活动会自动从列表隐藏，本地历史记录仍会保留。</p>
               <button class="btn btn-secondary" id="refresh-status-btn">刷新任务状态</button>
             </div>
+            <div class="triple-participate-bar" id="triple-participate-bar">
+              <div class="triple-participate-lead">
+                <p class="triple-participate-eyebrow">快捷操作</p>
+                <h3 class="triple-participate-title">三连参与</h3>
+                <p class="triple-participate-desc" id="triple-participate-desc">顺序参与当前列表最前面的 3 个未参加活动（预约抽奖仅预约，互动/转发走对应步骤）</p>
+              </div>
+              <div class="triple-participate-targets" id="triple-participate-targets" aria-live="polite"></div>
+              <button
+                type="button"
+                class="btn btn-primary btn-pill triple-participate-btn"
+                id="triple-participate-btn"
+                data-action="participate_triple"
+                disabled
+              >
+                <span class="triple-participate-btn-label" id="triple-participate-btn-label">三连参与</span>
+              </button>
+            </div>
             <div class="filters">
               <input type="search" id="filter-q" class="input" placeholder="搜索奖品名称…" />
               <div class="filter-group" id="filter-type-group" role="group" aria-label="活动类型">
@@ -332,6 +375,6 @@
     </div>
   </div>
 
-  <script src="/app.js"></script>
+  <script src="/app.js?v=20260714c"></script>
 </body>
 </html>

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from unittest.mock import patch
+
 from fastapi.testclient import TestClient
 
 from web.app import app
@@ -10,6 +12,21 @@ client = TestClient(app)
 def test_reject_unknown_job_action() -> None:
     resp = client.post("/api/jobs", json={"action": "delete_all", "params": {}})
     assert resp.status_code == 400
+
+
+def test_participate_triple_job_accepts_filter_params() -> None:
+    with patch("web.app.runner.start", return_value=True) as start_mock:
+        resp = client.post(
+            "/api/jobs",
+            json={
+                "action": "participate_triple",
+                "params": {"status": "未参加", "sort": "heat", "order": "desc"},
+            },
+        )
+    assert resp.status_code in (200, 401)
+    if resp.status_code == 200:
+        start_mock.assert_called_once()
+        assert start_mock.call_args.args[0] == "participate_triple"
 
 
 def test_reject_invalid_dynamic_id() -> None:
@@ -25,6 +42,48 @@ def test_activities_pagination_bounds() -> None:
     assert resp.status_code == 200
     data = resp.json()
     assert data["page_size"] <= 100
+    assert "triple_targets" in data
+    assert "count" in data["triple_targets"]
+    assert "items" in data["triple_targets"]
+
+
+def test_activities_triple_targets_empty_for_joined_filter() -> None:
+    rows = [
+        {
+            "dynamic_id": "100000000000000001",
+            "activity_title": "已参加活动",
+            "lottery_type": "转发抽奖",
+            "activity_status": "已参加",
+            "draw_status": "active",
+            "can_participate": False,
+            "prize": "奖品",
+            "repost_count": 0,
+        }
+    ]
+    with patch("web.activity_service._filtered_activity_rows", return_value=rows):
+        resp = client.get("/api/activities", params={"status": "已参加"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["triple_targets"]["count"] == 0
+    assert data["triple_targets"]["items"] == []
+
+
+def test_settings_includes_participate_text_mode() -> None:
+    resp = client.get("/api/settings")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data.get("participate_text_mode") in {"custom", "random_comment"}
+    assert data.get("default_participate_fallback_text") == "好运连连！"
+
+
+def test_save_participate_fallback_text_when_logged_in() -> None:
+    with patch("web.app.get_account_profile", return_value={"logged_in": True}):
+        resp = client.put(
+            "/api/settings/participate-text",
+            json={"participate_fallback_text": "好运连连！"},
+        )
+    assert resp.status_code == 200
+    assert resp.json().get("participate_fallback_text") == "好运连连！"
 
 
 def test_login_qrcode_does_not_crash() -> None:
@@ -36,3 +95,8 @@ def test_api_account_does_not_crash() -> None:
     resp = client.get("/api/account")
     assert resp.status_code == 200
     assert "logged_in" in resp.json()
+
+
+def test_api_account_extras_requires_login_or_returns() -> None:
+    resp = client.get("/api/account/extras")
+    assert resp.status_code in (200, 401)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -8,9 +9,12 @@ from src.bilibili_client import BilibiliClient
 from src.bilibili_login import COOKIE_PATH
 from src.message_api import get_unread_summary
 from src.message_watch import BILIBILI_AT_NOTIFY_URL, acknowledge_at_unread, evaluate_at_unread_alert
+from web.user_messages import friendly_network_error
 
 NAV_URL = "https://api.bilibili.com/x/web-interface/nav"
 NAV_STAT_URL = "https://api.bilibili.com/x/web-interface/nav/stat"
+ACCOUNT_CLIENT_TIMEOUT = 8.0
+ACCOUNT_CACHE_PATH = Path(__file__).resolve().parents[1] / "data" / "cache" / "account_profile.json"
 
 
 def _api_code(payload: dict[str, Any]) -> int:
@@ -21,6 +25,72 @@ def _api_code(payload: dict[str, Any]) -> int:
         return int(code)
     except (TypeError, ValueError):
         return -1
+
+
+def _empty_profile(message: str = "") -> dict[str, Any]:
+    return {
+        "logged_in": False,
+        "expired": True,
+        "message": message,
+        "uname": "",
+        "face": "",
+        "mid": None,
+        "following": None,
+        "dynamic_count": None,
+        "unread_messages": None,
+        "unread_at": None,
+        "extras_loading": False,
+        "at_alert": _default_at_alert(),
+        "at_notify_url": BILIBILI_AT_NOTIFY_URL,
+    }
+
+
+def _default_at_alert(current: int = 0) -> dict[str, Any]:
+    return {
+        "increased": False,
+        "delta": 0,
+        "previous": 0,
+        "current": current,
+    }
+
+
+def _load_account_cache() -> dict[str, Any]:
+    if not ACCOUNT_CACHE_PATH.exists():
+        return {}
+    try:
+        payload = json.loads(ACCOUNT_CACHE_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _save_account_cache(profile: dict[str, Any]) -> None:
+    payload = {
+        key: profile.get(key)
+        for key in ("uname", "face", "mid", "following", "dynamic_count")
+        if profile.get(key) is not None
+    }
+    if not payload:
+        return
+    try:
+        ACCOUNT_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        ACCOUNT_CACHE_PATH.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _profile_from_network_error(exc: RuntimeError) -> dict[str, Any]:
+    profile = _empty_profile(friendly_network_error(str(exc)))
+    profile["cookie_saved"] = True
+    profile["network_error"] = True
+    uid = get_login_uid()
+    if uid:
+        profile["mid"] = uid
+    cached = _load_account_cache()
+    for key in ("uname", "face", "following", "dynamic_count", "mid"):
+        if cached.get(key) is not None:
+            profile[key] = cached[key]
+    return profile
 
 
 def clear_login_cookie() -> None:
@@ -45,27 +115,22 @@ def has_login_cookie() -> bool:
 
 
 def get_account_profile() -> dict[str, Any]:
-    empty = {
-        "logged_in": False,
-        "expired": True,
-        "message": "",
-        "uname": "",
-        "face": "",
-        "mid": None,
-        "following": None,
-        "dynamic_count": None,
-        "unread_messages": None,
-        "unread_at": None,
-    }
+    """快速返回账号基础信息，不阻塞在私信/@ 未读接口上。"""
+    if not has_login_cookie():
+        return _empty_profile("请使用侧边栏扫码登录")
+
     try:
-        with BilibiliClient() as client:
-            nav_payload = client.request_json(NAV_URL, referer="https://www.bilibili.com", retries=1)
+        with BilibiliClient(timeout=ACCOUNT_CLIENT_TIMEOUT, warmup=False) as client:
+            nav_payload = client.request_json(
+                NAV_URL,
+                referer="https://www.bilibili.com",
+                retries=0,
+            )
             code = _api_code(nav_payload)
             data = nav_payload.get("data") or {}
             is_login = bool(data.get("isLogin"))
             if code == -101 or not is_login:
-                empty["message"] = "Cookie 已过期，请重新扫码登录"
-                return empty
+                return _empty_profile("Cookie 已过期，请重新扫码登录")
 
             mid = int(data.get("mid") or 0) or None
             profile: dict[str, Any] = {
@@ -77,8 +142,11 @@ def get_account_profile() -> dict[str, Any]:
                 "mid": mid,
                 "following": None,
                 "dynamic_count": None,
-                "unread_messages": 0,
-                "unread_at": 0,
+                "unread_messages": None,
+                "unread_at": None,
+                "extras_loading": True,
+                "at_alert": _default_at_alert(),
+                "at_notify_url": BILIBILI_AT_NOTIFY_URL,
             }
 
             try:
@@ -86,7 +154,7 @@ def get_account_profile() -> dict[str, Any]:
                     NAV_STAT_URL,
                     params={"mid": mid} if mid else None,
                     referer="https://www.bilibili.com",
-                    retries=1,
+                    retries=0,
                 )
                 if _api_code(stat_payload) == 0:
                     stat = stat_payload.get("data") or {}
@@ -95,40 +163,45 @@ def get_account_profile() -> dict[str, Any]:
             except RuntimeError:
                 pass
 
-            try:
-                unread_summary = get_unread_summary(client)
-                profile["unread_messages"] = unread_summary.get("dm", 0)
-                profile["unread_at"] = unread_summary.get("at", 0)
-                profile["unread_by_type"] = unread_summary
-            except RuntimeError:
-                profile["unread_messages"] = profile.get("unread_messages", 0)
-                profile["unread_at"] = profile.get("unread_at", 0)
-
-            if mid:
-                try:
-                    alert = evaluate_at_unread_alert(mid, int(profile.get("unread_at") or 0))
-                    profile["at_alert"] = alert.to_dict()
-                except OSError:
-                    profile["at_alert"] = {
-                        "increased": False,
-                        "delta": 0,
-                        "previous": 0,
-                        "current": int(profile.get("unread_at") or 0),
-                    }
-                profile["at_notify_url"] = BILIBILI_AT_NOTIFY_URL
-            else:
-                profile["at_alert"] = {
-                    "increased": False,
-                    "delta": 0,
-                    "previous": 0,
-                    "current": int(profile.get("unread_at") or 0),
-                }
-                profile["at_notify_url"] = BILIBILI_AT_NOTIFY_URL
-
+            _save_account_cache(profile)
             return profile
     except RuntimeError as exc:
-        empty["message"] = str(exc)
-        return empty
+        if has_login_cookie():
+            return _profile_from_network_error(exc)
+        return _empty_profile(friendly_network_error(str(exc)))
+
+
+def get_account_extras() -> dict[str, Any]:
+    """补充私信/@ 未读与提醒，供前端后台加载。"""
+    if not has_login_cookie():
+        raise RuntimeError("未登录，请先扫码登录")
+
+    uid = get_login_uid()
+    extras: dict[str, Any] = {
+        "unread_messages": 0,
+        "unread_at": 0,
+        "extras_loading": False,
+        "at_alert": _default_at_alert(),
+        "at_notify_url": BILIBILI_AT_NOTIFY_URL,
+    }
+
+    try:
+        with BilibiliClient(timeout=ACCOUNT_CLIENT_TIMEOUT, warmup=False) as client:
+            unread_summary = get_unread_summary(client, retries=0)
+            extras["unread_messages"] = unread_summary.get("dm", 0)
+            extras["unread_at"] = unread_summary.get("at", 0)
+            extras["unread_by_type"] = unread_summary
+    except RuntimeError:
+        pass
+
+    if uid:
+        try:
+            alert = evaluate_at_unread_alert(uid, int(extras.get("unread_at") or 0))
+            extras["at_alert"] = alert.to_dict()
+        except OSError:
+            extras["at_alert"] = _default_at_alert(int(extras.get("unread_at") or 0))
+
+    return extras
 
 
 def ack_at_unread_notice(current: int) -> dict[str, Any]:

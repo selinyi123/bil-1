@@ -26,6 +26,7 @@ from src.participation_log import (
     serialize_actions,
 )
 from src.participation_store import set_participation
+from src.participate_text import resolve_participate_text_for_activity
 from src.fetch_activity_info import mark_enriched_joined
 from src.lottery_classifier import PARTICIPATABLE_TYPES
 from src.sources.common import is_valid_dynamic_id, opus_link
@@ -108,8 +109,9 @@ def _persist_result(
         )
     )
     if result.status == "joined":
-        set_participation(result.dynamic_id, "已参加")
-        mark_enriched_joined(result.dynamic_id)
+        if participation_succeeded(result.actions, lottery_type=result.lottery_type):
+            set_participation(result.dynamic_id, "已参加")
+            mark_enriched_joined(result.dynamic_id)
 
 
 def _safe_int(value: Any, default: int = 0) -> int:
@@ -130,17 +132,36 @@ def _is_notice_active(notice: dict | None) -> tuple[bool, str]:
     return True, ""
 
 
+def _resolve_action_text(
+    client: BilibiliClient,
+    *,
+    dynamic_id: str,
+    action_text: str | None,
+) -> tuple[str, dict[str, Any]]:
+    if action_text is None:
+        resolved = resolve_participate_text_for_activity(client, dynamic_id=dynamic_id)
+        return resolved.text, {
+            "participate_text_source": resolved.source,
+            "participate_text_pool_size": resolved.pool_size,
+        }
+    text = (action_text or DEFAULT_PARTICIPATE_TEXT).strip() or DEFAULT_PARTICIPATE_TEXT
+    return text, {
+        "participate_text_source": "custom",
+        "participate_text_pool_size": 0,
+    }
+
+
 def participate_five_action_lottery(
     client: BilibiliClient,
     *,
     dynamic_id: str,
     lottery_type: Literal["互动抽奖", "转发抽奖"],
-    action_text: str = DEFAULT_PARTICIPATE_TEXT,
+    action_text: str | None = None,
     dry_run: bool = False,
     persist: bool = True,
     on_step: Callable[[int, int, str, str], None] | None = None,
 ) -> ParticipateResult:
-    text = (action_text or DEFAULT_PARTICIPATE_TEXT).strip() or DEFAULT_PARTICIPATE_TEXT
+    text, text_meta = _resolve_action_text(client, dynamic_id=dynamic_id, action_text=action_text)
     notice: dict | None = None
     sender_uid: int | None = None
 
@@ -231,7 +252,10 @@ def participate_five_action_lottery(
         failed = [item for item in actions if not item.ok]
         message = failed[-1].detail if failed else "部分操作失败"
 
-    snapshot = _context_snapshot(context, extra=_notice_snapshot(notice))
+    snapshot = _context_snapshot(
+        context,
+        extra={**_notice_snapshot(notice), **text_meta},
+    )
     result = ParticipateResult(
         dynamic_id=dynamic_id,
         lottery_type=lottery_type,
@@ -298,11 +322,17 @@ def _reserve_click(
         data = payload.get("data") or {}
         final_status = int(data.get("final_btn_status") or 0)
         toast = str(data.get("toast") or "")
-        if final_status == RESERVE_RESERVED_STATUS or "预约成功" in toast or "已参与" in toast:
-            return ActionResult("reserve", True, toast or f"reserve_id={reserve_id}")
+        if final_status == RESERVE_RESERVED_STATUS:
+            return ActionResult("reserve", True, toast or "预约成功")
+        if "预约成功" in toast or "已参与" in toast:
+            return ActionResult("reserve", True, toast)
         if "取消" in toast:
             return ActionResult("reserve", False, toast or "预约操作被取消")
-        return ActionResult("reserve", True, toast or f"reserve_id={reserve_id}")
+        return ActionResult(
+            "reserve",
+            False,
+            toast or f"预约结果未确认（status={final_status}）",
+        )
     message = str(payload.get("message") or payload.get("msg") or "")
     if "已预约" in message:
         return ActionResult("reserve", True, "已预约")
@@ -402,7 +432,7 @@ def participate_activity(
     *,
     dynamic_id: str,
     lottery_type: str,
-    action_text: str = DEFAULT_PARTICIPATE_TEXT,
+    action_text: str | None = None,
     dry_run: bool = False,
     persist: bool = True,
     on_step: Callable[[int, int, str, str], None] | None = None,

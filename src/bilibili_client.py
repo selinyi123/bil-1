@@ -60,7 +60,7 @@ def wbi_sign(params: dict, img_key: str, sub_key: str) -> dict:
 
 
 class BilibiliClient:
-    def __init__(self, timeout: float = 25.0) -> None:
+    def __init__(self, timeout: float = 25.0, *, warmup: bool = True) -> None:
         headers = dict(DEFAULT_HEADERS)
         cookie = _load_cookie_string()
         if cookie:
@@ -73,7 +73,8 @@ class BilibiliClient:
         )
         self._img_key: str | None = None
         self._sub_key: str | None = None
-        self._warmup()
+        if warmup:
+            self._warmup()
 
     def _warmup(self) -> None:
         try:

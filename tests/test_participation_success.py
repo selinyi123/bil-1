@@ -56,6 +56,12 @@ def test_repost_requires_all_five_actions() -> None:
     assert participation_succeeded(actions, lottery_type="转发抽奖") is False
 
 
-def test_repost_succeeds_when_all_actions_ok() -> None:
+def test_reserve_lottery_only_requires_reserve_action() -> None:
+    actions = [_ok("reserve")]
+    assert participation_succeeded(actions, lottery_type="预约抽奖") is True
+    assert participation_succeeded(actions + [_fail("like", "fail")], lottery_type="预约抽奖") is True
+
+
+def test_reserve_lottery_fails_when_reserve_missing() -> None:
     actions = [_ok(name) for name in ("like", "follow", "favorite", "repost", "comment")]
-    assert participation_succeeded(actions, lottery_type="转发抽奖") is True
+    assert participation_succeeded(actions, lottery_type="预约抽奖") is False

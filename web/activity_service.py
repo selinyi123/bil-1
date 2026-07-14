@@ -8,6 +8,7 @@ from typing import Any
 from src.activity_status import resolve_activity_status
 from src.fetch_activity_info import ENRICHED_OUTPUT_PATH
 from src.lottery_classifier import PARTICIPATABLE_TYPES, is_charging_lottery_activity
+from src.sources.common import is_valid_dynamic_id
 from src.draw_reminder import matches_draw_window_filter, should_recommend_at_check
 from src.lottery_time import format_timestamp, lottery_time_text
 from src.merge_links import MERGED_OUTPUT_PATH
@@ -226,7 +227,42 @@ def get_summary() -> dict[str, Any]:
     }
 
 
-def list_activities(
+PARTICIPATE_TRIPLE_LIMIT = 3
+
+
+def participate_step_budget(lottery_type: str, *, dynamic_id: str | None = None) -> int:
+    """单次参与在进度条上占用的步数（预约抽奖仅 1 步）。"""
+    normalized = (lottery_type or "").strip()
+    if normalized == "预约抽奖":
+        return 1
+    if normalized in ("互动抽奖", "转发抽奖"):
+        return 5
+    if dynamic_id:
+        try:
+            resolved = lookup_lottery_type(dynamic_id)
+            return 1 if resolved == "预约抽奖" else 5
+        except RuntimeError:
+            pass
+    return 5
+
+
+def build_triple_progress_plan(
+    targets: list[dict[str, Any]],
+) -> tuple[int, dict[str, tuple[int, int]]]:
+    """返回总步数与各活动的 (offset, budget) 映射。"""
+    plan: dict[str, tuple[int, int]] = {}
+    offset = 0
+    for target in targets:
+        dynamic_id = str(target.get("dynamic_id") or "").strip()
+        if not dynamic_id:
+            continue
+        budget = participate_step_budget(str(target.get("lottery_type") or ""), dynamic_id=dynamic_id)
+        plan[dynamic_id] = (offset, budget)
+        offset += budget
+    return offset, plan
+
+
+def _filtered_activity_rows(
     *,
     status: str | None = None,
     lottery_type: str | None = None,
@@ -235,9 +271,7 @@ def list_activities(
     q: str | None = None,
     sort: str | None = None,
     order: str | None = None,
-    page: int = 1,
-    page_size: int = 30,
-) -> dict[str, Any]:
+) -> list[dict[str, Any]]:
     enriched = _load_json(ENRICHED_OUTPUT_PATH)
     action_map = _load_participation_actions()
     participations = load_participations()
@@ -261,7 +295,6 @@ def list_activities(
         row = _normalize_activity(item, action_map, participation)
         normalized.append(row)
 
-    # 开奖时间筛选仅针对已参加记录；与「状态」胶囊互斥（已开奖多为已结束，会与「已参加」冲突）
     if draw_window_value:
         status = None
     if status:
@@ -293,11 +326,128 @@ def list_activities(
     if sort_mode not in ("heat", "default"):
         sort_mode = "default"
     normalized.sort(key=lambda item: _sort_key(item, sort=sort_mode, order=sort_order))
+    return normalized
+
+
+def _pick_triple_from_rows(
+    rows: list[dict[str, Any]],
+    *,
+    limit: int = PARTICIPATE_TRIPLE_LIMIT,
+) -> list[dict[str, Any]]:
+    targets: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for row in rows:
+        if str(row.get("activity_status") or "") != "未参加":
+            continue
+        if not row.get("can_participate"):
+            continue
+        dynamic_id = str(row.get("dynamic_id") or "").strip()
+        if not is_valid_dynamic_id(dynamic_id) or dynamic_id in seen_ids:
+            continue
+        row_lottery_type = str(row.get("lottery_type") or "")
+        if row_lottery_type not in PARTICIPATABLE_TYPES:
+            continue
+        seen_ids.add(dynamic_id)
+        targets.append(row)
+        if len(targets) >= limit:
+            break
+    return targets
+
+
+def _format_triple_target_items(targets: list[dict[str, Any]]) -> list[dict[str, str]]:
+    return [
+        {
+            "dynamic_id": str(item.get("dynamic_id") or ""),
+            "activity_title": str(item.get("activity_title") or item.get("prize") or "未知活动"),
+            "lottery_type": str(item.get("lottery_type") or ""),
+            "activity_status": str(item.get("activity_status") or ""),
+        }
+        for item in targets
+    ]
+
+
+def build_triple_target_preview(targets: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "count": len(targets),
+        "limit": PARTICIPATE_TRIPLE_LIMIT,
+        "items": _format_triple_target_items(targets),
+    }
+
+
+def pick_triple_participate_targets(
+    *,
+    status: str | None = None,
+    lottery_type: str | None = None,
+    draw: str | None = None,
+    draw_window: str | None = None,
+    q: str | None = None,
+    sort: str | None = None,
+    order: str | None = None,
+    limit: int = PARTICIPATE_TRIPLE_LIMIT,
+) -> list[dict[str, Any]]:
+    """按当前列表筛选与排序，取最前面可参与的未参加活动（默认最多 3 个）。"""
+    rows = _filtered_activity_rows(
+        status=status,
+        lottery_type=lottery_type,
+        draw=draw,
+        draw_window=draw_window,
+        q=q,
+        sort=sort,
+        order=order,
+    )
+    return _pick_triple_from_rows(rows, limit=limit)
+
+
+def summarize_triple_participate_targets(
+    *,
+    status: str | None = None,
+    lottery_type: str | None = None,
+    draw: str | None = None,
+    draw_window: str | None = None,
+    q: str | None = None,
+    sort: str | None = None,
+    order: str | None = None,
+) -> dict[str, Any]:
+    """预览三连参与将命中的活动（供前端展示按钮状态）。"""
+    targets = pick_triple_participate_targets(
+        status=status,
+        lottery_type=lottery_type,
+        draw=draw,
+        draw_window=draw_window,
+        q=q,
+        sort=sort,
+        order=order,
+    )
+    return build_triple_target_preview(targets)
+
+
+def list_activities(
+    *,
+    status: str | None = None,
+    lottery_type: str | None = None,
+    draw: str | None = None,
+    draw_window: str | None = None,
+    q: str | None = None,
+    sort: str | None = None,
+    order: str | None = None,
+    page: int = 1,
+    page_size: int = 30,
+) -> dict[str, Any]:
+    normalized = _filtered_activity_rows(
+        status=status,
+        lottery_type=lottery_type,
+        draw=draw,
+        draw_window=draw_window,
+        q=q,
+        sort=sort,
+        order=order,
+    )
     total = len(normalized)
     page = max(1, page)
     page_size = max(1, min(page_size, 100))
     start = (page - 1) * page_size
     page_items = normalized[start : start + page_size]
+    triple_targets = build_triple_target_preview(_pick_triple_from_rows(normalized))
 
     return {
         "total": total,
@@ -305,6 +455,7 @@ def list_activities(
         "page_size": page_size,
         "pages": max(1, (total + page_size - 1) // page_size),
         "items": page_items,
+        "triple_targets": triple_targets,
     }
 
 
@@ -316,3 +467,14 @@ def lookup_lottery_type(dynamic_id: str) -> str:
             if lottery_type in PARTICIPATABLE_TYPES:
                 return lottery_type
     raise RuntimeError(f"未找到活动 {dynamic_id} 的类型信息")
+
+
+def resolve_participate_lottery_type(dynamic_id: str, *, hint: str | None = None) -> str:
+    """参与时以 enriched 缓存中的类型为准，列表类型仅作兜底。"""
+    hinted = str(hint or "").strip()
+    try:
+        return lookup_lottery_type(dynamic_id)
+    except RuntimeError:
+        if hinted in PARTICIPATABLE_TYPES:
+            return hinted
+        raise
