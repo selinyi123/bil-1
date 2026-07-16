@@ -55,7 +55,9 @@
 
 ### 第 4 步：拉取活动
 
-回到 **概览** 顶部 **「快捷操作」**，点 **「一键更新活动链接」**：
+新用户首次打开时，软件已内置一批**未结束的活跃活动**（约 400+ 条），可直接去「活动」页参与，无需等待全量同步。
+
+若要补充最新链接，在 **概览** 顶部 **「快捷操作」** 点 **「一键更新活动链接」**：
 
 - 程序会检查 6 个 UP 合集有没有新专栏 / 视频
 - 自动分类、拉取详情、写入本地活动库
@@ -166,6 +168,12 @@ python scripts/run_dashboard.py   # http://127.0.0.1:8787
 | [docs/cli.md](docs/cli.md) | 命令行脚本手册 |
 | [docs/pipeline-redesign.md](docs/pipeline-redesign.md) | 活动流水线设计 |
 | [packaging/windows/README.md](packaging/windows/README.md) | Windows 安装包本地构建 |
+
+更新内置活动种子（维护者）：
+
+```bash
+python scripts/export_activities_seed.py
+```
 
 ```bash
 pip install -r requirements-dev.txt

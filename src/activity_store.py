@@ -71,6 +71,29 @@ def _normalize_ended_by_time(item: dict, *, now: int | None = None) -> bool:
     return changed
 
 
+def _seed_activities_if_empty() -> bool:
+    """新用户首次启动：从安装包种子导入未结束活动。"""
+    if ACTIVITIES_OUTPUT_PATH.exists():
+        try:
+            existing = load_previous_output(ACTIVITIES_OUTPUT_PATH) or {}
+            if existing.get("activities"):
+                return False
+        except OSError:
+            return False
+    from src.activity_seed import read_seed_activities
+
+    activities = read_seed_activities()
+    if not activities:
+        return False
+    payload = _empty_payload()
+    payload["activities"] = activities
+    payload["updated_at"] = int(time.time())
+    payload["seeded_from"] = "activities_seed.json"
+    payload.update(_rebuild_counts(activities))
+    _write_payload(payload)
+    return True
+
+
 def _migrate_legacy_if_needed() -> None:
     if ACTIVITIES_OUTPUT_PATH.exists():
         return
@@ -93,6 +116,7 @@ def _migrate_legacy_if_needed() -> None:
 
 
 def _load_payload_unlocked() -> dict[str, Any]:
+    _seed_activities_if_empty()
     _migrate_legacy_if_needed()
     if not ACTIVITIES_OUTPUT_PATH.exists():
         return _empty_payload()
@@ -110,6 +134,12 @@ def _load_payload_unlocked() -> dict[str, Any]:
         payload["updated_at"] = int(time.time())
         _write_payload(payload)
     return payload
+
+
+def seed_activities_if_empty() -> bool:
+    """若本地活动库为空，从内置种子导入（供测试与显式预热）。"""
+    with _activity_lock:
+        return _seed_activities_if_empty()
 
 
 def load_payload() -> dict[str, Any]:
