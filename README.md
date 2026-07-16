@@ -2,7 +2,8 @@
 
 本地运行的 B 站抽奖活动管理工具。自动聚合多个 UP 合集里的抽奖动态，在 Web 控制台里完成同步、筛选、一键参与与状态追踪。
 
-> 仅绑定 `127.0.0.1`，数据保存在本机，适合个人日常使用。
+> 仅绑定 `127.0.0.1`，数据保存在本机，适合个人日常使用。  
+> **Windows 小白用户**：[点此下载 v3.0.1 安装包](https://github.com/luovicter-collab/bilibinggo/releases/tag/v3.0.1)（无需安装 Python）
 
 ---
 
@@ -51,7 +52,9 @@ python scripts/run_dashboard.py
 
 ### Windows 用户：下载安装包（无需安装 Python）
 
-适合电脑小白，从 GitHub **Releases** 下载：
+**👉 [下载 Windows 版 v3.0.1](https://github.com/luovicter-collab/bilibinggo/releases/tag/v3.0.1)**（安装版 / 便携版）
+
+适合电脑小白，从上述 Release 页面下载：
 
 | 文件 | 说明 |
 |------|------|
