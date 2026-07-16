@@ -1,4 +1,4 @@
-# bilibili_binggo (Binggo) · v2.1
+# bilibili_binggo (Binggo) · v3.0
 
 本地运行的 B 站抽奖活动管理工具。自动聚合多个 UP 合集里的抽奖动态，在 Web 控制台里完成同步、筛选、一键参与与状态追踪。
 
@@ -9,6 +9,9 @@
 ## 特性
 
 - **多数据源增量同步**：并行检查 6 个 UP 合集，只处理新增活动链接
+- **监控用户动态**：维护 UP 监控名单，扫描其近期转发动态，作为第 7 条发现通道
+- **新流水线架构**：采集 → 去重 → 分类 → 详情 → 状态落库，仅新链接走全流程，`skipped` 不入库
+- **统一活动库**：`activities_latest.json` 聚合活动数据，兼容读取旧 `enriched` 产物
 - **完整活动流水线**：合并去重 → 类型分类 → 详情拉取 → 热度补全 → 状态刷新
 - **三类抽奖参与**：互动 / 转发（点赞→关注→收藏→转发→评论）、预约（一键预约）
 - **三连参与**：按当前列表筛选与排序，顺序参与最多 3 个「未参加」活动
@@ -16,7 +19,8 @@
 - **临近开奖筛选**：已参加活动中筛选「近 3 天已开奖」或「3 天内即将开奖」
 - **消息中心接入**：汇总私信 / 回复 / @ / 赞 / 系统通知未读，@ 增长时提醒查看中奖
 - **转发抽奖 LLM 解析**：从动态正文抽取奖品、开奖时间与参与条件
-- **Web 控制台**：扫码登录、LLM 配置、活动列表（筛选 / 排序 / 分页）、任务日志
+- **Web 控制台**：扫码登录、LLM 配置、活动列表（筛选 / 排序 / 分页）、监控名单、任务日志
+- **精致交互与动效**：视图切换过渡、统一按钮 loading、任务日志坞动画、移动端活动卡片
 - **多用户隔离**：活动数据全局共用，参与状态与设置按 B 站 UID 分目录存储
 - **CLI 全链路**：数据源检查、合并、分类、拉取、参与、消息探针等脚本均可独立运行
 
@@ -58,7 +62,8 @@ Stop-Process -Id <PID> -Force
 |------|------|------|
 | 1. 扫码登录 | 侧边栏「扫码登录」 | 用手机 App 扫码，Cookie 自动保存到本地 |
 | 2. 配置 LLM | 「设置」→「LLM 配置」 | 仅**转发抽奖**解析需要；互动 / 预约不消耗 LLM |
-| 3. 同步活动 | 「概览」→「一键更新活动链接」 | 拉取新链接、补全详情与热度 |
+| 3. 同步活动 | 「概览」→「一键更新活动链接」 | 拉取 DS-1～6 新链接并走新流水线入库 |
+| 3b. 监控动态（可选） | 「数据源」→「更新监控用户动态」 | 扫描监控名单近期转发，发现新活动 |
 | 4. 参与活动 | 「活动」列表 | 单行「参与」，或使用「三连参与」批量处理 |
 
 **LLM 推荐**：使用 [DeepSeek](https://www.deepseek.com/) 等 OpenAI 兼容接口，模型建议 `DeepSeek-V4-Flash`。在设置页填写 API Key、Base URL、模型名并点「测试连接」。
@@ -69,10 +74,23 @@ Stop-Process -Id <PID> -Force
 
 ### 一键更新活动链接
 
-1. 检查 DS-1～DS-6 数据源是否有新专栏
-2. 合并去重、分类抽奖类型
-3. 拉取缺失的活动详情，并自动补全缺失的热度
-4. 刷新「已参加 / 未参加 / 已结束」状态
+1. 检查 DS-1～DS-6 数据源是否有新专栏 / 视频
+2. 与本地活动库去重，仅保留**新链接**
+3. 对新链接分类（跳过充电 / 非抽奖 / 失效链接，不落库）
+4. 拉取详情与热度；失败时按流水线策略报错或跳过
+5. 刷新状态后**一次性落库**到统一活动库
+
+> 设计说明见 [docs/pipeline-redesign.md](docs/pipeline-redesign.md)
+
+### 监控用户动态
+
+在「数据源」页维护监控名单（添加 / 移除 UP 的 MID）。点击「更新监控用户动态」后：
+
+1. 按上次同步时间窗口扫描各 UP 的近期转发
+2. 提取其中的活动链接，与本地去重
+3. 走与「一键更新」相同的新链接流水线分类、补详情并入库
+
+首次使用可从候选名单导入（见下方 CLI），或在网页中手动添加 MID。
 
 ### 活动类型与参与方式
 
@@ -143,12 +161,16 @@ python scripts/check_messages.py
 bilibili_binggo/
 ├── config/          # 本地配置（首次运行后自动生成，勿提交 Git）
 ├── data/            # 活动数据与参与记录（默认不提交 Git）
-│   ├── output/      # 合并 / 分类 / 详情等共用数据
+│   ├── output/      # 数据源输出、统一活动库 activities_latest.json 等
 │   ├── cache/       # 解析缓存
 │   └── users/       # 按 UID 隔离的参与状态、设置、消息基线
-├── docs/            # 补充文档
-├── scripts/         # CLI 入口（含 check_messages.py）
+├── docs/            # 补充文档（含 pipeline-redesign.md）
+├── scripts/         # CLI 入口与维护脚本
 ├── src/             # 核心业务逻辑
+│   ├── activity_store.py   # 统一活动库读写
+│   ├── pipeline/           # 一键更新 / 监控新链接流水线
+│   ├── watch_users.py      # 监控名单
+│   ├── watch_sync.py       # 监控用户动态扫描
 │   ├── message_api.py      # B 站消息中心 API
 │   ├── message_watch.py    # @ 未读基线与告警
 │   ├── draw_reminder.py    # 临近开奖分类与提醒
@@ -164,11 +186,14 @@ bilibili_binggo/
 详见 [docs/cli.md](docs/cli.md)。
 
 ```bash
-python scripts/run_dashboard.py      # 启动 Web 控制台
-python scripts/bili_login.py         # 命令行扫码登录
-python scripts/backfill_heat.py      # 单独补全活动热度
-python scripts/check_messages.py     # 查看消息未读与会话
+python scripts/run_dashboard.py              # 启动 Web 控制台
+python scripts/bili_login.py                 # 命令行扫码登录
+python scripts/check_messages.py             # 查看消息未读与会话
+python scripts/discover_watch_users.py       # 从活动转发中发现候选监控 UP
+python scripts/maintain_local_activities.py  # 本地活动库维护
 ```
+
+> 旧版独立脚本 `merge_links.py` / `classify_links.py` / `backfill_heat.py` 已并入流水线；日常请使用控制台或 `run_dashboard.py` 触发任务。
 
 ---
 
@@ -196,7 +221,8 @@ python -m pytest tests/ -q
 
 ## 隐私与安全
 
-- `config/cookies.txt`、`config/llm.env`、`data/` 已加入 `.gitignore`
+- `config/cookies.txt`、`config/llm.env`、`config/participate_settings.json`、`config/watch_users.json` 已加入 `.gitignore`
+- `data/` 运行时数据默认不提交
 - Cookie 与 LLM Key 仅存本地，不会上传到仓库
 - 控制台仅监听本机 `127.0.0.1:8787`
 - 推送代码前请确认未包含个人凭证与参与记录
@@ -204,6 +230,33 @@ python -m pytest tests/ -q
 ---
 
 ## 更新日志
+
+### v3.0（2026-07-16）
+
+**流水线重设计**
+
+- 一键更新改为「仅处理新链接」五步流水线：采集 → 去重 → 分类 → 详情 → 状态落库
+- `skipped`（充电 / 非抽奖 / 失效等）不入库；落库仅在流水线末尾一次性写入
+- 新增 `src/pipeline/` 与 `src/activity_store.py` 统一活动库 `activities_latest.json`
+- B 站 API 全局限流（`bilibili_rate_limit`）；转发解析与分类缓存版本化
+
+**监控用户动态**
+
+- 数据源页新增监控名单管理（添加 / 移除 MID、同步指标展示）
+- 「更新监控用户动态」扫描监控 UP 近期转发，新链接走同一套流水线
+- 新增 `discover_watch_users.py` 从活动转发中发现候选 UP
+
+**Web 控制台体验**
+
+- 任务反馈分层（Toast / Banner / 进度条 / inline 表单提示）
+- 活动页移动端卡片化、筛选与分页优化
+- 动效体系：页面切换过渡、统一按钮 loading、日志坞展开动画
+- 视觉精修：暖奶油 + 赤陶主调、衬线标题、卡片景深与微交互
+
+**维护脚本与测试**
+
+- 新增活动库维护、死链清理、详情重建等脚本
+- 测试套件扩展至 230+ 用例，覆盖流水线、监控用户、限流与 Web API
 
 ### v2.1（2026-07-14）
 

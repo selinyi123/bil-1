@@ -11,8 +11,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.fetch_activity_info import ENRICHED_OUTPUT_PATH
-from src.lottery_classifier import is_charging_lottery_activity
-from src.status_refresh import refresh_activity_statuses
+from src.lottery_classifier import is_charging_lottery_activity, migrate_stored_charging_lotteries
 from web.activity_service import invalidate_activity_cache, list_activities
 
 
@@ -34,7 +33,12 @@ def main() -> int:
             f"skipped={item.get('skipped')}"
         )
 
-    result = refresh_activity_statuses(path=ENRICHED_OUTPUT_PATH)
+    migrated = migrate_stored_charging_lotteries(activities)
+    payload["activities"] = activities
+    ENRICHED_OUTPUT_PATH.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
     invalidate_activity_cache()
 
     after_payload = json.loads(ENRICHED_OUTPUT_PATH.read_text(encoding="utf-8"))
@@ -48,7 +52,7 @@ def main() -> int:
     leaked = [item for item in after if str(item.get("dynamic_id")) in listed_ids]
 
     print(
-        f"\n修正完成：标记跳过 {result.get('migrated_charging', 0)} 条；"
+        f"\n修正完成：标记跳过 {migrated} 条；"
         f"活动列表中仍可见的充电抽奖 {len(leaked)} 条"
     )
     if leaked:

@@ -12,7 +12,6 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.bilibili_client import BilibiliClient
-from src.classify_links import CLASSIFIED_OUTPUT_PATH
 from src.fetch_activity_info import ENRICHED_OUTPUT_PATH
 from src.participation import participate_activity
 from src.sources.common import load_previous_output
@@ -21,20 +20,19 @@ SUPPORTED_TYPES = {"互动抽奖", "转发抽奖", "预约抽奖"}
 
 
 def _lookup_lottery_type(dynamic_id: str) -> str:
-    for path in (ENRICHED_OUTPUT_PATH, CLASSIFIED_OUTPUT_PATH):
-        payload = load_previous_output(path)
-        if not payload:
+    payload = load_previous_output(ENRICHED_OUTPUT_PATH)
+    if not payload:
+        raise RuntimeError(f"未找到活动库: {ENRICHED_OUTPUT_PATH}")
+    for item in payload.get("activities") or []:
+        if not isinstance(item, dict):
             continue
-        for item in payload.get("activities") or []:
-            if not isinstance(item, dict):
-                continue
-            if str(item.get("dynamic_id") or "") != dynamic_id:
-                continue
-            lottery_type = str(item.get("lottery_type") or "")
-            if lottery_type in SUPPORTED_TYPES:
-                return lottery_type
+        if str(item.get("dynamic_id") or "") != dynamic_id:
+            continue
+        lottery_type = str(item.get("lottery_type") or "")
+        if lottery_type in SUPPORTED_TYPES:
+            return lottery_type
     raise RuntimeError(
-        f"未找到活动 {dynamic_id} 的类型信息，请先运行 classify_links.py 与 fetch_activity_info.py"
+        f"未找到活动 {dynamic_id} 的类型信息，请先运行一键更新或维护脚本补全活动库"
     )
 
 

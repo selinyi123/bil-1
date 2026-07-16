@@ -6,22 +6,68 @@ from typing import Literal
 
 from src.activity_status import ActivityStatus, StatusSource, resolve_activity_status
 from src.bilibili_client import BilibiliClient
-from src.forward_parser import MIN_CONTENT_LEN, fetch_dynamic_content, parse_forward_content
+from src.forward_parser import (
+    MIN_CONTENT_LEN,
+    fetch_dynamic_content_with_retry,
+    parse_forward_content,
+)
 from src.lottery_api import (
-    extract_activity_heat,
-    fetch_dynamic_detail,
     fetch_notice_for_interact,
     fetch_notice_for_reserve,
     fetch_reserve_button_status,
     is_upower_dynamic,
 )
 from src.lottery_classifier import LotteryType, UPOWER_BUSINESS_TYPE
-from src.lottery_time import migrate_lottery_time_fields
+from src.lottery_time import default_lottery_time_from_now, format_timestamp, migrate_lottery_time_fields
 from src.participation_store import ParticipationRecord
 from src.sources.common import opus_link
 
 DrawStatus = Literal["active", "ended"]
 P1_LOTTERY_TYPES: tuple[LotteryType, ...] = ("互动抽奖", "预约抽奖")
+ENRICH_SKIP_REASON = "详情提取失败"
+ENRICH_SKIP_RUNTIME_MARKERS = (
+    "未识别为抽奖活动",
+    "LLM 未解析出奖品",
+)
+
+
+class EnrichSkippedError(Exception):
+    """详情阶段 LLM/结构化提取失败：跳过该链接，不落库。"""
+
+    def __init__(self, dynamic_id: str, *, reason: str = ENRICH_SKIP_REASON) -> None:
+        self.dynamic_id = dynamic_id
+        self.reason = reason
+        super().__init__(f"{reason}: {dynamic_id}")
+
+
+def is_enrich_detail_skip_error(exc: BaseException) -> bool:
+    if isinstance(exc, EnrichSkippedError):
+        return True
+    if isinstance(exc, RuntimeError):
+        message = str(exc)
+        return any(marker in message for marker in ENRICH_SKIP_RUNTIME_MARKERS)
+    return False
+
+
+def _lottery_time_from_llm_parse(parsed: dict) -> tuple[int, dict[str, int | bool | str]]:
+    """开奖时间仅采用 LLM 输出的 unix；缺失时用 +180 天占位，不做本地文本解析。"""
+    conditions: dict[str, int | bool | str] = {}
+    lottery_time_text = str(parsed.get("lottery_time_text") or "").strip()
+    if lottery_time_text:
+        conditions["lottery_time_text"] = lottery_time_text
+
+    raw_unix = parsed.get("lottery_time_unix")
+    if raw_unix is not None:
+        try:
+            return int(raw_unix), conditions
+        except (TypeError, ValueError):
+            pass
+
+    inferred = default_lottery_time_from_now()
+    conditions["lottery_time_inferred"] = True
+    if not lottery_time_text:
+        conditions["lottery_time_text"] = format_timestamp(inferred)
+    return inferred, conditions
 
 
 @dataclass
@@ -93,18 +139,30 @@ def normalize_enriched_lottery_time(activity: EnrichedActivity) -> EnrichedActiv
     )
 
 
-def _attach_repost_count(client: BilibiliClient, activity: EnrichedActivity) -> EnrichedActivity:
-    item = fetch_dynamic_detail(client, activity.dynamic_id)
-    if not item:
+def _apply_default_lottery_time(activity: EnrichedActivity) -> EnrichedActivity:
+    if activity.lottery_time:
         return activity
-    heat, from_reserve = extract_activity_heat(item, lottery_type=activity.lottery_type)
-    return replace(
-        activity,
-        repost_count=heat,
-        repost_fetched=True,
-        repost_zero_confirmed=heat == 0,
-        heat_from_reserve=from_reserve,
-    )
+    inferred_ts = default_lottery_time_from_now()
+    conditions = dict(activity.conditions)
+    conditions["lottery_time_text"] = format_timestamp(inferred_ts)
+    conditions["lottery_time_inferred"] = True
+    return replace(activity, lottery_time=inferred_ts, conditions=conditions)
+
+
+def _validate_enriched(activity: EnrichedActivity) -> EnrichedActivity:
+    if activity.skipped:
+        if activity.lottery_type == "充电抽奖":
+            return activity
+        raise RuntimeError(
+            f"活动 {activity.dynamic_id} 被标记为 skipped，仅允许充电抽奖: {activity.skip_reason}"
+        )
+    if not activity.repost_fetched:
+        raise RuntimeError(f"活动 {activity.dynamic_id} 缺少热度数据")
+    if activity.lottery_time is None:
+        activity = _apply_default_lottery_time(activity)
+    if not activity.prizes:
+        raise RuntimeError(f"活动 {activity.dynamic_id} 缺少奖品信息")
+    return activity
 
 
 def build_skipped_charging(
@@ -235,83 +293,51 @@ def _build_from_notice(
     return apply_p2_to_activity(activity, participation=participation)
 
 
-def build_forward_stub(
-    *,
-    dynamic_id: str,
-    lottery_type: LotteryType,
-    participation: ParticipationRecord | None,
-    skip_reason: str = "P3 解析失败",
-) -> EnrichedActivity:
-    activity = EnrichedActivity(
-        dynamic_id=dynamic_id,
-        source_url=opus_link(dynamic_id),
-        lottery_type=lottery_type,
-        enriched_at=int(time.time()),
-        business_id=dynamic_id,
-        business_type=0,
-        draw_status="active",
-        lottery_time=None,
-        prizes=[],
-        participants=0,
-        conditions={},
-        winners=None,
-        platform_participated=None,
-        reserve_reserved=None,
-        skipped=True,
-        skip_reason=skip_reason,
-    )
-    return apply_p2_to_activity(activity, participation=participation)
-
-
 def enrich_forward_activity(
     client: BilibiliClient,
     *,
     dynamic_id: str,
     participation: ParticipationRecord | None = None,
+    classify_content: str | None = None,
+    classify_detail: dict | None = None,
 ) -> EnrichedActivity:
-    content_text = fetch_dynamic_content(client, dynamic_id)
+    from src.pipeline.enrich_fetch_context import EnrichFetchContext
+
+    ctx = EnrichFetchContext(client, dynamic_id, preloaded_detail=classify_detail)
+    detail_item = ctx.get_detail_item()
+    cached_content = str(classify_content or "").strip()
+    if cached_content:
+        content_text = cached_content
+    else:
+        content_text = fetch_dynamic_content_with_retry(
+            client,
+            dynamic_id,
+            initial_detail_item=detail_item,
+        )
     if len(content_text.strip()) < MIN_CONTENT_LEN:
-        return build_forward_stub(
-            dynamic_id=dynamic_id,
-            lottery_type="转发抽奖",
-            participation=participation,
-            skip_reason="无法提取动态正文（可能为纯图）",
-        )
+        raise RuntimeError(f"无法提取动态正文（可能为纯图）: {dynamic_id}")
 
-    try:
-        parsed = parse_forward_content(dynamic_id, content_text)
-    except Exception as exc:
-        return build_forward_stub(
-            dynamic_id=dynamic_id,
-            lottery_type="转发抽奖",
-            participation=participation,
-            skip_reason=f"LLM 解析失败: {exc}",
-        )
-
+    parsed = parse_forward_content(dynamic_id, content_text)
+    if parsed.get("error"):
+        raise EnrichSkippedError(dynamic_id)
     if not parsed.get("is_lottery"):
-        return build_forward_stub(
-            dynamic_id=dynamic_id,
-            lottery_type="转发抽奖",
-            participation=participation,
-            skip_reason=parsed.get("error") or "未识别为抽奖活动",
-        )
+        raise EnrichSkippedError(dynamic_id)
 
-    lottery_time_unix = parsed.get("lottery_time_unix")
+    lottery_time_unix, conditions = _lottery_time_from_llm_parse(parsed)
     draw_status: DrawStatus = "active"
-    if lottery_time_unix and int(lottery_time_unix) <= int(time.time()):
-        draw_status = "ended"
 
     prize_description = str(parsed.get("prize_description") or "").strip()
     winner_count = int(parsed.get("winner_count") or 0)
-    prizes: list[PrizeTier] = []
-    if prize_description or winner_count > 0:
-        prizes.append(
-            PrizeTier(
-                tier="first",
-                winner_count=winner_count,
-                description=prize_description,
-            )
+    if not prize_description:
+        raise EnrichSkippedError(dynamic_id)
+
+    prizes = [
+        PrizeTier(
+            tier="first",
+            winner_count=winner_count,
+            description=prize_description,
         )
+    ]
 
     activity = EnrichedActivity(
         dynamic_id=dynamic_id,
@@ -321,18 +347,10 @@ def enrich_forward_activity(
         business_id=dynamic_id,
         business_type=0,
         draw_status=draw_status,
-        lottery_time=int(lottery_time_unix) if lottery_time_unix else None,
+        lottery_time=int(lottery_time_unix),
         prizes=prizes,
         participants=0,
-        conditions={
-            "need_follow": bool(parsed.get("need_follow")),
-            "need_repost": bool(parsed.get("need_repost")),
-            "need_comment": bool(parsed.get("need_comment")),
-            "lottery_time_text": str(parsed.get("lottery_time_text") or ""),
-            "confidence": str(parsed.get("confidence") or "medium"),
-            "parse_source": "llm_cache" if parsed.get("from_cache") else "llm",
-            "winner_count": winner_count,
-        },
+        conditions=conditions,
         winners=None,
         platform_participated=None,
         reserve_reserved=None,
@@ -340,7 +358,9 @@ def enrich_forward_activity(
         skip_reason=None,
     )
     activity = apply_p2_to_activity(activity, participation=participation)
-    return normalize_enriched_lottery_time(_attach_repost_count(client, activity))
+    return _validate_enriched(
+        normalize_enriched_lottery_time(ctx.attach_repost_count(activity))
+    )
 
 
 def enrich_activity(
@@ -349,58 +369,59 @@ def enrich_activity(
     dynamic_id: str,
     lottery_type: LotteryType,
     participation: ParticipationRecord | None = None,
+    classify_content: str | None = None,
+    classify_detail: dict | None = None,
+    classify_notice: dict | None = None,
+    classify_notice_business_type: int | None = None,
+    classify_notice_business_id: str | None = None,
 ) -> EnrichedActivity:
     if lottery_type == "充电抽奖":
-        return _attach_repost_count(
+        return build_skipped_charging(dynamic_id=dynamic_id, participation=participation)
+    if lottery_type == "转发抽奖":
+        return enrich_forward_activity(
             client,
-            build_skipped_charging(dynamic_id=dynamic_id, participation=participation),
+            dynamic_id=dynamic_id,
+            participation=participation,
+            classify_content=classify_content,
+            classify_detail=classify_detail,
         )
 
-    detail_item = fetch_dynamic_detail(client, dynamic_id)
+    from src.pipeline.enrich_fetch_context import EnrichFetchContext
+
+    ctx = EnrichFetchContext(client, dynamic_id, preloaded_detail=classify_detail)
+    detail_item = ctx.get_detail_item()
     if is_upower_dynamic(detail_item):
-        return _attach_repost_count(
-            client,
-            build_skipped_charging(dynamic_id=dynamic_id, participation=participation),
-        )
+        return build_skipped_charging(dynamic_id=dynamic_id, participation=participation)
 
-    if lottery_type == "互动抽奖":
+    resolved: tuple[dict, int, str] | None = None
+    if (
+        classify_notice
+        and classify_notice.get("lottery_id")
+        and classify_notice_business_type is not None
+        and classify_notice_business_id
+    ):
+        resolved = (classify_notice, classify_notice_business_type, classify_notice_business_id)
+    elif lottery_type == "互动抽奖":
         resolved = fetch_notice_for_interact(client, dynamic_id)
     elif lottery_type == "预约抽奖":
-        resolved = fetch_notice_for_reserve(client, dynamic_id)
+        resolved = fetch_notice_for_reserve(client, dynamic_id, detail_item=detail_item)
     else:
-        return enrich_forward_activity(client, dynamic_id=dynamic_id, participation=participation)
+        raise RuntimeError(f"不支持的抽奖类型: {lottery_type}")
 
     if not resolved:
-        activity = EnrichedActivity(
-            dynamic_id=dynamic_id,
-            source_url=opus_link(dynamic_id),
-            lottery_type=lottery_type,
-            enriched_at=int(time.time()),
-            business_id=dynamic_id,
-            business_type=0,
-            draw_status="active",
-            lottery_time=None,
-            prizes=[],
-            participants=0,
-            conditions={},
-            winners=None,
-            platform_participated=None,
-            reserve_reserved=None,
-            skipped=True,
-            skip_reason="未获取到 lottery_notice 数据",
-        )
-        activity = apply_p2_to_activity(activity, participation=participation)
-        return _attach_repost_count(client, activity)
+        raise RuntimeError(f"未获取到 lottery_notice 数据: {dynamic_id}")
 
     notice, business_type, business_id = resolved
     if business_type == UPOWER_BUSINESS_TYPE:
-        return _attach_repost_count(
-            client,
-            build_skipped_charging(dynamic_id=dynamic_id, participation=participation),
-        )
+        return build_skipped_charging(dynamic_id=dynamic_id, participation=participation)
+
     reserve_reserved = None
     if lottery_type == "预约抽奖":
-        reserve_reserved = fetch_reserve_button_status(client, dynamic_id)
+        reserve_reserved = fetch_reserve_button_status(
+            client,
+            dynamic_id,
+            detail_item=detail_item,
+        )
 
     activity = _build_from_notice(
         dynamic_id=dynamic_id,
@@ -412,7 +433,10 @@ def enrich_activity(
         reserve_reserved=reserve_reserved,
         participation=participation,
     )
-    return _attach_repost_count(client, activity)
+    activity = _apply_default_lottery_time(activity)
+    if not activity.prizes:
+        raise RuntimeError(f"未获取到奖品信息: {dynamic_id}")
+    return _validate_enriched(ctx.attach_repost_count(activity))
 
 
 def activity_from_cache(dynamic_id: str, lottery_type: LotteryType, cached: dict) -> EnrichedActivity | None:

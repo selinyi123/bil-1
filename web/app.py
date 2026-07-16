@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from src.bilibili_login import QR_IMAGE_PATH
 from src.llm_settings import (
@@ -29,13 +30,20 @@ from src.user_settings import (
     set_participate_text,
     set_participate_text_mode,
 )
-from src.sources.common import is_valid_dynamic_id
+from src.watch_sync import MAX_WINDOW_SECONDS, OUTPUT_PATH as WATCH_OUTPUT_PATH, compute_sync_window
+from src.watch_users import add_watch_user, get_watch_users_payload, remove_watch_user, seed_from_candidates_if_empty
 from web.account_service import ack_at_unread_notice, clear_login_cookie, get_account_extras, get_account_profile
-from web.activity_service import get_summary, invalidate_activity_cache, list_activities, summarize_triple_participate_targets
+from web.activity_service import (
+    ACTIVITY_PAGE_SIZE,
+    get_summary,
+    invalidate_activity_cache,
+    list_activities,
+    summarize_triple_participate_targets,
+)
 from web.job_runner import runner
 from src.llm_client import test_llm_connection
-from src.fetch_activity_info import backfill_repost_counts
-from src.status_refresh import refresh_activity_statuses
+from src.sources.common import is_valid_dynamic_id, load_previous_output
+from src.state_store import get_watch_last_synced_at
 from src.app_logging import setup_logging, get_logger
 
 setup_logging(console=False)
@@ -44,9 +52,11 @@ logger = get_logger("api")
 WEB_DIR = Path(__file__).resolve().parent
 STATIC_DIR = WEB_DIR / "static"
 
-app = FastAPI(title="bilibili_binggo 控制台", version="1.0.0")
+app = FastAPI(title="bilibili_binggo 控制台", version="3.0.0")
 
-ALLOWED_JOB_ACTIONS = frozenset({"login", "refresh_all", "refresh_status", "participate", "participate_triple"})
+ALLOWED_JOB_ACTIONS = frozenset(
+    {"login", "refresh_all", "refresh_watch", "refresh_status", "participate", "participate_triple"}
+)
 
 
 class JobRequest(BaseModel):
@@ -68,6 +78,70 @@ class LlmSettingsRequest(BaseModel):
 
 class AckAtUnreadRequest(BaseModel):
     current: int = Field(default=0, ge=0)
+
+
+class WatchUserRequest(BaseModel):
+    mid: int = Field(..., gt=0)
+
+    @field_validator("mid", mode="before")
+    @classmethod
+    def parse_mid(cls, value: object) -> int:
+        if isinstance(value, str):
+            text = value.strip()
+            if not text.isdigit():
+                raise ValueError("MID 无效")
+            return int(text)
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float) and value.is_integer():
+            return int(value)
+        raise ValueError("MID 无效")
+
+
+@app.get("/api/watch-users")
+def api_watch_users() -> dict[str, Any]:
+    seed_from_candidates_if_empty()
+    payload = get_watch_users_payload(ensure_seeded=False)
+    now = int(time.time())
+    last_synced_at = get_watch_last_synced_at()
+    window_start, window_end = compute_sync_window(now=now, last_synced_at=last_synced_at)
+    payload["last_synced_at"] = last_synced_at
+    payload["max_window_seconds"] = MAX_WINDOW_SECONDS
+    payload["next_window"] = {"start": window_start, "end": window_end}
+    watch_data = load_previous_output(WATCH_OUTPUT_PATH) or {}
+    payload["last_scan_link_count"] = int(watch_data.get("link_count") or 0)
+    return payload
+
+
+@app.post("/api/watch-users")
+def api_add_watch_user(request: WatchUserRequest) -> dict[str, Any]:
+    account = get_account_profile()
+    if not account.get("logged_in"):
+        raise HTTPException(status_code=401, detail="请先扫码登录后再管理监控用户")
+    try:
+        user = add_watch_user(mid=request.mid)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"保存监控用户失败：{exc}") from exc
+    name_fallback = str(request.mid) == user.name
+    return {"ok": True, "user": user.to_dict(), "name_fallback": name_fallback}
+
+
+@app.delete("/api/watch-users/{mid}")
+def api_remove_watch_user(mid: int) -> dict[str, Any]:
+    account = get_account_profile()
+    if not account.get("logged_in"):
+        raise HTTPException(status_code=401, detail="请先扫码登录后再管理监控用户")
+    if mid <= 0:
+        raise HTTPException(status_code=400, detail="MID 无效")
+    try:
+        removed = remove_watch_user(mid=mid)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"删除监控用户失败：{exc}") from exc
+    if not removed:
+        raise HTTPException(status_code=404, detail="用户不在监控列表中")
+    return {"ok": True}
 
 
 @app.get("/api/account")
@@ -110,7 +184,7 @@ def api_activities(
     sort: str | None = Query(default=None),
     order: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=30, ge=1, le=100),
+    page_size: int = Query(default=ACTIVITY_PAGE_SIZE, ge=1, le=ACTIVITY_PAGE_SIZE),
 ) -> dict[str, Any]:
     return list_activities(
         status=status,
@@ -146,62 +220,15 @@ def api_triple_participate_targets(
     )
 
 
-@app.post("/api/activities/refresh-status")
-def api_refresh_activity_status() -> dict[str, Any]:
-    if runner.is_running():
-        raise HTTPException(status_code=409, detail="有任务正在运行，请稍后再试")
-    account = get_account_profile()
-    if not account.get("logged_in"):
-        raise HTTPException(status_code=401, detail="请先扫码登录后再执行此操作")
-    try:
-        result = refresh_activity_statuses()
-        invalidate_activity_cache()
-    except (OSError, json.JSONDecodeError) as exc:
-        raise HTTPException(status_code=500, detail=f"刷新活动状态失败：{exc}") from exc
-    draw_reminder = result.get("draw_reminder") or {}
-    counts = result.get("status_counts") or {}
-    listable = result.get("listable_counts") or {}
-    message = (
-        f"状态刷新完成：标记结束 {result.get('ended_marked', 0)} 条，"
-        f"列表展示 已参加 {listable.get('已参加', 0)} / 未参加 {listable.get('未参加', 0)} / "
-        f"已结束 {listable.get('已结束', 0)}"
-    )
-    drawn_count = int(draw_reminder.get("drawn_participated_count") or 0)
-    soon_count = int(draw_reminder.get("drawing_soon_count") or 0)
-    if drawn_count:
-        message += f"；近 3 天已开奖 {drawn_count} 个"
-    if soon_count:
-        message += f"；3 天内即将开奖 {soon_count} 个"
-    return {"ok": True, "message": message, "result": result}
-
-
-@app.post("/api/activities/backfill-heat")
-def api_backfill_heat() -> dict[str, Any]:
-    if runner.is_running():
-        raise HTTPException(status_code=409, detail="有任务正在运行，请稍后再试")
-    account = get_account_profile()
-    if not account.get("logged_in"):
-        raise HTTPException(status_code=401, detail="请先扫码登录后再执行此操作")
-    try:
-        result = backfill_repost_counts()
-        invalidate_activity_cache()
-    except OSError as exc:
-        raise HTTPException(status_code=500, detail=f"热度补全失败：{exc}") from exc
-    message = f"热度补全完成：更新 {result.get('updated', 0)} 条"
-    if result.get("failed"):
-        message += f"，失败 {result['failed']} 条"
-    return {"ok": True, "message": message, "result": result}
-
-
 @app.post("/api/jobs")
 def api_start_job(request: JobRequest) -> dict[str, Any]:
     if request.action not in ALLOWED_JOB_ACTIONS:
         raise HTTPException(status_code=400, detail="暂不支持该操作")
     account = get_account_profile()
-    if request.action in {"participate", "participate_triple", "refresh_all", "refresh_status"}:
+    if request.action in {"participate", "participate_triple", "refresh_all", "refresh_status", "refresh_watch"}:
         if not account.get("logged_in"):
             raise HTTPException(status_code=401, detail="请先扫码登录后再执行此操作")
-    if request.action in {"participate", "participate_triple", "refresh_all"}:
+    if request.action in {"participate", "participate_triple", "refresh_all", "refresh_watch"}:
         if not is_llm_ready():
             raise HTTPException(status_code=401, detail="请先保存 LLM 配置并通过连接测试后再执行此操作")
     params = request.params or {}

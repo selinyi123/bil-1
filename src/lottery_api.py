@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import threading
+import time
 
 from src.bilibili_client import BilibiliClient
 from src.lottery_classifier import UPOWER_BUSINESS_TYPE
@@ -53,17 +54,23 @@ def fetch_lottery_notice(
     business_id: str,
     business_type: int,
     referer: str,
+    retries: int = 3,
 ) -> dict | None:
-    data = client.request_json(
-        LOTTERY_NOTICE_URL,
-        {"business_id": business_id, "business_type": business_type},
-        referer=referer,
-        retries=1,
-    )
-    if data.get("code") != 0:
+    for attempt in range(max(1, retries)):
+        data = client.request_json(
+            LOTTERY_NOTICE_URL,
+            {"business_id": business_id, "business_type": business_type},
+            referer=referer,
+            retries=1,
+        )
+        if data.get("code") == 0:
+            notice = data.get("data") or {}
+            return notice if notice.get("lottery_id") else None
+        if data.get("code") == -9999 and attempt < retries - 1:
+            time.sleep(1.2 * (attempt + 1))
+            continue
         return None
-    notice = data.get("data") or {}
-    return notice if notice.get("lottery_id") else None
+    return None
 
 
 def _extract_dynamic_additional(item: dict) -> dict:
@@ -182,30 +189,71 @@ def is_upower_dynamic(item: dict | None) -> bool:
     )
 
 
-def fetch_dynamic_detail(client: BilibiliClient, dynamic_id: str) -> dict | None:
+def probe_dynamic_detail_api(
+    client: BilibiliClient,
+    dynamic_id: str,
+    *,
+    retries: int = 2,
+) -> tuple[dict | None, int | None, str]:
+    """请求 web-dynamic/v1/detail，返回 (item, code, message)。网络/限流失败时 code 为 None。"""
     if not is_detail_api_enabled():
-        return None
+        return None, None, ""
     referer = opus_link(dynamic_id)
-    item: dict | None = None
     try:
         data = client.get_json(
             DYNAMIC_DETAIL_URL,
             {"id": dynamic_id},
             referer=referer,
-            retries=2,
+            retries=retries,
         )
-        if data.get("code") == 0:
-            item = (data.get("data") or {}).get("item") or None
-        else:
+    except Exception as exc:
+        logger.debug("dynamic/detail 请求失败 %s: %s", dynamic_id, exc)
+        return None, None, str(exc)
+    code = data.get("code")
+    try:
+        code_int = int(code) if code is not None else None
+    except (TypeError, ValueError):
+        code_int = None
+    message = str(data.get("message") or "")
+    if code_int != 0:
+        return None, code_int, message
+    item = (data.get("data") or {}).get("item") or None
+    return item, 0, message
+
+
+def _fetch_dynamic_api_item(
+    client: BilibiliClient,
+    dynamic_id: str,
+    *,
+    retries: int = 2,
+) -> dict | None:
+    """仅请求 web-dynamic/v1/detail，不降级 opus（供正文抓取按序尝试）。"""
+    item, code, message = probe_dynamic_detail_api(client, dynamic_id, retries=retries)
+    if code != 0:
+        if code is not None:
             logger.debug(
                 "dynamic/detail 返回错误 %s: code=%s msg=%s",
                 dynamic_id,
-                data.get("code"),
-                data.get("message"),
+                code,
+                message,
             )
-    except Exception as exc:
-        logger.debug("dynamic/detail 请求失败 %s: %s", dynamic_id, exc)
+        return None
+    return item or None
 
+
+def fetch_opus_detail_item(client: BilibiliClient, dynamic_id: str) -> dict | None:
+    """获取 opus/detail 并归一化 modules，供收藏入口等二次探测。"""
+    item = _fetch_opus_detail_item(client, dynamic_id)
+    if not item:
+        return None
+    return _normalize_dynamic_item(item)
+
+
+def fetch_dynamic_detail(client: BilibiliClient, dynamic_id: str) -> dict | None:
+    if not is_detail_api_enabled():
+        return None
+    referer = opus_link(dynamic_id)
+    item: dict | None = _fetch_dynamic_api_item(client, dynamic_id)
     if not item:
         item = _fetch_opus_detail_item(client, dynamic_id)
         if item:
@@ -219,9 +267,13 @@ def fetch_dynamic_detail(client: BilibiliClient, dynamic_id: str) -> dict | None
 def resolve_reserve_business(
     client: BilibiliClient,
     dynamic_id: str,
+    *,
+    detail_item: dict | None = None,
 ) -> tuple[str, int] | None:
     """预约抽奖：解析 reserve.rid 与 business_type=10。"""
-    item = fetch_dynamic_detail(client, dynamic_id)
+    item = detail_item
+    if item is None:
+        item = fetch_dynamic_detail(client, dynamic_id)
     if item:
         additional = ((item.get("modules") or {}).get("module_dynamic") or {}).get("additional") or {}
         reserve = additional.get("reserve") or {}
@@ -240,9 +292,16 @@ def resolve_reserve_business(
     return None
 
 
-def fetch_reserve_button_status(client: BilibiliClient, dynamic_id: str) -> bool | None:
+def fetch_reserve_button_status(
+    client: BilibiliClient,
+    dynamic_id: str,
+    *,
+    detail_item: dict | None = None,
+) -> bool | None:
     """返回是否已预约。button.status=2 表示已预约。"""
-    item = fetch_dynamic_detail(client, dynamic_id)
+    item = detail_item
+    if item is None:
+        item = fetch_dynamic_detail(client, dynamic_id)
     if not item:
         return None
     additional = ((item.get("modules") or {}).get("module_dynamic") or {}).get("additional") or {}
@@ -280,8 +339,13 @@ def fetch_notice_for_upower(client: BilibiliClient, dynamic_id: str) -> tuple[di
     return None
 
 
-def fetch_notice_for_reserve(client: BilibiliClient, dynamic_id: str) -> tuple[dict, int, str] | None:
-    resolved = resolve_reserve_business(client, dynamic_id)
+def fetch_notice_for_reserve(
+    client: BilibiliClient,
+    dynamic_id: str,
+    *,
+    detail_item: dict | None = None,
+) -> tuple[dict, int, str] | None:
+    resolved = resolve_reserve_business(client, dynamic_id, detail_item=detail_item)
     if not resolved:
         return None
     business_id, business_type = resolved

@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from typing import Callable, Literal
 
 from src.bilibili_auth import get_login_uid, require_login
-from src.bilibili_client import BilibiliClient
-from src.lottery_api import fetch_dynamic_detail, fetch_notice_for_interact
+from src.bilibili_client import BilibiliClient, api_code
+from src.lottery_api import fetch_dynamic_detail, fetch_notice_for_interact, fetch_opus_detail_item
 from src.sources.common import opus_link
 
 ActionName = Literal["like", "follow", "favorite", "repost", "comment", "reserve"]
@@ -57,6 +57,7 @@ class DynamicContext:
     comment_type: int
     liked: bool
     favorited: bool
+    favorite_available: bool
     followed: bool
     reposted: bool
     commented: bool
@@ -98,6 +99,53 @@ def resolve_sender_uid(item: dict) -> int:
     raise RuntimeError("无法从动态详情解析 UP 主 UID")
 
 
+def _extract_module_stat(item: dict) -> dict:
+    modules = item.get("modules") or {}
+    if isinstance(modules, dict):
+        stat = modules.get("module_stat") or {}
+        return stat if isinstance(stat, dict) else {}
+    if isinstance(modules, list):
+        for module in modules:
+            if not isinstance(module, dict):
+                continue
+            if module.get("module_type") != "MODULE_TYPE_STAT" and not module.get("module_stat"):
+                continue
+            stat = module.get("module_stat") or {}
+            if isinstance(stat, dict):
+                return stat
+    return {}
+
+
+def _module_stat_confirms_no_favorite(stat: dict) -> bool:
+    """同时有转发与评论统计但无 favorite，对应 B 站页面上无收藏按钮的动态。"""
+    if not stat or "favorite" in stat:
+        return False
+    has_forward = any(key in stat for key in ("forward", "repost", "share"))
+    has_comment = "comment" in stat
+    return has_forward and has_comment
+
+
+def favorite_supported(
+    item: dict,
+    *,
+    client: BilibiliClient | None = None,
+    dynamic_id: str | None = None,
+) -> bool:
+    """动态是否支持收藏。不确定时默认尝试收藏，避免 dynamic/detail 缺字段导致误判。"""
+    stat = _extract_module_stat(item)
+    if stat and "favorite" in stat:
+        return True
+    if stat and _module_stat_confirms_no_favorite(stat):
+        if client is not None and dynamic_id:
+            opus_item = fetch_opus_detail_item(client, dynamic_id)
+            if opus_item:
+                opus_stat = _extract_module_stat(opus_item)
+                if opus_stat and "favorite" in opus_stat:
+                    return True
+        return False
+    return True
+
+
 def build_dynamic_context(
     client: BilibiliClient,
     *,
@@ -121,7 +169,12 @@ def build_dynamic_context(
     liked = bool(like_obj.get("status"))
 
     followed = is_following(client, uid=uid, referer=referer)
-    favorited = is_favorited(client, dynamic_id=dynamic_id, referer=referer)
+    favorite_available = favorite_supported(item, client=client, dynamic_id=dynamic_id)
+    favorited = (
+        is_favorited(client, dynamic_id=dynamic_id, referer=referer)
+        if favorite_available
+        else False
+    )
     reposted = is_reposted(client, dynamic_id=dynamic_id, referer=referer)
     commented = has_comment(
         client,
@@ -139,6 +192,7 @@ def build_dynamic_context(
         comment_type=comment_type,
         liked=liked,
         favorited=favorited,
+        favorite_available=favorite_available,
         followed=followed,
         reposted=reposted,
         commented=commented,
@@ -150,7 +204,7 @@ def is_following(client: BilibiliClient, *, uid: int, referer: str) -> bool:
         payload = client.request_json(RELATION_URL, params={"fid": uid}, referer=referer)
     except RuntimeError:
         return False
-    if int(payload.get("code") or -1) != 0:
+    if api_code(payload) != 0:
         return False
     attribute = int((payload.get("data") or {}).get("attribute") or 0)
     return attribute in FOLLOWING_ATTRIBUTES
@@ -207,7 +261,7 @@ def has_reposted_in_space_feed(client: BilibiliClient, *, dynamic_id: str) -> bo
             )
         except RuntimeError:
             return False
-        if int(payload.get("code") or -1) != 0:
+        if api_code(payload) != 0:
             return False
         data = payload.get("data") or {}
         items = data.get("items") or []
@@ -242,7 +296,7 @@ def has_comment(
         )
     except RuntimeError:
         return False
-    if int(payload.get("code") or -1) != 0:
+    if api_code(payload) != 0:
         return False
     replies = (payload.get("data") or {}).get("replies") or []
     target = action_text.strip()
@@ -420,7 +474,13 @@ def execute_full_participation(
         return [
             ActionResult("like", True, "跳过" if context.liked else "将点赞"),
             ActionResult("follow", True, "跳过" if context.followed else f"将关注 uid={context.sender_uid}"),
-            ActionResult("favorite", True, "跳过" if context.favorited else f"将收藏 rid={context.comment_rid}"),
+            ActionResult(
+                "favorite",
+                True,
+                "跳过"
+                if context.favorited
+                else ("无收藏入口，跳过" if not context.favorite_available else f"将收藏 rid={context.comment_rid}"),
+            ),
             ActionResult("repost", True, "跳过" if context.reposted else f"将转发 {text[:40]}"),
             ActionResult(
                 "comment",
@@ -447,7 +507,9 @@ def execute_full_participation(
     time.sleep(ACTION_INTERVAL_SEC)
 
     report_step(3, "favorite")
-    if context.favorited:
+    if not context.favorite_available:
+        actions.append(ActionResult("favorite", True, "无收藏入口，跳过"))
+    elif context.favorited:
         actions.append(ActionResult("favorite", True, "已收藏，跳过"))
     else:
         actions.append(

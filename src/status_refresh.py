@@ -6,113 +6,221 @@ from pathlib import Path
 from typing import Any
 
 from src.activity_status import DrawStatus, resolve_activity_status
-from src.draw_reminder import compute_draw_reminders
+from src.draw_reminder import classify_participated_draw
 from src.fetch_activity_info import ENRICHED_OUTPUT_PATH
-from src.lottery_classifier import is_charging_lottery_activity, migrate_stored_charging_lotteries
-from src.lottery_time import lottery_time_unix, migrate_stored_lottery_times
+from src.lottery_classifier import PARTICIPATABLE_TYPES, is_charging_lottery_activity
+from src.lottery_time import infer_and_persist_lottery_time, lottery_time_unix
 from src.participation_store import ParticipationRecord, load_participations
 
+DrawTag = str  # "" | "即将开奖"
+LOCAL_STATUSES = frozenset({"已参加", "未参加"})
 
-def _resolve_row_status(
+
+def _is_refresh_candidate(item: dict) -> bool:
+    if not isinstance(item, dict) or item.get("skipped"):
+        return False
+    if is_charging_lottery_activity(item):
+        return False
+    if item.get("lottery_type") not in PARTICIPATABLE_TYPES:
+        return False
+    if str(item.get("draw_status") or "") == "ended":
+        return False
+    if str(item.get("activity_status") or "") == "已结束":
+        return False
+    return True
+
+
+def _classify_activity(
     item: dict,
     participation: ParticipationRecord | None,
-) -> tuple[str, str]:
-    lottery_type = item.get("lottery_type")
-    if lottery_type not in ("互动抽奖", "转发抽奖", "预约抽奖"):
-        return str(item.get("activity_status") or "未参加"), str(item.get("draw_status") or "active")
+    *,
+    now: int,
+) -> tuple[str, DrawTag, DrawStatus] | None:
+    effective_ts = lottery_time_unix(item)
+    if not effective_ts:
+        return None
 
-    draw_status: DrawStatus = "ended" if item.get("draw_status") == "ended" else "active"
-    status, _ = resolve_activity_status(
-        draw_status=draw_status,
-        lottery_type=lottery_type,
+    draw_status: DrawStatus = "ended" if effective_ts <= now else "active"
+    base_status, _ = resolve_activity_status(
+        draw_status="active",
+        lottery_type=item.get("lottery_type"),
         platform_participated=item.get("platform_participated"),
         reserve_reserved=item.get("reserve_reserved"),
         conditions=item.get("conditions") or {},
         participation=participation,
     )
-    return status, str(item.get("draw_status") or "active")
+    if base_status not in LOCAL_STATUSES:
+        return None
+
+    if draw_status == "ended":
+        return "已结束", "", draw_status
+
+    activity_status = base_status
+    draw_tag: DrawTag = ""
+    if activity_status == "已参加":
+        phase = classify_participated_draw(item, participation, now=now)
+        if phase == "soon":
+            draw_tag = "即将开奖"
+
+    return activity_status, draw_tag, draw_status
 
 
-def refresh_activity_statuses(*, path: Path | None = None) -> dict[str, Any]:
+def _apply_classification(
+    item: dict,
+    participation: ParticipationRecord | None,
+    *,
+    now: int,
+) -> tuple[bool, bool, bool, bool]:
+    """返回 (是否处理, 是否有字段变更, 是否新标记结束, 是否标记即将开奖)。"""
+    classified = _classify_activity(item, participation, now=now)
+    if classified is None:
+        return False, False, False, False
+
+    activity_status, draw_tag, draw_status = classified
+    prev_status = str(item.get("activity_status") or "")
+    prev_draw = str(item.get("draw_status") or "")
+    prev_draw_tag = str(item.get("draw_tag") or "")
+    ended_newly = draw_status == "ended" and prev_draw != "ended"
+    soon_newly = draw_tag == "即将开奖" and prev_draw_tag != "即将开奖"
+
+    item["draw_status"] = draw_status
+    item["activity_status"] = activity_status
+    item["draw_tag"] = draw_tag
+    item["status_classified"] = True
+
+    changed = (
+        activity_status != prev_status
+        or draw_status != prev_draw
+        or draw_tag != prev_draw_tag
+    )
+    return True, changed, ended_newly, soon_newly
+
+
+def _save_payload(target: Path, payload: dict[str, Any]) -> None:
+    tmp_path = target.with_suffix(".json.tmp")
+    tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp_path.replace(target)
+
+
+def _empty_result(*, total: int = 0) -> dict[str, Any]:
+    return {
+        "skipped": True,
+        "scanned": 0,
+        "updated": 0,
+        "ended_marked": 0,
+        "soon_marked": 0,
+        "total": total,
+    }
+
+
+def persist_activity_record(
+    item: dict,
+    *,
+    participation: ParticipationRecord | None = None,
+    path: Path | None = None,
+    now: int | None = None,
+) -> dict:
+    """参与前检查通过后，写回单条活动状态。"""
     target = path or ENRICHED_OUTPUT_PATH
     if not target.exists():
-        return {
-            "updated": 0,
-            "ended_marked": 0,
-            "migrated_times": 0,
-            "migrated_charging": 0,
-            "status_counts": {"已结束": 0, "已参加": 0, "未参加": 0},
-            "listable_counts": {"已结束": 0, "已参加": 0, "未参加": 0},
-            "total": 0,
-            "draw_reminder": compute_draw_reminders([], {}),
-        }
+        raise RuntimeError("未找到活动库，请先执行一键更新")
+
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    activities = [row for row in (payload.get("activities") or []) if isinstance(row, dict)]
+    dynamic_id = str(item.get("dynamic_id") or "")
+    current = int(now if now is not None else time.time())
+
+    was_handled, _, _, _ = _apply_classification(item, participation, now=current)
+    if not was_handled:
+        raise RuntimeError("该活动不参与状态管理")
+
+    replaced = False
+    for index, row in enumerate(activities):
+        if str(row.get("dynamic_id") or "") == dynamic_id:
+            activities[index] = item
+            replaced = True
+            break
+    if not replaced:
+        activities.append(item)
+
+    payload["activities"] = activities
+    payload["status_refreshed_at"] = current
+    _save_payload(target, payload)
+    return item
+
+
+def refresh_local_activity_statuses(*, path: Path | None = None) -> dict[str, Any]:
+    """刷新全库未结束活动：按开奖时间标记已结束 / 即将开奖。"""
+    target = path or ENRICHED_OUTPUT_PATH
+    if not target.exists():
+        return _empty_result()
 
     payload = json.loads(target.read_text(encoding="utf-8"))
     activities = [item for item in (payload.get("activities") or []) if isinstance(item, dict)]
     participations = load_participations()
     now = int(time.time())
-    migrated_times = migrate_stored_lottery_times(activities)
-    migrated_charging = migrate_stored_charging_lotteries(activities)
 
-    ended_marked = 0
+    scanned = 0
     updated = 0
-    status_counts = {"已结束": 0, "已参加": 0, "未参加": 0}
-    listable_counts = {"已结束": 0, "已参加": 0, "未参加": 0}
+    ended_marked = 0
+    soon_marked = 0
 
     for item in activities:
+        if not _is_refresh_candidate(item):
+            continue
+
         dynamic_id = str(item.get("dynamic_id") or "")
-        participation = participations.get(dynamic_id)
-        lottery_time = lottery_time_unix(item)
-        if lottery_time and lottery_time <= now and item.get("draw_status") != "ended":
-            item["draw_status"] = "ended"
-            ended_marked += 1
-
-        prev_status = str(item.get("activity_status") or "")
-        prev_draw = str(item.get("draw_status") or "")
-        status, draw_status = _resolve_row_status(item, participation)
-        if status != prev_status or draw_status != prev_draw:
-            updated += 1
-        item["activity_status"] = status
-
-        if status in status_counts:
-            status_counts[status] += 1
-
-        can_participate = (
-            not item.get("skipped")
-            and draw_status == "active"
-            and status == "未参加"
-            and not is_charging_lottery_activity(item)
+        was_handled, changed, ended_newly, soon_newly = _apply_classification(
+            item,
+            participations.get(dynamic_id),
+            now=now,
         )
-        if status == "已参加" or status == "已结束" or (status == "未参加" and can_participate):
-            if status in listable_counts:
-                listable_counts[status] += 1
+        if not was_handled:
+            continue
 
-    draw_counts = {"active": 0, "ended": 0, "skipped": 0}
-    for item in activities:
-        if item.get("skipped"):
-            draw_counts["skipped"] += 1
-        elif item.get("draw_status") == "ended":
-            draw_counts["ended"] += 1
-        else:
-            draw_counts["active"] += 1
+        scanned += 1
+        if changed:
+            updated += 1
+        if ended_newly:
+            ended_marked += 1
+        if soon_newly:
+            soon_marked += 1
 
     payload["activities"] = activities
-    payload["enriched_at"] = int(time.time())
-    payload["total_count"] = len(activities)
-    payload["counts"] = draw_counts
-    payload["user_status_counts"] = status_counts
-
-    tmp_path = target.with_suffix(".json.tmp")
-    tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp_path.replace(target)
+    payload["status_refreshed_at"] = now
+    _save_payload(target, payload)
 
     return {
+        "skipped": scanned == 0,
+        "scanned": scanned,
         "updated": updated,
         "ended_marked": ended_marked,
-        "migrated_times": migrated_times,
-        "migrated_charging": migrated_charging,
-        "status_counts": status_counts,
-        "listable_counts": listable_counts,
+        "soon_marked": soon_marked,
         "total": len(activities),
-        "draw_reminder": compute_draw_reminders(activities, participations, now=now),
     }
+
+
+def backfill_missing_lottery_times(*, path: Path | None = None) -> dict[str, Any]:
+    """为本地缺失开奖时间的活动补全推断时间（参奖后半年）。"""
+    target = path or ENRICHED_OUTPUT_PATH
+    if not target.exists():
+        return {"updated": 0, "total": 0}
+
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    activities = [item for item in (payload.get("activities") or []) if isinstance(item, dict)]
+    participations = load_participations()
+    updated = 0
+
+    for item in activities:
+        if is_charging_lottery_activity(item):
+            continue
+        if item.get("lottery_type") not in PARTICIPATABLE_TYPES:
+            continue
+        if infer_and_persist_lottery_time(item, participations.get(str(item.get("dynamic_id") or ""))):
+            updated += 1
+
+    if updated:
+        payload["activities"] = activities
+        _save_payload(target, payload)
+
+    return {"updated": updated, "total": len(activities)}

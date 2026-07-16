@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from src.lottery_actions import ActionResult
 from src.user_data import participation_actions_path
+from src.user_data_io import atomic_write_json
 from src.user_data_lock import user_data_lock
 
 ParticipationOutcome = Literal["joined", "failed", "skipped", "dry_run"]
@@ -43,15 +44,27 @@ def _load_raw() -> dict:
 
 
 def _save_raw(data: dict) -> None:
-    path = participation_actions_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(".json.tmp")
-    tmp_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp_path.replace(path)
+    atomic_write_json(participation_actions_path(), data)
 
 
 def serialize_actions(actions: list[ActionResult]) -> list[dict]:
     return [{"action": item.action, "ok": item.ok, "detail": item.detail} for item in actions]
+
+
+def append_action_record_unlocked(record: ParticipationActionRecord) -> None:
+    data = _load_raw()
+    entries = data.get("entries") or []
+    if not isinstance(entries, list):
+        entries = []
+    entries.append(record.to_dict())
+    data["entries"] = entries[-500:]
+    data["updated_at"] = int(time.time())
+    _save_raw(data)
+
+
+def append_action_record(record: ParticipationActionRecord) -> None:
+    with user_data_lock():
+        append_action_record_unlocked(record)
 
 
 def _comment_failure_optional(action: ActionResult) -> bool:
@@ -89,15 +102,3 @@ def participation_succeeded(actions: list[ActionResult], *, lottery_type: str) -
 def all_core_actions_ok(actions: list[ActionResult]) -> bool:
     action_map = {item.action: item.ok for item in actions}
     return all(action_map.get(name) for name in CORE_ACTIONS)
-
-
-def append_action_record(record: ParticipationActionRecord) -> None:
-    with user_data_lock():
-        data = _load_raw()
-        entries = data.get("entries") or []
-        if not isinstance(entries, list):
-            entries = []
-        entries.append(record.to_dict())
-        data["entries"] = entries[-500:]
-        data["updated_at"] = int(time.time())
-        _save_raw(data)

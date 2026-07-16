@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -9,22 +10,24 @@ from typing import Any, Callable
 
 from src.bilibili_client import BilibiliClient
 from src.bilibili_login import login_with_qrcode
-from src.classify_links import classify_merged_links, save_classified
-from src.fetch_activity_info import (
-    backfill_repost_counts,
-    count_pending_enrich,
-    count_pending_heat_backfill,
-    fetch_activity_info,
-    load_cached_enrich_result,
-    save_enriched,
-)
+from src.fetch_activity_info import mark_enriched_joined
 from src.app_logging import get_logger
-from src.merge_links import merge_activity_links, save_merged
 from src.lottery_classifier import PARTICIPATABLE_TYPES
 from src.lottery_actions import ActionResult
+from src.participate_preflight import ensure_activity_participatable
 from src.participation import participate_activity
 from src.participation_log import participation_succeeded
-from src.status_refresh import refresh_activity_statuses
+from src.pipeline.refresh_all_pipeline import PipelineResult, run_new_links_pipeline, run_refresh_all_pipeline
+from src.sources.common import CheckResult, is_valid_dynamic_id
+from web.activity_service import (
+    PARTICIPATE_TRIPLE_LIMIT,
+    build_triple_progress_plan,
+    invalidate_activity_cache,
+    lookup_lottery_type,
+    pick_triple_participate_targets,
+    participate_step_budget,
+    resolve_participate_lottery_type,
+)
 from src.sources import (
     ds1_xiaozhuli,
     ds2_fanqiao,
@@ -33,23 +36,17 @@ from src.sources import (
     ds5_hudong,
     ds6_nuomi,
 )
-
-from src.sources.common import is_valid_dynamic_id
-from web.activity_service import (
-    build_triple_progress_plan,
-    invalidate_activity_cache,
-    lookup_lottery_type,
-    pick_triple_participate_targets,
-    participate_step_budget,
-    resolve_participate_lottery_type,
-)
-from src.participation_store import set_participation
-from web.user_messages import format_participation_log, friendly_error, sanitize_log
+from src.status_refresh import refresh_local_activity_statuses
+from src.state_store import set_last_pipeline_persisted, set_watch_last_synced_at
+from src.watch_sync import save_watch_result, sync_watch_forwards
+from web.user_messages import format_participation_log, sanitize_log
 
 logger = get_logger("job")
 
-HEAT_BACKFILL_WORKERS = 6
-PARTICIPATE_TRIPLE_WORKERS = 1
+PARTICIPATE_TRIPLE_WORKERS = PARTICIPATE_TRIPLE_LIMIT
+REFRESH_ALL_PIPELINE_SUBSTEPS = 3
+REFRESH_WATCH_PIPELINE_SUBSTEPS = 3
+REFRESH_WATCH_TOTAL = 1 + REFRESH_WATCH_PIPELINE_SUBSTEPS
 
 
 def _deserialize_payload_actions(payload: dict[str, Any]) -> list[ActionResult]:
@@ -82,15 +79,17 @@ def _payload_joined_success(payload: dict[str, Any]) -> bool:
     return all(item.ok for item in actions)
 
 
+def _require_participate_success(payload: dict[str, Any]) -> None:
+    status = str(payload.get("status") or "")
+    if status == "skipped":
+        raise RuntimeError(str(payload.get("message") or "该活动不可参与"))
+    if status != "joined" or not _payload_joined_success(payload):
+        raise RuntimeError(str(payload.get("message") or "参与失败"))
+
+
 def _normalize_participate_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    normalized = dict(payload)
-    dynamic_id = str(normalized.get("dynamic_id") or "")
-    if normalized.get("status") == "joined" and not _payload_joined_success(normalized):
-        normalized["status"] = "failed"
-        normalized["message"] = str(normalized.get("message") or "参与未完成")
-        if dynamic_id:
-            set_participation(dynamic_id, "未参加")
-    return normalized
+    _require_participate_success(payload)
+    return dict(payload)
 
 
 def _participate_dynamic_payload(
@@ -98,14 +97,23 @@ def _participate_dynamic_payload(
     on_step: Callable[[int, int, str, str], None],
     *,
     lottery_type_hint: str | None = None,
+    client: BilibiliClient | None = None,
 ) -> dict[str, Any]:
     resolved_type = resolve_participate_lottery_type(dynamic_id, hint=lottery_type_hint)
-    payload, _detail = _capture_output(
-        _execute_participate,
-        dynamic_id,
-        on_step,
-        lottery_type=resolved_type,
-    )
+    if client is not None:
+        payload = _execute_participate(
+            dynamic_id,
+            on_step,
+            lottery_type=resolved_type,
+            client=client,
+        )
+    else:
+        payload, _detail = _capture_output(
+            _execute_participate,
+            dynamic_id,
+            on_step,
+            lottery_type=resolved_type,
+        )
     return _normalize_participate_payload(payload)
 
 
@@ -126,6 +134,7 @@ def _execute_participate(
     on_step: Callable[[int, int, str, str], None],
     *,
     lottery_type: str | None = None,
+    client: BilibiliClient | None = None,
 ) -> dict[str, Any]:
     dynamic_id = str(dynamic_id or "").strip()
     if not is_valid_dynamic_id(dynamic_id):
@@ -133,9 +142,10 @@ def _execute_participate(
     resolved_type = str(lottery_type or "").strip()
     if resolved_type not in PARTICIPATABLE_TYPES:
         resolved_type = resolve_participate_lottery_type(dynamic_id)
-    with BilibiliClient() as client:
+
+    def _run(active_client: BilibiliClient) -> dict[str, Any]:
         result = participate_activity(
-            client,
+            active_client,
             dynamic_id=dynamic_id,
             lottery_type=resolved_type,
             dry_run=False,
@@ -146,11 +156,17 @@ def _execute_participate(
         payload["lottery_type"] = resolved_type
         return payload
 
+    if client is not None:
+        return _run(client)
+    with BilibiliClient() as owned_client:
+        return _run(owned_client)
+
 
 def _append_log_detail(log_lines: list[str], detail: str) -> None:
     cleaned = sanitize_log(detail.strip())
     if cleaned:
         log_lines.append(cleaned)
+
 
 DS_HANDLERS: list[tuple[str, Callable[..., Any], Callable[[Any], Any]]] = [
     ("DS-1", ds1_xiaozhuli.check_update, ds1_xiaozhuli.save_result),
@@ -161,8 +177,57 @@ DS_HANDLERS: list[tuple[str, Callable[..., Any], Callable[[Any], Any]]] = [
     ("DS-6", ds6_nuomi.check_update, ds6_nuomi.save_result),
 ]
 
-REFRESH_ALL_TOTAL = len(DS_HANDLERS) + 5
+REFRESH_ALL_TOTAL = len(DS_HANDLERS) + REFRESH_ALL_PIPELINE_SUBSTEPS
 ProgressCallback = Callable[..., None]
+
+
+_SUBPROGRESS_SUFFIX_RE = re.compile(r"(?:\s*\(\s*\d+\s*/\s*\d+\s*\))+\s*$")
+
+
+def _format_subprogress_message(message: str, done: int, total: int) -> str:
+    base = _SUBPROGRESS_SUFFIX_RE.sub("", str(message or "").strip()).strip()
+    if total <= 0:
+        return base
+    return f"{base} ({done}/{total})"
+
+
+def _pipeline_substep_index(message: str) -> int:
+    text = str(message or "")
+    if "入库" in text or "落库" in text or "写入活动库" in text:
+        return 3
+    if "详情进度" in text or "活动详情" in text:
+        return 2
+    if "分类" in text or "新链接" in text:
+        return 1
+    return 1
+
+
+def _make_refresh_all_pipeline_progress(
+    progress: ProgressCallback,
+    *,
+    ds_count: int,
+) -> Callable[[int, int, str], None]:
+    def on_pipeline_progress(done: int, total: int, message: str) -> None:
+        substep = _pipeline_substep_index(message)
+        progress(
+            step=ds_count + substep,
+            total=REFRESH_ALL_TOTAL,
+            message=_format_subprogress_message(message, done, total),
+        )
+
+    return on_pipeline_progress
+
+
+def _make_refresh_watch_pipeline_progress(progress: ProgressCallback) -> Callable[[int, int, str], None]:
+    def on_pipeline_progress(done: int, total: int, message: str) -> None:
+        substep = _pipeline_substep_index(message)
+        progress(
+            step=1 + substep,
+            total=REFRESH_WATCH_TOTAL,
+            message=_format_subprogress_message(message, done, total),
+        )
+
+    return on_pipeline_progress
 
 
 def _noop_progress(**_kwargs: Any) -> None:
@@ -176,20 +241,31 @@ def _capture_output(func: Callable[..., Any], *args: Any, **kwargs: Any) -> tupl
     return result, buffer.getvalue()
 
 
+def _pipeline_log_lines(result: PipelineResult) -> list[str]:
+    if result.pipeline_skipped:
+        return [f"【流水线】{result.message}"]
+    skip_detail = ""
+    if result.skip_reasons:
+        parts = [f"{reason} {count}" for reason, count in result.skip_reasons.items()]
+        skip_detail = f"，跳过 {result.skipped_count} 条（{' / '.join(parts)}）"
+    return [
+        f"【新链接流水线】候选 {result.new_link_count} 条，"
+        f"分类通过 {result.classified_count} 条，"
+        f"详情 {result.enriched_count} 条，"
+        f"入库 {result.persisted_count} 条{skip_detail}"
+    ]
+
+
 def _run_ds_check(
     index: int,
     source_id: str,
     check_update: Callable[..., Any],
     save_result: Callable[[Any], Any],
-) -> tuple[int, dict[str, Any], str]:
+) -> tuple[int, dict[str, Any], str, CheckResult]:
     result, detail = _capture_output(check_update, force=False)
     out_path = save_result(result)
-    status_text = "发现新专栏" if result.updated else "无新专栏，使用缓存"
-    log_line = (
-        f"=== {source_id} 检查 ===\n"
-        f"{status_text}，链接 {len(result.activity_links)} 条，"
-        f"{'已写入' if out_path else '保留缓存'}"
-    )
+    status_text = "发现新专栏，已爬取" if result.updated else "同一专栏，已跳过"
+    log_line = f"【{source_id}】{status_text}，共 {len(result.activity_links)} 条链接"
     payload = {
         "source_id": source_id,
         "updated": result.updated,
@@ -199,7 +275,7 @@ def _run_ds_check(
         "detail": detail.strip(),
         "status_text": status_text,
     }
-    return index, payload, log_line
+    return index, payload, log_line, result
 
 
 def run_action(
@@ -279,7 +355,7 @@ def run_action(
             message=f"正在并行检查 {len(DS_HANDLERS)} 个数据源…",
         )
 
-        ds_payloads: list[tuple[int, dict[str, Any], str]] = []
+        ds_payloads: list[tuple[int, dict[str, Any], str, CheckResult]] = []
         with ThreadPoolExecutor(max_workers=len(DS_HANDLERS)) as executor:
             futures = {
                 executor.submit(_run_ds_check, index, source_id, check_update, save_result): source_id
@@ -290,16 +366,12 @@ def run_action(
                 try:
                     ds_payloads.append(future.result())
                 except Exception as exc:
-                    log_lines.append(f"=== {source_id} 检查失败 ===\n{exc}")
-                    progress(
-                        step=len(ds_payloads),
-                        total=REFRESH_ALL_TOTAL,
-                        message=f"{source_id} 检查失败，已跳过",
-                        log_append=f"{source_id} 检查失败：{exc}",
-                    )
+                    raise RuntimeError(f"{source_id} 检查失败：{exc}") from exc
 
         ds_payloads.sort(key=lambda item: item[0])
-        for index, payload, log_line in ds_payloads:
+        ds_check_results: list[CheckResult] = []
+        for index, payload, log_line, check_result in ds_payloads:
+            ds_check_results.append(check_result)
             if payload.get("updated"):
                 sources_updated += 1
             ds_results.append(
@@ -311,8 +383,6 @@ def run_action(
                 }
             )
             log_lines.append(log_line)
-            if payload.get("detail"):
-                _append_log_detail(log_lines, payload["detail"])
             progress(
                 step=index,
                 total=REFRESH_ALL_TOTAL,
@@ -320,193 +390,66 @@ def run_action(
                 log_append=log_line,
             )
 
-        merge_step = len(DS_HANDLERS) + 1
-        progress(step=merge_step, total=REFRESH_ALL_TOTAL, message="正在合并并去重链接…")
-        merge_result, merge_log = _capture_output(merge_activity_links)
-        merge_path = save_merged(merge_result)
-        merge_line = (
-            f"=== 合并去重 ===\n"
-            f"合计 {merge_result.total_count} 条，新增 {merge_result.new_count} 条，"
-            f"重复 {merge_result.duplicate_count} 条 → {merge_path}"
-        )
-        log_lines.append(merge_line)
-        if merge_log.strip():
-            _append_log_detail(log_lines, merge_log)
-        progress(
-            step=merge_step,
-            total=REFRESH_ALL_TOTAL,
-            message=f"合并完成，新增 {merge_result.new_count} 条链接",
-            log_append=merge_line,
-        )
-
-        classify_step = len(DS_HANDLERS) + 2
-        if merge_result.new_count > 0:
-            classify_message = f"正在分类 {merge_result.new_count} 条新链接…"
-        else:
-            classify_message = "无新链接，跳过分类（仅保留已有结果）…"
-        progress(step=classify_step, total=REFRESH_ALL_TOTAL, message=classify_message)
-        classify_result, classify_log = _capture_output(
-            classify_merged_links,
-            use_cache=True,
-            force=False,
-        )
-        classify_path = save_classified(classify_result)
-        classify_line = (
-            f"=== 活动分类 ===\n"
-            f"共 {classify_result.total_count} 条，本次新分类 {classify_result.new_count} 条 → {classify_path}"
-        )
-        log_lines.append(classify_line)
-        if classify_log.strip():
-            _append_log_detail(log_lines, classify_log)
-        progress(
-            step=classify_step,
-            total=REFRESH_ALL_TOTAL,
-            message=f"分类完成，本次新增 {classify_result.new_count} 条",
-            log_append=classify_line,
-        )
-
-        enrich_step = len(DS_HANDLERS) + 3
-        pending_enrich = count_pending_enrich()
-        if classify_result.new_count > 0 or pending_enrich > 0:
-            enrich_message = f"正在拉取 {pending_enrich} 条新活动详情…" if pending_enrich > 0 else "正在拉取新活动详情…"
-            progress(step=enrich_step, total=REFRESH_ALL_TOTAL, message=enrich_message)
-
-            def on_enrich_progress(done: int, total: int, phase: str) -> None:
-                if total > 0:
-                    message = f"{phase} ({done}/{total})"
-                else:
-                    message = phase
-                progress(step=enrich_step, total=REFRESH_ALL_TOTAL, message=message)
-
-            enrich_result, enrich_log = _capture_output(
-                fetch_activity_info,
-                use_cache=True,
-                force=False,
-                backfill_heat=False,
-                on_progress=on_enrich_progress,
-            )
-            if enrich_log.strip():
-                _append_log_detail(log_lines, enrich_log)
-            enrich_path = save_enriched(enrich_result)
-            invalidate_activity_cache()
-            failed_enrich = max(0, pending_enrich - enrich_result.new_count)
-            enrich_line = (
-                f"=== 保存活动数据 ===\n"
-                f"新拉取 {enrich_result.new_count} 条，"
-                f"共 {enrich_result.total_count} 条（含历史记录） → {enrich_path}"
-            )
-            if failed_enrich > 0:
-                enrich_line += f"\n另有 {failed_enrich} 条拉取失败，将在下次更新重试"
-            log_lines.append(enrich_line)
+        if sources_updated == 0:
+            skip_line = f"【跳过流水线】{len(DS_HANDLERS)} 个数据源均为同一专栏，跳过后续步骤"
+            log_lines.append(skip_line)
             progress(
-                step=enrich_step,
+                step=REFRESH_ALL_TOTAL,
                 total=REFRESH_ALL_TOTAL,
-                message=(
-                    f"详情拉取完成：成功 {enrich_result.new_count} 条"
-                    + (f"，失败 {failed_enrich} 条" if failed_enrich > 0 else "")
-                ),
+                message="均无新专栏，已跳过整个流水线",
+                log_append=skip_line,
             )
-        else:
-            progress(
-                step=enrich_step,
-                total=REFRESH_ALL_TOTAL,
-                message="使用本地活动缓存，跳过详情拉取…",
-            )
-            enrich_result = load_cached_enrich_result()
-            enrich_line = (
-                f"=== 活动缓存 ===\n"
-                f"无新链接，直接读取本地 {enrich_result.total_count} 条活动记录"
-            )
-            log_lines.append(enrich_line)
+            logger.info("一键更新：6 个数据源均无新专栏，跳过流水线")
+            set_last_pipeline_persisted(action="refresh_all", persisted_count=0)
+            return {
+                "ok": True,
+                "message": "检查完成：6 个数据源均无新专栏，已跳过整个流水线",
+                "result": {
+                    "sources": ds_results,
+                    "sources_updated": 0,
+                    "pipeline_skipped": True,
+                    "new_link_count": 0,
+                    "persisted_count": 0,
+                },
+                "log": sanitize_log("\n".join(log_lines).strip()),
+            }
 
-        heat_step = len(DS_HANDLERS) + 4
-        pending_heat = count_pending_heat_backfill()
-        heat_backfilled = 0
-        heat_failed = 0
-        if pending_heat > 0:
-            logger.info("开始补全活动热度：待处理 %s 条", pending_heat)
-            progress(
-                step=heat_step,
-                total=REFRESH_ALL_TOTAL,
-                message=f"正在检查并补全 {pending_heat} 条缺失热度的活动…",
-            )
+        pipeline_step = len(DS_HANDLERS) + 1
+        progress(step=pipeline_step, total=REFRESH_ALL_TOTAL, message="正在分类新链接…")
 
-            def on_heat_progress(done: int, total: int, phase: str) -> None:
-                if total > 0:
-                    message = f"{phase} ({done}/{total})"
-                else:
-                    message = phase
-                progress(step=heat_step, total=REFRESH_ALL_TOTAL, message=message)
-
-            heat_result, heat_log = _capture_output(
-                backfill_repost_counts,
-                workers=HEAT_BACKFILL_WORKERS,
-                on_progress=on_heat_progress,
-            )
-            if heat_log.strip():
-                _append_log_detail(log_lines, heat_log)
-            heat_backfilled = int(heat_result.get("updated") or 0)
-            heat_failed = int(heat_result.get("failed") or 0)
-            remaining_heat = count_pending_heat_backfill()
-            heat_line = (
-                f"=== 热度补全 ===\n"
-                f"待补全 {pending_heat} 条，成功 {heat_backfilled} 条"
-                + (f"，失败 {heat_failed} 条" if heat_failed > 0 else "")
-                + (f"，仍缺失 {remaining_heat} 条" if remaining_heat > 0 else "")
-            )
-            log_lines.append(heat_line)
-            invalidate_activity_cache()
-            enrich_result = load_cached_enrich_result()
-            progress(
-                step=heat_step,
-                total=REFRESH_ALL_TOTAL,
-                message=(
-                    f"热度补全完成：更新 {heat_backfilled} 条"
-                    + (f"，仍缺失 {remaining_heat} 条" if remaining_heat > 0 else "")
-                ),
-                log_append=heat_line,
-            )
-        else:
-            progress(
-                step=heat_step,
-                total=REFRESH_ALL_TOTAL,
-                message="活动热度数据已完整，跳过补全…",
-            )
-
-        status_step = len(DS_HANDLERS) + 5
-        progress(step=status_step, total=REFRESH_ALL_TOTAL, message="正在刷新活动状态…")
-        status_result = refresh_activity_statuses()
+        pipeline_result = run_refresh_all_pipeline(
+            ds_check_results,
+            on_progress=_make_refresh_all_pipeline_progress(
+                progress,
+                ds_count=len(DS_HANDLERS),
+            ),
+        )
         invalidate_activity_cache()
-        status_line = (
-            f"=== 刷新活动状态 ===\n"
-            f"共 {status_result['total']} 条，标记结束 {status_result['ended_marked']} 条，"
-            f"修正开奖时间 {status_result.get('migrated_times', 0)} 条，"
-            f"排除充电抽奖 {status_result.get('migrated_charging', 0)} 条，"
-            f"列表可展示 {sum(status_result['listable_counts'].values())} 条"
-        )
-        log_lines.append(status_line)
+        for line in _pipeline_log_lines(pipeline_result):
+            log_lines.append(line)
         progress(
-            step=status_step,
+            step=REFRESH_ALL_TOTAL,
             total=REFRESH_ALL_TOTAL,
-            message=f"状态刷新完成，标记结束 {status_result['ended_marked']} 条",
-            log_append=status_line,
+            message=pipeline_result.message or "流水线完成",
+            log_append=log_lines[-1] if log_lines else "",
         )
 
         summary_parts = [
             f"检查 {len(DS_HANDLERS)} 个数据源，{sources_updated} 个有新专栏",
-            f"新增链接 {merge_result.new_count} 条",
-            f"新分类 {classify_result.new_count} 条",
-            f"新拉取详情 {enrich_result.new_count} 条",
-            f"补全热度 {heat_backfilled} 条",
-            f"当前共 {enrich_result.total_count} 条活动记录",
-            f"标记结束 {status_result['ended_marked']} 条",
+            f"新链接 {pipeline_result.new_link_count} 条",
+            f"新入库 {pipeline_result.persisted_count} 条",
         ]
+        if pipeline_result.skip_reasons:
+            summary_parts.append(f"跳过 {pipeline_result.skipped_count} 条")
 
         logger.info(
-            "一键更新完成：新链接 %s，新详情 %s，热度补全 %s",
-            merge_result.new_count,
-            enrich_result.new_count,
-            heat_backfilled,
+            "一键更新完成：新链接 %s，入库 %s",
+            pipeline_result.new_link_count,
+            pipeline_result.persisted_count,
+        )
+        set_last_pipeline_persisted(
+            action="refresh_all",
+            persisted_count=pipeline_result.persisted_count,
         )
 
         return {
@@ -515,45 +458,100 @@ def run_action(
             "result": {
                 "sources": ds_results,
                 "sources_updated": sources_updated,
-                "merged_total": merge_result.total_count,
-                "merged_new": merge_result.new_count,
-                "classified_new": classify_result.new_count,
-                "enriched_new": enrich_result.new_count,
-                "active_total": enrich_result.counts.get("active", 0),
-                "total_count": enrich_result.total_count,
-                "status_refresh": status_result,
+                "pipeline": pipeline_result.to_dict(),
+            },
+            "log": sanitize_log("\n".join(log_lines).strip()),
+        }
+
+    if action == "refresh_watch":
+        log_lines: list[str] = []
+        progress(step=0, total=REFRESH_WATCH_TOTAL, message="准备扫描监控用户动态…")
+
+        def on_watch_progress(done: int, total: int, message: str) -> None:
+            progress(step=1, total=REFRESH_WATCH_TOTAL, message=message)
+
+        watch_result = sync_watch_forwards(on_progress=on_watch_progress)
+        watch_line = (
+            f"【监控扫描】窗口内 {watch_result.link_count} 条活动链接，"
+            f"成功扫描 {watch_result.users_ok}/{watch_result.users_total} 人"
+        )
+        log_lines.append(watch_line)
+        progress(
+            step=1,
+            total=REFRESH_WATCH_TOTAL,
+            message=f"扫描完成：窗口 {watch_result.link_count} 条链接",
+            log_append=watch_line,
+        )
+
+        pipeline_step = 2
+        progress(step=pipeline_step, total=REFRESH_WATCH_TOTAL, message="正在分类新链接…")
+
+        pipeline_result = run_new_links_pipeline(
+            watch_result.activity_links,
+            on_progress=_make_refresh_watch_pipeline_progress(progress),
+        )
+        invalidate_activity_cache()
+        for line in _pipeline_log_lines(pipeline_result):
+            log_lines.append(line)
+        progress(
+            step=REFRESH_WATCH_TOTAL,
+            total=REFRESH_WATCH_TOTAL,
+            message=pipeline_result.message or "流水线完成",
+            log_append=log_lines[-1] if log_lines else "",
+        )
+
+        set_watch_last_synced_at(watch_result.synced_at)
+        save_watch_result(watch_result)
+        set_last_pipeline_persisted(
+            action="refresh_watch",
+            persisted_count=pipeline_result.persisted_count,
+            synced_at=watch_result.synced_at,
+        )
+
+        summary_parts = [
+            f"扫描 {watch_result.users_total} 人，提取 {watch_result.link_count} 条链接",
+            f"新链接 {pipeline_result.new_link_count} 条",
+            f"新入库 {pipeline_result.persisted_count} 条",
+        ]
+        logger.info(
+            "监控用户更新完成：窗口 %s 条，入库 %s",
+            watch_result.link_count,
+            pipeline_result.persisted_count,
+        )
+        return {
+            "ok": True,
+            "message": "监控用户动态更新完成：" + "，".join(summary_parts),
+            "result": {
+                "watch": watch_result.to_dict(),
+                "pipeline": pipeline_result.to_dict(),
             },
             "log": sanitize_log("\n".join(log_lines).strip()),
         }
 
     if action == "refresh_status":
-        try:
-            progress(step=1, total=1, message="正在刷新活动状态…")
-            status_result = refresh_activity_statuses()
-            invalidate_activity_cache()
-        except OSError as exc:
-            raise RuntimeError(f"刷新活动状态失败：{exc}") from exc
-        counts = status_result.get("status_counts") or {}
-        listable = status_result.get("listable_counts") or {}
-        message = (
-            f"状态刷新完成：标记结束 {status_result.get('ended_marked', 0)} 条，"
-            f"列表展示 已参加 {listable.get('已参加', 0)} / 未参加 {listable.get('未参加', 0)} / "
-            f"已结束 {listable.get('已结束', 0)}"
-        )
-        log = (
-            f"=== 刷新活动状态 ===\n"
-            f"共 {status_result.get('total', 0)} 条活动（历史记录全部保留）\n"
-            f"标记结束 {status_result.get('ended_marked', 0)} 条\n"
-            f"修正开奖时间 {status_result.get('migrated_times', 0)} 条\n"
-            f"排除充电抽奖 {status_result.get('migrated_charging', 0)} 条\n"
-            f"当前统计：已结束 {counts.get('已结束', 0)} / 已参加 {counts.get('已参加', 0)} / "
-            f"未参加 {counts.get('未参加', 0)}"
+        progress(step=0, total=1, message="正在刷新活动状态…")
+        result = refresh_local_activity_statuses()
+        invalidate_activity_cache()
+        if result.get("skipped"):
+            message = "没有需要刷新的进行中活动"
+        else:
+            message = (
+                f"状态刷新完成：检查 {result.get('scanned', 0)} 条，"
+                f"更新 {result.get('updated', 0)} 条，"
+                f"新结束 {result.get('ended_marked', 0)} 条，"
+                f"即将开奖 {result.get('soon_marked', 0)} 条"
+            )
+        progress(step=1, total=1, message=message, log_append=message)
+        logger.info(
+            "刷新任务状态完成：检查 %s，更新 %s",
+            result.get("scanned", 0),
+            result.get("updated", 0),
         )
         return {
             "ok": True,
             "message": message,
-            "result": status_result,
-            "log": sanitize_log(log),
+            "result": result,
+            "log": sanitize_log(message),
         }
 
     if action == "participate":
@@ -566,29 +564,30 @@ def run_action(
             logger.warning("参与失败：未找到活动类型 %s — %s", dynamic_id, exc)
             raise ValueError(f"未找到活动 {dynamic_id} 的类型信息，请先一键更新") from exc
         total_steps = participate_step_budget(lottery_type, dynamic_id=dynamic_id)
-        progress(step=0, total=total_steps, message="准备参与活动…")
+        progress(step=0, total=total_steps, message="正在检查活动状态…", log_append="正在打开活动链接检查状态…")
         logger.info("开始参与活动 %s (%s)", dynamic_id, lottery_type)
 
         def on_step(step: int, total: int, message: str, _action_name: str) -> None:
             progress(step=step, total=total, message=message, log_append=message)
 
-        try:
-            payload = _participate_dynamic_payload(dynamic_id, on_step, lottery_type_hint=lottery_type)
-        except Exception as exc:
-            logger.exception("参与活动异常 %s", dynamic_id)
-            raise
-        ok = _payload_joined_success(payload)
-        logger.info(
-            "参与活动结束 %s status=%s message=%s",
-            dynamic_id,
-            payload.get("status"),
-            payload.get("message"),
-        )
+        with BilibiliClient() as client:
+            ensure_activity_participatable(client, dynamic_id, lottery_type_hint=lottery_type)
+            progress(step=0, total=total_steps, message="检查通过，开始参与…", log_append="活动可参与，开始执行参与步骤")
+            payload = _participate_dynamic_payload(
+                dynamic_id,
+                on_step,
+                lottery_type_hint=lottery_type,
+                client=client,
+            )
+
+        mark_enriched_joined(dynamic_id)
+        refresh_local_activity_statuses()
+        logger.info("参与活动成功 %s", dynamic_id)
         action_log = format_participation_log(payload)
         invalidate_activity_cache()
         return {
-            "ok": ok,
-            "message": payload.get("message") or ("参与成功" if ok else "参与未完成，请查看步骤结果"),
+            "ok": True,
+            "message": str(payload.get("message") or "参与成功"),
             "result": payload,
             "log": action_log,
         }
@@ -602,22 +601,27 @@ def run_action(
         if not targets:
             raise ValueError("当前列表没有可参与的未参加活动")
 
-        target_ids = [str(item.get("dynamic_id") or "") for item in targets]
+        target_titles = [str(item.get("activity_title") or item.get("dynamic_id") or "") for item in targets]
         total_steps, progress_plan = build_triple_progress_plan(targets)
         if total_steps <= 0:
             raise ValueError("当前列表没有可参与的未参加活动")
 
-        logger.info("三连参与开始：%s", ", ".join(target_ids))
+        logger.info("三连参与开始：%s", ", ".join(target_titles))
         progress(
             step=0,
             total=total_steps,
-            message=f"准备三连参与 {len(targets)} 个活动…",
-            log_append=f"目标活动：{', '.join(target_ids)}",
+            message=f"准备并行三连参与 {len(targets)} 个活动…",
+            log_append="目标活动：" + "、".join(target_titles),
         )
 
         progress_lock = threading.Lock()
-        task_states: dict[str, str] = {dynamic_id: "排队中…" for dynamic_id in target_ids}
-        task_step_progress: dict[str, int] = {dynamic_id: 0 for dynamic_id in target_ids}
+        task_states: dict[str, str] = {
+            str(item.get("dynamic_id") or ""): "等待开始…" for item in targets
+        }
+        task_step_progress: dict[str, int] = {
+            str(item.get("dynamic_id") or ""): 0 for item in targets
+        }
+        target_ids = [str(item.get("dynamic_id") or "") for item in targets]
 
         def _overall_progress_step() -> int:
             total_done = 0
@@ -638,127 +642,126 @@ def run_action(
             )
 
         def _progress_snapshot() -> str:
-            return " | ".join(f"{dynamic_id[-6:]}: {task_states[dynamic_id]}" for dynamic_id in target_ids)
+            parts: list[str] = []
+            for target in targets:
+                dynamic_id = str(target.get("dynamic_id") or "")
+                title = str(target.get("activity_title") or dynamic_id[-6:])
+                parts.append(f"{title}: {task_states.get(dynamic_id, '等待开始…')}")
+            return " | ".join(parts)
 
         def _report_task_progress(dynamic_id: str, step: int, _total: int, message: str) -> None:
             if cancel_event and cancel_event.is_set():
-                return
+                raise ValueError("任务已取消")
             if dynamic_id not in progress_plan:
                 return
             with progress_lock:
                 task_states[dynamic_id] = message
                 task_step_progress[dynamic_id] = max(task_step_progress.get(dynamic_id, 0), step)
-            _emit_triple_progress(log_append=f"{dynamic_id}: {message}")
+            title = next(
+                (
+                    str(item.get("activity_title") or dynamic_id)
+                    for item in targets
+                    if str(item.get("dynamic_id") or "") == dynamic_id
+                ),
+                dynamic_id,
+            )
+            _emit_triple_progress(log_append=f"{title}：{message}")
 
-        def _mark_task_done(dynamic_id: str, message: str) -> None:
-            plan_entry = progress_plan.get(dynamic_id)
-            if not plan_entry:
-                return
-            _, budget = plan_entry
+        def _mark_other_tasks_stopped(failed_id: str, *, reason: str) -> None:
+            skip_markers = ("失败", "参与成功", "完成", "成功", "已停止", "已取消")
             with progress_lock:
-                task_states[dynamic_id] = message
-                task_step_progress[dynamic_id] = budget
-            _emit_triple_progress()
+                for other_id in target_ids:
+                    if failed_id and other_id == failed_id:
+                        continue
+                    state = task_states.get(other_id, "")
+                    if any(marker in state for marker in skip_markers):
+                        continue
+                    task_states[other_id] = reason
 
-        def _run_one(target: dict[str, Any]) -> dict[str, Any]:
+        def _participate_triple_target(target: dict[str, Any]) -> dict[str, Any]:
+            if cancel_event and cancel_event.is_set():
+                raise ValueError("任务已取消")
+
             dynamic_id = str(target.get("dynamic_id") or "")
             title = str(target.get("activity_title") or dynamic_id)
-
-            if cancel_event and cancel_event.is_set():
-                return {
-                    "dynamic_id": dynamic_id,
-                    "activity_title": title,
-                    "lottery_type": str(target.get("lottery_type") or ""),
-                    "payload": {
-                        "dynamic_id": dynamic_id,
-                        "lottery_type": str(target.get("lottery_type") or ""),
-                        "status": "failed",
-                        "message": "已取消",
-                        "actions": [],
-                    },
-                    "detail": "",
-                }
-
             target_lottery_type = str(target.get("lottery_type") or "").strip() or None
 
-            def on_step(step: int, total: int, message: str, _action_name: str) -> None:
-                _report_task_progress(dynamic_id, step, total, message)
+            with progress_lock:
+                task_states[dynamic_id] = "正在检查活动状态…"
+            _emit_triple_progress(log_append=f"{title}：正在检查活动状态…")
 
-            try:
+            with BilibiliClient() as client:
+                ensure_activity_participatable(
+                    client,
+                    dynamic_id,
+                    lottery_type_hint=target_lottery_type,
+                )
+                if cancel_event and cancel_event.is_set():
+                    raise ValueError("任务已取消")
+
+                def on_step(step: int, total: int, message: str, _action_name: str) -> None:
+                    _report_task_progress(dynamic_id, step, total, message)
+
                 payload = _participate_dynamic_payload(
                     dynamic_id,
                     on_step,
                     lottery_type_hint=target_lottery_type,
+                    client=client,
                 )
-                detail = ""
-            except Exception as exc:
-                logger.exception("三连参与异常 %s", dynamic_id)
-                payload = {
-                    "dynamic_id": dynamic_id,
-                    "lottery_type": target_lottery_type or "",
-                    "status": "failed",
-                    "message": friendly_error(exc),
-                    "actions": [],
-                }
-                detail = ""
+
+            mark_enriched_joined(dynamic_id)
             with progress_lock:
-                task_states[dynamic_id] = str(payload.get("message") or "完成")
-            _mark_task_done(dynamic_id, str(payload.get("message") or "完成"))
+                task_states[dynamic_id] = str(payload.get("message") or "参与成功")
+            plan_entry = progress_plan.get(dynamic_id)
+            if plan_entry:
+                _, budget = plan_entry
+                task_step_progress[dynamic_id] = budget
+            _emit_triple_progress(log_append=f"{title}：参与成功")
             return {
                 "dynamic_id": dynamic_id,
                 "activity_title": title,
                 "lottery_type": str(payload.get("lottery_type") or target.get("lottery_type") or ""),
                 "payload": payload,
-                "detail": detail,
             }
 
         results: list[dict[str, Any]] = []
-        for target in targets:
-            if cancel_event and cancel_event.is_set():
-                break
-            results.append(_run_one(target))
+        _emit_triple_progress()
+        with ThreadPoolExecutor(max_workers=PARTICIPATE_TRIPLE_WORKERS) as executor:
+            future_to_id = {
+                executor.submit(_participate_triple_target, target): str(target.get("dynamic_id") or "")
+                for target in targets
+            }
+            try:
+                for future in as_completed(future_to_id):
+                    dynamic_id = future_to_id[future]
+                    if cancel_event and cancel_event.is_set():
+                        raise ValueError("任务已取消")
+                    try:
+                        results.append(future.result())
+                    except Exception as exc:
+                        if cancel_event is not None:
+                            cancel_event.set()
+                        with progress_lock:
+                            task_states[dynamic_id] = f"失败：{exc}"
+                        _mark_other_tasks_stopped(dynamic_id, reason="已停止（其他活动失败）")
+                        _emit_triple_progress(log_append=f"{dynamic_id}：失败")
+                        for pending in future_to_id:
+                            pending.cancel()
+                        raise
+            finally:
+                if cancel_event and cancel_event.is_set():
+                    _mark_other_tasks_stopped("", reason="已取消")
+                    _emit_triple_progress()
 
+        refresh_local_activity_statuses()
         results.sort(key=lambda item: target_ids.index(item["dynamic_id"]))
-        joined_count = sum(1 for item in results if _payload_joined_success(item["payload"]))
-        skipped_count = sum(
-            1 for item in results if str(item["payload"].get("status") or "") == "skipped"
-        )
-        failed_count = len(results) - joined_count - skipped_count
         log_blocks = [format_participation_log(item["payload"]) for item in results]
-        for item in results:
-            if item.get("detail"):
-                _append_log_detail(log_blocks, item["detail"])
-
+        message = f"三连参与完成：{len(results)} 个活动全部成功"
+        progress(step=total_steps, total=total_steps, message=message, log_append=message)
+        logger.info("三连参与成功 count=%s", len(results))
         invalidate_activity_cache()
-        cancelled = bool(cancel_event and cancel_event.is_set())
-        if cancelled:
-            message = "三连参与已取消"
-            ok = False
-        elif joined_count == len(results):
-            message = f"三连参与完成：{joined_count} 个活动全部成功"
-            ok = True
-        elif joined_count > 0:
-            message = (
-                f"三连参与结束：成功 {joined_count} 个"
-                + (f"，失败 {failed_count} 个" if failed_count else "")
-                + (f"，跳过 {skipped_count} 个" if skipped_count else "")
-            )
-            ok = False
-        else:
-            message = "三连参与未完成，请查看各活动步骤结果"
-            ok = False
-
-        progress(step=total_steps, total=total_steps, message=message)
-        logger.info(
-            "三连参与结束 joined=%s failed=%s skipped=%s cancelled=%s ids=%s",
-            joined_count,
-            failed_count,
-            skipped_count,
-            cancelled,
-            target_ids,
-        )
         return {
-            "ok": ok,
+            "ok": True,
             "message": message,
             "result": {
                 "targets": [
@@ -770,12 +773,9 @@ def run_action(
                     for item in results
                 ],
                 "items": [item["payload"] for item in results],
-                "joined": joined_count,
-                "failed": failed_count,
-                "skipped": skipped_count,
-                "cancelled": cancelled,
+                "joined": len(results),
             },
-            "log": sanitize_log("\n\n".join(log_blocks).strip()),
+            "log": "\n\n".join(log_blocks).strip(),
         }
 
     raise ValueError(f"未知操作: {action}")

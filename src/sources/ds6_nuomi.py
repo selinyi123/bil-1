@@ -41,7 +41,6 @@ def check_update(*, force: bool = False) -> CheckResult:
             )
 
         detail = client.get_article_detail(cv_id)
-
         opus = detail.get("opus") or {}
         container_opus_id = str(opus.get("opus_id") or "")
         if not container_opus_id:

@@ -4,12 +4,15 @@ import hashlib
 import json
 import os
 import re
+import threading
 import time
 import urllib.parse
 import uuid
 from pathlib import Path
 
 import httpx
+
+from src.bilibili_rate_limit import acquire_bilibili_request_slot
 
 ROOT = Path(__file__).resolve().parents[1]
 COOKIE_PATH = ROOT / "config" / "cookies.txt"
@@ -34,6 +37,17 @@ MIXIN_KEY_ENC_TAB = [
 ]
 
 WBI_FILTER_RE = re.compile(r"[!'()*]")
+
+
+def api_code(payload: dict) -> int:
+    """解析 B 站 API 响应 code；code=0 表示成功（勿用 ``code or -1``，0 会被误判）。"""
+    code = payload.get("code")
+    if code is None:
+        return -1
+    try:
+        return int(code)
+    except (TypeError, ValueError):
+        return -1
 
 
 def _load_cookie_string() -> str | None:
@@ -73,12 +87,13 @@ class BilibiliClient:
         )
         self._img_key: str | None = None
         self._sub_key: str | None = None
+        self._http_lock = threading.Lock()
         if warmup:
             self._warmup()
 
     def _warmup(self) -> None:
         try:
-            self._client.get("https://www.bilibili.com")
+            self._http_get("https://www.bilibili.com")
             if "buvid3" not in self._client.cookies:
                 self._client.cookies.set(
                     "buvid3",
@@ -87,6 +102,36 @@ class BilibiliClient:
                 )
         except httpx.HTTPError:
             pass
+
+    def _http_get(
+        self,
+        url: str,
+        *,
+        params: dict | None = None,
+        headers: dict | None = None,
+    ) -> httpx.Response:
+        acquire_bilibili_request_slot()
+        with self._http_lock:
+            return self._client.get(url, params=params or {}, headers=headers)
+
+    def _http_post(
+        self,
+        url: str,
+        *,
+        data: dict | None = None,
+        json: dict | None = None,
+        params: dict | None = None,
+        headers: dict | None = None,
+    ) -> httpx.Response:
+        acquire_bilibili_request_slot()
+        with self._http_lock:
+            return self._client.post(
+                url,
+                params=params or {},
+                data=data,
+                json=json,
+                headers=headers,
+            )
 
     def close(self) -> None:
         self._client.close()
@@ -104,7 +149,7 @@ class BilibiliClient:
     def _ensure_wbi_keys(self) -> None:
         if self._img_key and self._sub_key:
             return
-        resp = self._client.get("https://api.bilibili.com/x/web-interface/nav")
+        resp = self._http_get("https://api.bilibili.com/x/web-interface/nav")
         resp.raise_for_status()
         data = resp.json()
         wbi = (data.get("data") or {}).get("wbi_img") or {}
@@ -133,13 +178,13 @@ class BilibiliClient:
                 self._ensure_wbi_keys()
                 req_params = wbi_sign(req_params, self._img_key, self._sub_key)
             try:
-                resp = self._client.get(url, params=req_params, headers=headers)
+                resp = self._http_get(url, params=req_params, headers=headers)
                 resp.raise_for_status()
                 data = resp.json()
                 code = data.get("code")
                 if code in (0, None):
                     return data
-                if code in (-352, -509) and attempt < retries:
+                if code in (-352, -509, -799) and attempt < retries:
                     time.sleep(1.2 * (attempt + 1))
                     last_error = RuntimeError(f"API error {code}: {data.get('message')}")
                     continue
@@ -165,7 +210,7 @@ class BilibiliClient:
         last_error: Exception | None = None
         for attempt in range(retries + 1):
             try:
-                resp = self._client.get(url, params=params or {}, headers=headers)
+                resp = self._http_get(url, params=params or {}, headers=headers)
                 resp.raise_for_status()
                 return resp.json()
             except (httpx.HTTPStatusError, httpx.RequestError) as exc:
@@ -202,7 +247,7 @@ class BilibiliClient:
         last_error: Exception | None = None
         for attempt in range(retries + 1):
             try:
-                resp = self._client.post(url, data=data, headers=headers)
+                resp = self._http_post(url, data=data, headers=headers)
                 resp.raise_for_status()
                 payload = resp.json()
                 code = payload.get("code")
@@ -251,7 +296,7 @@ class BilibiliClient:
         last_error: Exception | None = None
         for attempt in range(retries + 1):
             try:
-                resp = self._client.post(url, params=params or {}, json=payload, headers=headers)
+                resp = self._http_post(url, params=params or {}, json=payload, headers=headers)
                 resp.raise_for_status()
                 data = resp.json()
                 code = data.get("code")
@@ -289,7 +334,7 @@ class BilibiliClient:
         last_error: Exception | None = None
         for attempt in range(retries + 1):
             try:
-                resp = self._client.get(url, headers=headers)
+                resp = self._http_get(url, headers=headers)
                 resp.raise_for_status()
                 return resp.text
             except (httpx.HTTPStatusError, httpx.RequestError) as exc:
@@ -382,16 +427,19 @@ class BilibiliClient:
         return video_data
 
     def get_latest_article(self, mid: int) -> dict:
+        return self.get_recent_articles(mid, limit=1)[0]
+
+    def get_recent_articles(self, mid: int, *, limit: int = 2) -> list[dict]:
         referer = f"https://space.bilibili.com/{mid}/upload/opus"
         data = self.get_json(
             "https://api.bilibili.com/x/space/article",
-            params={"mid": mid, "pn": 1, "ps": 1, "sort": "publish_time"},
+            params={"mid": mid, "pn": 1, "ps": max(1, limit), "sort": "publish_time"},
             referer=referer,
         )
         articles = (data.get("data") or {}).get("articles") or []
         if not articles:
             raise RuntimeError("未找到该 UP 的专栏文章")
-        return articles[0]
+        return articles[:limit]
 
     def get_article_detail(self, cv_id: int) -> dict:
         referer = f"https://www.bilibili.com/read/cv{cv_id}"

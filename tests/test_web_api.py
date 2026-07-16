@@ -14,6 +14,20 @@ def test_reject_unknown_job_action() -> None:
     assert resp.status_code == 400
 
 
+def test_watch_users_api_seeds_and_lists() -> None:
+    with patch("web.app.seed_from_candidates_if_empty", return_value=True):
+        with patch(
+            "web.app.get_watch_users_payload",
+            return_value={"count": 1, "users": [{"mid": 1, "name": "u"}], "updated_at": 0},
+        ):
+            with patch("web.app.get_watch_last_synced_at", return_value=None):
+                resp = client.get("/api/watch-users")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["count"] == 1
+    assert "next_window" in data
+
+
 def test_participate_triple_job_accepts_filter_params() -> None:
     with patch("web.app.runner.start", return_value=True) as start_mock:
         resp = client.post(
@@ -38,10 +52,10 @@ def test_reject_invalid_dynamic_id() -> None:
 
 
 def test_activities_pagination_bounds() -> None:
-    resp = client.get("/api/activities", params={"page": 1, "page_size": 100})
+    resp = client.get("/api/activities", params={"page": 1, "page_size": 20})
     assert resp.status_code == 200
     data = resp.json()
-    assert data["page_size"] <= 100
+    assert data["page_size"] == 20
     assert "triple_targets" in data
     assert "count" in data["triple_targets"]
     assert "items" in data["triple_targets"]

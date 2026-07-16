@@ -2,6 +2,8 @@
 config/cookies.txt
 config/llm.env
 config/participate_settings.json
+config/watch_users.json
+config/watch_users_candidates.json
 
 # 运行时数据（活动缓存、参与记录、登录二维码等）
 data/

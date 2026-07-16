@@ -20,7 +20,7 @@ def _participation(dynamic_id: str) -> ParticipationRecord:
     )
 
 
-def test_classify_drawn_participated_activity() -> None:
+def test_classify_past_participated_activity_not_drawn() -> None:
     now = 1_700_000_000
     item = {
         "dynamic_id": "123",
@@ -28,8 +28,8 @@ def test_classify_drawn_participated_activity() -> None:
         "prizes": [{"description": "键盘"}],
     }
     participation = _participation("123")
-    assert classify_participated_draw(item, participation, now=now) == "drawn"
-    assert should_recommend_at_check(item, participation, now=now) is True
+    assert classify_participated_draw(item, participation, now=now) is None
+    assert should_recommend_at_check(item, participation, now=now) is False
 
 
 def test_classify_drawing_soon_activity() -> None:
@@ -69,22 +69,9 @@ def test_compute_draw_reminders_groups_counts() -> None:
         "3": _participation("3"),
     }
     reminder = compute_draw_reminders(activities, participations, now=now)
-    assert reminder["drawn_participated_count"] == 1
     assert reminder["drawing_soon_count"] == 1
-    assert reminder["drawn_participated"][0]["dynamic_id"] == "1"
+    assert "drawn_participated_count" not in reminder
     assert reminder["drawing_soon"][0]["dynamic_id"] == "2"
-
-
-def test_classify_drawn_only_within_three_day_window() -> None:
-    now = 1_700_000_000
-    item = {
-        "dynamic_id": "old",
-        "lottery_time": now - DRAWING_SOON_SECONDS - 1,
-        "prizes": [{"description": "过期"}],
-    }
-    participation = _participation("old")
-    assert classify_participated_draw(item, participation, now=now) == "pending"
-    assert matches_draw_window_filter(item, participation, "drawn", now=now) is False
 
 
 def test_classify_soon_only_within_three_day_window() -> None:
@@ -99,22 +86,33 @@ def test_classify_soon_only_within_three_day_window() -> None:
     assert matches_draw_window_filter(item, participation, "soon", now=now) is False
 
 
-def test_matches_draw_window_filter_respects_participation() -> None:
+def test_matches_draw_window_filter_ignores_drawn() -> None:
     now = 1_700_000_000
     item = {
         "dynamic_id": "123",
         "lottery_time": now - 3600,
         "prizes": [{"description": "键盘"}],
     }
-    assert matches_draw_window_filter(item, None, "drawn", now=now) is False
-    assert matches_draw_window_filter(item, _participation("123"), "drawn", now=now) is True
+    participation = _participation("123")
+    assert matches_draw_window_filter(item, participation, "drawn", now=now) is True
+
+
+def test_matches_draw_window_filter_uses_stored_draw_tag() -> None:
+    item = {
+        "dynamic_id": "stored",
+        "status_classified": True,
+        "draw_tag": "即将开奖",
+        "activity_status": "已参加",
+    }
+    assert matches_draw_window_filter(item, None, "soon") is True
+    assert matches_draw_window_filter(item, None, "drawn") is True
 
 
 def test_list_activities_draw_window_ignores_status_filter() -> None:
     from web.activity_service import list_activities
 
-    drawn = list_activities(draw_window="drawn")
-    if not drawn["total"]:
+    soon = list_activities(draw_window="soon")
+    if not soon["total"]:
         return
-    with_status = list_activities(draw_window="drawn", status="已参加")
-    assert with_status["total"] == drawn["total"]
+    with_status = list_activities(draw_window="soon", status="已参加")
+    assert with_status["total"] == soon["total"]

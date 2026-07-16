@@ -11,8 +11,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.fetch_activity_info import ENRICHED_OUTPUT_PATH
-from src.lottery_time import is_standard_lottery_time_display
-from src.status_refresh import refresh_activity_statuses
+from src.lottery_time import is_standard_lottery_time_display, migrate_stored_lottery_times
 
 
 def _count_bad_times(activities: list[dict]) -> int:
@@ -35,14 +34,17 @@ def main() -> int:
     activities = [item for item in (payload.get("activities") or []) if isinstance(item, dict)]
     before = _count_bad_times(activities)
 
-    result = refresh_activity_statuses(path=ENRICHED_OUTPUT_PATH)
-    after_payload = json.loads(ENRICHED_OUTPUT_PATH.read_text(encoding="utf-8"))
-    after = _count_bad_times(after_payload.get("activities") or [])
+    migrated = migrate_stored_lottery_times(activities)
+    payload["activities"] = activities
+    ENRICHED_OUTPUT_PATH.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    after = _count_bad_times(activities)
 
     print(
-        f"开奖时间迁移完成：修正 {result.get('migrated_times', 0)} 条，"
-        f"非标准文本 {before} → {after}，"
-        f"标记结束 {result.get('ended_marked', 0)} 条"
+        f"开奖时间迁移完成：修正 {migrated} 条，"
+        f"非标准文本 {before} → {after}"
     )
     return 0
 

@@ -20,6 +20,7 @@ JOB_ACTION_LABELS: dict[str, str] = {
     "refresh_status": "刷新任务状态",
     "participate": "参与活动",
     "participate_triple": "三连参与",
+    "refresh_watch": "更新监控用户动态",
 }
 
 _PATH_PATTERN = re.compile(r"[A-Za-z]:\\[^\s\"']+")
@@ -145,7 +146,9 @@ def sanitize_log(log: str) -> str:
             continue
         line = _PATH_PATTERN.sub("[本地文件]", stripped)
         line = _UNIX_PATH_PATTERN.sub("[本地文件]", line)
-        line = re.sub(r"→\s*\S+", "→ 已保存", line)
+        line = re.sub(r"→\s*\S+", "", line).strip()
+        if not line:
+            continue
         lines.append(line)
     return "\n".join(lines).strip()
 

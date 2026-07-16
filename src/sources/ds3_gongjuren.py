@@ -44,7 +44,7 @@ def check_update(*, force: bool = False) -> CheckResult:
             )
 
         detail = client.get_article_detail(cv_id)
-        links, hints = extract_opus_links_with_hints(detail, default_hint="互动抽奖")
+        links, hints = extract_opus_links_with_hints(detail)
 
         set_last_container(
             SOURCE_ID,

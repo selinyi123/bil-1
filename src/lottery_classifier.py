@@ -19,6 +19,7 @@ LOTTERY_NOTICE_URL = "https://api.vc.bilibili.com/lottery_svr/v1/lottery_svr/lot
 DYNAMIC_DETAIL_URL = "https://api.bilibili.com/x/polymer/web-dynamic/v1/detail"
 
 RESERVE_MARKER_RE = re.compile(r"reserve_total|ADDITIONAL_TYPE_RESERVE")
+LIVE_STREAM_RESERVE_JUMP_RE = re.compile(r"live\.bilibili\.com", re.I)
 
 _detail_api_lock = threading.Lock()
 _detail_api_enabled = True
@@ -81,6 +82,61 @@ def _has_reserve_from_page(client: BilibiliClient, dynamic_id: str) -> bool:
     except RuntimeError:
         return False
     return bool(RESERVE_MARKER_RE.search(html))
+
+
+def _is_live_stream_reserve_only(reserve: dict) -> bool:
+    """纯直播预约卡片（无抽奖 notice 时可安全 skip）。与真·预约抽奖共用 reserve 结构。"""
+    if not reserve:
+        return False
+    jump_url = str(reserve.get("jump_url") or "")
+    if LIVE_STREAM_RESERVE_JUMP_RE.search(jump_url):
+        return True
+    desc1 = str((reserve.get("desc1") or {}).get("text") or "").strip()
+    if desc1 == "直播中":
+        return True
+    desc2 = str((reserve.get("desc2") or {}).get("text") or "")
+    if "人看过" in desc2:
+        return True
+    return False
+
+
+def _has_reserve_lottery_notice(client: BilibiliClient, dynamic_id: str) -> bool:
+    """预约抽奖：reserve.rid + lottery_notice(bt=10) 须有 lottery_id。"""
+    from src.lottery_api import fetch_lottery_notice, resolve_reserve_business
+
+    resolved = resolve_reserve_business(client, dynamic_id)
+    if not resolved:
+        return False
+    business_id, business_type = resolved
+    notice = fetch_lottery_notice(
+        client,
+        business_id=business_id,
+        business_type=business_type,
+        referer=opus_link(dynamic_id),
+        retries=2,
+    )
+    return bool(notice and notice.get("lottery_id"))
+
+
+def _classify_reserve_candidate(
+    client: BilibiliClient,
+    dynamic_id: str,
+    additional: dict | None,
+) -> Literal["预约抽奖", "skip", "not_reserve"]:
+    """旧逻辑命中 reserve 后的二次判别。"""
+    reserve = (additional or {}).get("reserve") if additional else None
+    has_reserve_block = bool(reserve)
+    if not has_reserve_block and not _has_reserve_from_page(client, dynamic_id):
+        return "not_reserve"
+
+    reserve = reserve or {}
+    if reserve and _is_live_stream_reserve_only(reserve) and not _has_reserve_lottery_notice(
+        client, dynamic_id
+    ):
+        return "skip"
+    if _has_reserve_lottery_notice(client, dynamic_id):
+        return "预约抽奖"
+    return "not_reserve"
 
 
 def _is_upower_lottery(additional: dict) -> bool:
@@ -149,22 +205,18 @@ def classify_lottery_type(
         return "转发抽奖"
 
     if hint == "预约抽奖":
-        if _has_reserve_from_page(client, dynamic_id):
+        outcome = _classify_reserve_candidate(client, dynamic_id, additional)
+        if outcome == "预约抽奖":
             return "预约抽奖"
-        return "预约抽奖"
 
     if additional:
-        if additional.get("reserve"):
+        outcome = _classify_reserve_candidate(client, dynamic_id, additional)
+        if outcome == "预约抽奖":
             return "预约抽奖"
 
-    if hint == "互动抽奖":
-        return "互动抽奖"
-
-    if _has_reserve_from_page(client, dynamic_id):
+    outcome = _classify_reserve_candidate(client, dynamic_id, additional)
+    if outcome == "预约抽奖":
         return "预约抽奖"
-
-    if hint in CLASSIFIABLE_TYPES:
-        return hint
 
     return "转发抽奖"
 

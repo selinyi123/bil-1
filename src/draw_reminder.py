@@ -7,13 +7,13 @@ from pathlib import Path
 from typing import Any, Literal
 
 from src.lottery_classifier import is_charging_lottery_activity
-from src.lottery_time import format_timestamp, lottery_time_text, lottery_time_unix
+from src.lottery_time import format_timestamp, lottery_time_text, resolve_effective_lottery_time_unix
 from src.message_watch import BILIBILI_AT_NOTIFY_URL
 from src.participation_store import ParticipationRecord
 from src.user_data import user_dir
 
 DRAWING_SOON_SECONDS = 3 * 24 * 3600
-DrawPhase = Literal["drawn", "soon", "pending"]
+DrawPhase = Literal["soon", "pending"]
 
 
 @dataclass(slots=True)
@@ -51,15 +51,15 @@ def classify_participated_draw(
     *,
     now: int | None = None,
 ) -> DrawPhase | None:
+    """已参加活动的开奖临近阶段（仅「即将开奖」；已过期归活动状态「已结束」，不再单独标记）。"""
     if not is_user_participated(participation):
         return None
-    lottery_ts = lottery_time_unix(item)
+    lottery_ts = resolve_effective_lottery_time_unix(item, participation)
     if not lottery_ts:
         return None
     current = int(now if now is not None else time.time())
-    window_start = current - DRAWING_SOON_SECONDS
-    if window_start <= lottery_ts <= current:
-        return "drawn"
+    if lottery_ts <= current:
+        return None
     if current < lottery_ts <= current + DRAWING_SOON_SECONDS:
         return "soon"
     return "pending"
@@ -74,9 +74,11 @@ def matches_draw_window_filter(
 ) -> bool:
     if not draw_window:
         return True
-    if draw_window not in {"drawn", "soon"}:
+    if draw_window != "soon":
         return True
-    return classify_participated_draw(item, participation, now=now) == draw_window
+    if item.get("status_classified"):
+        return str(item.get("draw_tag") or "") == "即将开奖"
+    return classify_participated_draw(item, participation, now=now) == "soon"
 
 
 def should_recommend_at_check(
@@ -85,7 +87,8 @@ def should_recommend_at_check(
     *,
     now: int | None = None,
 ) -> bool:
-    return classify_participated_draw(item, participation, now=now) == "drawn"
+    _ = (item, participation, now)
+    return False
 
 
 def compute_draw_reminders(
@@ -95,7 +98,6 @@ def compute_draw_reminders(
     now: int | None = None,
 ) -> dict[str, Any]:
     current = int(now if now is not None else time.time())
-    drawn: list[DrawReminderItem] = []
     soon: list[DrawReminderItem] = []
 
     for item in activities:
@@ -108,29 +110,24 @@ def compute_draw_reminders(
             continue
         participation = participations.get(dynamic_id)
         phase = classify_participated_draw(item, participation, now=current)
-        if phase not in {"drawn", "soon"}:
+        if phase != "soon":
             continue
-        lottery_ts = lottery_time_unix(item)
+        lottery_ts = resolve_effective_lottery_time_unix(item, participation)
         if not lottery_ts:
             continue
-        entry = DrawReminderItem(
-            dynamic_id=dynamic_id,
-            title=_activity_title(item),
-            lottery_time_text=lottery_time_text(item) or format_timestamp(lottery_ts),
-            lottery_time_unix=lottery_ts,
+        soon.append(
+            DrawReminderItem(
+                dynamic_id=dynamic_id,
+                title=_activity_title(item),
+                lottery_time_text=lottery_time_text(item) or format_timestamp(lottery_ts),
+                lottery_time_unix=lottery_ts,
+            )
         )
-        if phase == "drawn":
-            drawn.append(entry)
-        else:
-            soon.append(entry)
 
-    drawn.sort(key=lambda item: item.lottery_time_unix, reverse=True)
     soon.sort(key=lambda item: item.lottery_time_unix)
 
     return {
-        "drawn_participated_count": len(drawn),
         "drawing_soon_count": len(soon),
-        "drawn_participated": [item.to_dict() for item in drawn[:10]],
         "drawing_soon": [item.to_dict() for item in soon[:10]],
         "updated_at": current,
         "at_notify_url": BILIBILI_AT_NOTIFY_URL,

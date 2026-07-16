@@ -9,6 +9,7 @@ from typing import Literal
 EXCLUDE_CONTEXT_RE = re.compile(r"上期传送门|本期完|\(本期完\)")
 OPUS_ID_RE = re.compile(r"/opus/(\d{18,19})")
 T_BILI_RE = re.compile(r"t\.bilibili\.com/(\d{19})")
+T_BILI_URL_RE = re.compile(r"https://t\.bilibili\.com/\d{19}")
 VALID_OPUS_ID_RE = re.compile(r"^\d{18,19}$")
 ZHIDING_SECTION_RE = re.compile(r"【置顶抽奖")
 SECTION_HEADING_RE = re.compile(
@@ -103,6 +104,35 @@ def parse_opus_id(link_obj: dict) -> str | None:
         if match and VALID_OPUS_ID_RE.fullmatch(match.group(1)):
             return match.group(1)
     return None
+
+
+def extract_t_bilibili_links_with_hints(desc: str) -> tuple[list[str], dict[str, LotteryHint]]:
+    """从视频简介等纯文本提取 t.bilibili.com 链接及分区提示。"""
+    text = desc or ""
+    seen: set[str] = set()
+    links: list[str] = []
+    hints: dict[str, LotteryHint] = {}
+    current_section: LotteryHint | None = None
+
+    for line in text.splitlines():
+        current_section = _section_hint_from_text(line, current_section)
+        for url in T_BILI_URL_RE.findall(line):
+            activity_id = normalize_activity_id(url)
+            if not activity_id or activity_id in seen:
+                continue
+            seen.add(activity_id)
+            links.append(url)
+            if current_section:
+                hints[activity_id] = current_section
+
+    for url in T_BILI_URL_RE.findall(text):
+        activity_id = normalize_activity_id(url)
+        if not activity_id or activity_id in seen:
+            continue
+        seen.add(activity_id)
+        links.append(url)
+
+    return links, hints
 
 
 def _section_hint_from_text(text: str, current: LotteryHint | None) -> LotteryHint | None:

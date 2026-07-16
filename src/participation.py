@@ -22,10 +22,11 @@ from src.participation_log import (
     ParticipationActionRecord,
     ParticipationOutcome,
     participation_succeeded,
-    append_action_record,
+    append_action_record_unlocked,
     serialize_actions,
 )
-from src.participation_store import set_participation
+from src.participation_store import set_participation_unlocked
+from src.user_data_lock import user_data_lock
 from src.participate_text import resolve_participate_text_for_activity
 from src.fetch_activity_info import mark_enriched_joined
 from src.lottery_classifier import PARTICIPATABLE_TYPES
@@ -79,6 +80,7 @@ def _context_snapshot(context: Any | None, *, extra: dict[str, Any] | None = Non
             "liked": getattr(context, "liked", None),
             "followed": getattr(context, "followed", None),
             "favorited": getattr(context, "favorited", None),
+            "favorite_available": getattr(context, "favorite_available", None),
             "reposted": getattr(context, "reposted", None),
             "commented": getattr(context, "commented", None),
             "comment_rid": getattr(context, "comment_rid", None),
@@ -96,22 +98,26 @@ def _persist_result(
 ) -> None:
     if not persist or dry_run:
         return
-    append_action_record(
-        ParticipationActionRecord(
-            recorded_at=int(time.time()),
-            dynamic_id=result.dynamic_id,
-            lottery_type=result.lottery_type,
-            status=result.status,
-            message=result.message,
-            action_text=result.action_text,
-            actions=serialize_actions(result.actions),
-            context_snapshot=result.context_snapshot,
-        )
+    joined = result.status == "joined" and participation_succeeded(
+        result.actions,
+        lottery_type=result.lottery_type,
     )
-    if result.status == "joined":
-        if participation_succeeded(result.actions, lottery_type=result.lottery_type):
-            set_participation(result.dynamic_id, "已参加")
-            mark_enriched_joined(result.dynamic_id)
+    record = ParticipationActionRecord(
+        recorded_at=int(time.time()),
+        dynamic_id=result.dynamic_id,
+        lottery_type=result.lottery_type,
+        status=result.status,
+        message=result.message,
+        action_text=result.action_text,
+        actions=serialize_actions(result.actions),
+        context_snapshot=result.context_snapshot,
+    )
+    with user_data_lock():
+        append_action_record_unlocked(record)
+        if joined:
+            set_participation_unlocked(result.dynamic_id, "已参加")
+    if joined:
+        mark_enriched_joined(result.dynamic_id)
 
 
 def _safe_int(value: Any, default: int = 0) -> int:

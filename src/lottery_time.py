@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 LOTTERY_TIME_DISPLAY_FMT = "%Y-%m-%d %H:%M"
 LOTTERY_TIME_DISPLAY_RE = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$")
 BEIJING_TZ = timezone(timedelta(hours=8))
+SIX_MONTHS_SECONDS = 183 * 24 * 3600
 
 _WEEKDAY_SUFFIX_RE = re.compile(r"[（(][^）)]*[）)]")
 _NOISE_SUFFIX_RE = re.compile(r"(?:前|后|左右|左右开奖|直播.*|录屏.*|开奖.*)$")
@@ -227,6 +228,78 @@ def lottery_time_unix(item: dict, *, ref_ts: int | None = None) -> int | None:
         return int(datetime.strptime(normalized, LOTTERY_TIME_DISPLAY_FMT).replace(tzinfo=BEIJING_TZ).timestamp())
     except ValueError:
         return None
+
+
+def default_lottery_time_from_now(*, now: int | None = None) -> int:
+    """无开奖时间时，用当前时刻 + 半年作为默认推断值。"""
+    return int(now if now is not None else time.time()) + SIX_MONTHS_SECONDS
+
+
+def participation_base_timestamp(
+    item: dict,
+    participation: object | None = None,
+) -> int | None:
+    """推断开奖时间的基准时刻：优先参奖时间，其次入库时间。"""
+    updated_at = getattr(participation, "updated_at", None) if participation else None
+    if updated_at:
+        try:
+            return int(updated_at)
+        except (TypeError, ValueError):
+            pass
+    for key in ("enriched_at", "classified_at"):
+        raw = item.get(key)
+        if raw:
+            try:
+                return int(raw)
+            except (TypeError, ValueError):
+                continue
+    return None
+
+
+def resolve_effective_lottery_time_unix(
+    item: dict,
+    participation: object | None = None,
+    *,
+    persist: bool = False,
+) -> int | None:
+    """解析活动有效开奖时间；缺失时按参奖/入库时间 + 半年推断。"""
+    existing = lottery_time_unix(item)
+    if existing:
+        return existing
+
+    base_ts = participation_base_timestamp(item, participation)
+    if not base_ts:
+        return None
+
+    inferred = base_ts + SIX_MONTHS_SECONDS
+    if persist:
+        item["lottery_time"] = inferred
+        item["lottery_time_inferred"] = True
+        conditions = item.get("conditions")
+        if not isinstance(conditions, dict):
+            conditions = {}
+            item["conditions"] = conditions
+        conditions["lottery_time_text"] = format_timestamp(inferred)
+    return inferred
+
+
+def infer_and_persist_lottery_time(item: dict, participation: object | None = None) -> bool:
+    """补全缺失的开奖时间字段，返回是否有写入。"""
+    if lottery_time_unix(item):
+        return False
+    inferred = resolve_effective_lottery_time_unix(item, participation, persist=True)
+    return inferred is not None
+
+
+def is_activity_past_end(
+    item: dict,
+    participation: object | None = None,
+    *,
+    now: int | None = None,
+) -> bool:
+    current = int(now if now is not None else time.time())
+    effective_ts = resolve_effective_lottery_time_unix(item, participation)
+    return bool(effective_ts and effective_ts <= current)
 
 
 def migrate_lottery_time_fields(item: dict) -> bool:

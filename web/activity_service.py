@@ -6,16 +6,16 @@ from pathlib import Path
 from typing import Any
 
 from src.activity_status import resolve_activity_status
-from src.fetch_activity_info import ENRICHED_OUTPUT_PATH
+from src.activity_store import ACTIVITIES_OUTPUT_PATH
+from src.draw_reminder import matches_draw_window_filter
 from src.lottery_classifier import PARTICIPATABLE_TYPES, is_charging_lottery_activity
-from src.sources.common import is_valid_dynamic_id
-from src.draw_reminder import matches_draw_window_filter, should_recommend_at_check
-from src.lottery_time import format_timestamp, lottery_time_text
-from src.merge_links import MERGED_OUTPUT_PATH
+from src.lottery_time import format_timestamp, is_activity_past_end, lottery_time_text
 from src.participation_store import ParticipationRecord, load_participations
-from src.sources.common import load_previous_output
-from src.state_store import DATA_DIR
+from src.sources.common import is_valid_dynamic_id, load_previous_output
+from src.state_store import DATA_DIR, get_last_pipeline_persisted
 from src.user_data import participation_actions_path
+
+from src.watch_sync import OUTPUT_PATH as WATCH_OUTPUT_PATH
 
 DS_OUTPUTS = {
     "DS-1": DATA_DIR / "output" / "ds1_latest.json",
@@ -24,6 +24,7 @@ DS_OUTPUTS = {
     "DS-4": DATA_DIR / "output" / "ds4_latest.json",
     "DS-5": DATA_DIR / "output" / "ds5_latest.json",
     "DS-6": DATA_DIR / "output" / "ds6_latest.json",
+    "WATCH": WATCH_OUTPUT_PATH,
 }
 SOURCE_LABELS = {
     "DS-1": "哔哩抽奖小助理",
@@ -32,6 +33,7 @@ SOURCE_LABELS = {
     "DS-4": "J君名",
     "DS-5": "互动抽奖娘",
     "DS-6": "糯米是个背包",
+    "WATCH": "监控用户",
 }
 SOURCE_SPACE_URLS = {
     "DS-1": "https://space.bilibili.com/885439/upload/video",
@@ -40,6 +42,7 @@ SOURCE_SPACE_URLS = {
     "DS-4": "https://space.bilibili.com/126038161/upload/opus",
     "DS-5": "https://space.bilibili.com/3546776042736296/upload/opus",
     "DS-6": "https://space.bilibili.com/492426375/upload/opus",
+    "WATCH": "",
 }
 
 
@@ -93,6 +96,12 @@ def _prize_summary(item: dict) -> str:
 
 
 def _resolve_activity_status(item: dict, participation: ParticipationRecord | None) -> str:
+    if is_charging_lottery_activity(item):
+        return str(item.get("activity_status") or "未参加")
+    if is_activity_past_end(item, participation):
+        return "已结束"
+    if item.get("status_classified") and item.get("activity_status"):
+        return str(item.get("activity_status"))
     lottery_type = item.get("lottery_type")
     if lottery_type not in PARTICIPATABLE_TYPES:
         return str(item.get("activity_status") or "未参加")
@@ -168,13 +177,14 @@ def _normalize_activity(
         "activity_title": _activity_title(item),
         "lottery_type": str(item.get("lottery_type") or ""),
         "activity_status": activity_status,
+        "draw_tag": str(item.get("draw_tag") or ""),
         "draw_status": str(item.get("draw_status") or ""),
         "prize": _prize_summary(item),
         "repost_count": repost_count,
         "repost_fetched": repost_fetched,
         "heat_missing": heat_missing,
         "lottery_time": lottery_time_text(item) or "—",
-        "check_at_recommended": should_recommend_at_check(item, participation),
+        "check_at_recommended": False,
         "skipped": bool(item.get("skipped")),
         "skip_reason": str(item.get("skip_reason") or ""),
         "can_participate": can_participate,
@@ -189,45 +199,70 @@ def _normalize_activity(
     }
 
 
+def _participatable_stored(item: dict) -> bool:
+    return (
+        isinstance(item, dict)
+        and not item.get("skipped")
+        and not is_charging_lottery_activity(item)
+    )
+
+
+def _load_activities_payload() -> dict:
+    return _load_json(ACTIVITIES_OUTPUT_PATH)
+
+
 def get_summary() -> dict[str, Any]:
-    enriched = _load_json(ENRICHED_OUTPUT_PATH)
-    merged = _load_json(MERGED_OUTPUT_PATH)
+    enriched = _load_activities_payload()
     participations = load_participations()
+    activities = [
+        item for item in (enriched.get("activities") or []) if _participatable_stored(item)
+    ]
     status_counts = {"已结束": 0, "已参加": 0, "未参加": 0}
-    for item in enriched.get("activities") or []:
-        if not isinstance(item, dict):
-            continue
-        status = _resolve_activity_status(item, participations.get(str(item.get("dynamic_id") or "")))
-        status_counts[status] = status_counts.get(status, 0) + 1
+    draw_counts = {"active": 0, "ended": 0}
+    for item in activities:
+        dynamic_id = str(item.get("dynamic_id") or "")
+        status = _resolve_activity_status(item, participations.get(dynamic_id))
+        if status in status_counts:
+            status_counts[status] += 1
+        if str(item.get("draw_status") or "") == "ended":
+            draw_counts["ended"] += 1
+        else:
+            draw_counts["active"] += 1
 
     sources: list[dict[str, Any]] = []
     for source_id, path in DS_OUTPUTS.items():
+        if source_id == "WATCH":
+            continue
         data = _load_json(path)
-        checked_at = data.get("checked_at")
+        checked_at = data.get("checked_at") or data.get("synced_at")
+        title = str(data.get("title") or "")
         sources.append(
             {
                 "id": source_id,
                 "name": SOURCE_LABELS.get(source_id, source_id),
-                "updated": bool(data.get("updated")),
+                "updated": bool(data.get("updated")) if data else False,
                 "link_count": len(data.get("activity_links") or []),
-                "title": str(data.get("title") or ""),
+                "title": title,
                 "checked_at": checked_at,
                 "checked_at_text": format_timestamp(int(checked_at)) if checked_at else "尚未更新",
                 "space_url": SOURCE_SPACE_URLS.get(source_id, ""),
                 "container_url": str(data.get("container_url") or ""),
             }
         )
+    last_pipeline = get_last_pipeline_persisted()
     return {
-        "enriched_at": enriched.get("enriched_at"),
-        "total_count": enriched.get("total_count", 0),
-        "new_count": merged.get("new_count", 0),
+        "enriched_at": enriched.get("updated_at") or enriched.get("enriched_at"),
+        "total_count": len(activities),
+        "new_count": last_pipeline["persisted_count"],
+        "last_pipeline_sync": last_pipeline,
         "user_status_counts": status_counts,
-        "counts": enriched.get("counts") or {},
+        "counts": draw_counts,
         "sources": sources,
     }
 
 
 PARTICIPATE_TRIPLE_LIMIT = 3
+ACTIVITY_PAGE_SIZE = 20
 
 
 def participate_step_budget(lottery_type: str, *, dynamic_id: str | None = None) -> int:
@@ -272,14 +307,14 @@ def _filtered_activity_rows(
     sort: str | None = None,
     order: str | None = None,
 ) -> list[dict[str, Any]]:
-    enriched = _load_json(ENRICHED_OUTPUT_PATH)
+    enriched = _load_activities_payload()
     action_map = _load_participation_actions()
     participations = load_participations()
     items = [item for item in (enriched.get("activities") or []) if isinstance(item, dict)]
 
     normalized: list[dict[str, Any]] = []
     draw_window_value = (draw_window or "").strip().lower()
-    if draw_window_value not in {"", "drawn", "soon"}:
+    if draw_window_value not in {"", "soon"}:
         draw_window_value = ""
     for item in items:
         dynamic_id = str(item.get("dynamic_id") or "")
@@ -431,7 +466,7 @@ def list_activities(
     sort: str | None = None,
     order: str | None = None,
     page: int = 1,
-    page_size: int = 30,
+    page_size: int = ACTIVITY_PAGE_SIZE,
 ) -> dict[str, Any]:
     normalized = _filtered_activity_rows(
         status=status,
@@ -444,7 +479,7 @@ def list_activities(
     )
     total = len(normalized)
     page = max(1, page)
-    page_size = max(1, min(page_size, 100))
+    page_size = ACTIVITY_PAGE_SIZE
     start = (page - 1) * page_size
     page_items = normalized[start : start + page_size]
     triple_targets = build_triple_target_preview(_pick_triple_from_rows(normalized))
@@ -460,7 +495,7 @@ def list_activities(
 
 
 def lookup_lottery_type(dynamic_id: str) -> str:
-    enriched = _load_json(ENRICHED_OUTPUT_PATH)
+    enriched = _load_activities_payload()
     for item in enriched.get("activities") or []:
         if str(item.get("dynamic_id") or "") == dynamic_id:
             lottery_type = str(item.get("lottery_type") or "")

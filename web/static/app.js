@@ -1,6 +1,6 @@
 const state = {
   page: 1,
-  pageSize: 30,
+  pageSize: 20,
   filters: { q: "", type: "", status: "", draw: "", drawWindow: "", sort: "", order: "" },
   polling: null,
   logDockOpen: false,
@@ -14,18 +14,38 @@ const state = {
   smoothJobPercent: 0,
   activeJobKey: "",
   jobResultTimer: null,
+  watchUsers: null,
 };
 
 const jobMessage = document.getElementById("job-message");
 const jobLog = document.getElementById("job-log");
 const statsGrid = document.getElementById("stats-grid");
 const sourceGrid = document.getElementById("source-grid");
+const watchUserGrid = document.getElementById("watch-user-grid");
+const watchUsersBadge = document.getElementById("watch-users-badge");
+const watchMetricCount = document.getElementById("watch-metric-count");
+const watchMetricLinks = document.getElementById("watch-metric-links");
+const watchLastSynced = document.getElementById("watch-last-synced");
+const watchNextWindow = document.getElementById("watch-next-window");
+const watchWindowCap = document.getElementById("watch-window-cap");
+const watchAddForm = document.getElementById("watch-add-form");
+const watchAddMidInput = document.getElementById("watch-add-mid");
+const watchAddMidError = document.getElementById("watch-add-mid-error");
+const watchAddBtn = document.getElementById("watch-add-btn");
 const accountHero = document.getElementById("account-hero");
 const sidebarAccountCard = document.getElementById("sidebar-account-card");
 const sidebarLoginBtn = document.getElementById("sidebar-login");
 const sidebarLogoutBtn = document.getElementById("sidebar-logout");
+const logoutConfirmModal = document.getElementById("logout-confirm-modal");
+const logoutConfirmBackdrop = document.getElementById("logout-confirm-backdrop");
+const logoutConfirmCancel = document.getElementById("logout-confirm-cancel");
+const logoutConfirmYes = document.getElementById("logout-confirm-yes");
 const sidebarRefreshBtn = document.getElementById("sidebar-refresh-account");
 const activitiesBody = document.getElementById("activities-body");
+const activitiesCards = document.getElementById("activities-cards");
+const filterResultSummary = document.getElementById("filter-result-summary");
+const participateTextFeedback = document.getElementById("participate-text-feedback");
+const llmActionFeedback = document.getElementById("llm-action-feedback");
 const filterDrawWindowHint = document.getElementById("filter-draw-window-hint");
 const pagination = document.getElementById("pagination");
 const qrcodeModal = document.getElementById("qrcode-modal");
@@ -35,7 +55,9 @@ const qrcodeFrame = document.getElementById("qrcode-frame");
 const qrcodeOverlay = document.getElementById("qrcode-overlay");
 const qrcodeOverlayIcon = document.getElementById("qrcode-overlay-icon");
 const qrcodeOverlayText = document.getElementById("qrcode-overlay-text");
+const qrcodeClose = document.getElementById("qrcode-close");
 const qrcodeStatus = document.getElementById("qrcode-status");
+let qrcodeLastFocus = null;
 const progressBanner = document.getElementById("progress-banner");
 const progressLabel = document.getElementById("progress-label");
 const progressDetail = document.getElementById("progress-detail");
@@ -44,6 +66,7 @@ const progressFillGlow = document.getElementById("progress-fill-glow");
 const progressPercent = document.getElementById("progress-percent");
 const progressPercentSuffix = document.querySelector(".progress-percent-suffix");
 const progressRing = document.getElementById("progress-ring");
+const progressTrack = document.getElementById("progress-track");
 const progressChip = document.getElementById("progress-chip");
 const progressSteps = document.getElementById("progress-steps");
 const jobResultBanner = document.getElementById("job-result-banner");
@@ -59,16 +82,24 @@ const toastStack = document.getElementById("toast-stack");
 const JOB_RESULT_AUTO_DISMISS_MS = 3000;
 const JOB_RESULT_EXIT_MS = 340;
 const JOB_RESULT_HOVER_DISMISS_MS = 2200;
+const INLINE_FEEDBACK_MS = 5000;
+const SYNC_TOAST_ACTIONS = new Set(["refresh_all", "refresh_watch", "refresh_status"]);
+const inlineFeedbackTimers = new Map();
 const logDock = document.getElementById("log-dock");
 const logDockPanel = document.getElementById("log-dock-panel");
 const logDockToggle = document.getElementById("log-dock-toggle");
 const logDockBadge = document.getElementById("log-dock-badge");
 
 const PARTICIPATE_STEP_LABELS = ["点赞", "关注", "收藏", "转发", "评论"];
-const PARTICIPATE_ACTIVE_KEYWORDS = ["点赞", "关注", "收藏", "转发", "评论", "预约", "正在", "准备"];
+const PARTICIPATE_ACTIVE_KEYWORDS = ["点赞", "关注", "收藏", "转发", "评论", "预约", "正在", "准备", "检查"];
 const PARTICIPATE_DONE_KEYWORDS = ["完成", "成功", "已参与", "参与成功", "joined"];
-const PARTICIPATE_FAIL_KEYWORDS = ["失败", "未完成", "错误", "failed"];
-const REFRESH_ALL_PIPELINE = ["数据源", "合并", "分类", "详情", "状态"];
+const PARTICIPATE_FAIL_KEYWORDS = ["失败", "未完成", "错误", "failed", "已停止", "已取消"];
+const PARTICIPATE_PENDING_KEYWORDS = ["排队", "等待"];
+const REFRESH_ALL_PIPELINE = ["数据源", "分类", "详情", "落库"];
+const REFRESH_WATCH_PIPELINE = ["扫描", "分类", "详情", "落库"];
+const REFRESH_ALL_PIPELINE_SUBSTEPS = 3;
+const REFRESH_WATCH_PIPELINE_SUBSTEPS = 3;
+const REFRESH_ALL_DS_COUNT = 6;
 const ACTION_LABELS = {
   like: "点赞",
   follow: "关注",
@@ -80,8 +111,93 @@ const ACTION_LABELS = {
 const INTERACT_REQUIRED_ACTIONS = ["like", "follow", "favorite", "repost"];
 const FORWARD_REQUIRED_ACTIONS = ["like", "follow", "favorite", "repost", "comment"];
 const COMMENT_OPTIONAL_PATTERNS = [/关注UP主/i, /关注 up/i, /7\s*天/i, /code=12078/i];
-const LOGIN_REQUIRED_ACTIONS = new Set(["refresh_all", "refresh_status", "participate", "participate_triple"]);
-const LLM_REQUIRED_ACTIONS = new Set(["refresh_all", "participate", "participate_triple"]);
+const LOGIN_REQUIRED_ACTIONS = new Set(["refresh_all", "refresh_watch", "refresh_status", "participate", "participate_triple"]);
+const LLM_REQUIRED_ACTIONS = new Set(["refresh_all", "refresh_watch", "participate", "participate_triple"]);
+
+let sectionSwitchTimer = null;
+
+function prefersReducedMotion() {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function setButtonLoading(button, loading, options = {}) {
+  if (!button) return;
+  const { label } = options;
+  if (loading) {
+    if (button.dataset.loadingActive !== "true") {
+      button.dataset.loadingOriginalHtml = button.innerHTML;
+      button.dataset.loadingActive = "true";
+    }
+    button.classList.add("is-loading");
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    const labelEl = button.querySelector(".triple-participate-btn-label");
+    if (labelEl && label !== undefined) {
+      labelEl.textContent = label;
+    } else if (label !== undefined) {
+      button.textContent = label;
+    }
+  } else {
+    button.classList.remove("is-loading");
+    button.removeAttribute("aria-busy");
+    if (button.dataset.loadingActive === "true") {
+      button.innerHTML = button.dataset.loadingOriginalHtml || button.innerHTML;
+      delete button.dataset.loadingOriginalHtml;
+      delete button.dataset.loadingActive;
+    }
+    button.disabled = false;
+  }
+}
+
+function clearActionButtonLoading() {
+  document.querySelectorAll("[data-action].is-loading, .triple-participate-btn.is-loading").forEach((btn) => {
+    setButtonLoading(btn, false);
+  });
+}
+
+function pulseFilterSummary() {
+  if (!filterResultSummary || prefersReducedMotion()) return;
+  filterResultSummary.classList.remove("is-updated");
+  void filterResultSummary.offsetWidth;
+  filterResultSummary.classList.add("is-updated");
+}
+
+function highlightWatchUserChip(mid) {
+  if (!mid) return;
+  const chip = document.querySelector(`[data-watch-mid="${CSS.escape(String(mid))}"]`);
+  if (!chip || prefersReducedMotion()) return;
+  chip.classList.add("is-new");
+  window.setTimeout(() => chip.classList.remove("is-new"), 700);
+}
+
+function formatUnixTimestamp(ts) {
+  const value = Number(ts);
+  if (!value) return "尚未同步";
+  const date = new Date(value * 1000);
+  if (Number.isNaN(date.getTime())) return "尚未同步";
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function formatWatchWindow(start, end) {
+  const fmt = (ts) => {
+    const value = Number(ts);
+    if (!value) return "—";
+    const date = new Date(value * 1000);
+    if (Number.isNaN(date.getTime())) return "—";
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  };
+  const from = fmt(start);
+  const to = fmt(end);
+  if (from === "—" || to === "—") return "—";
+  return `${from} — ${to}`;
+}
+
+function formatWindowDays(seconds) {
+  const days = Math.max(1, Math.round(Number(seconds || 0) / 86400));
+  return `${days} 天`;
+}
 
 function isLoggedIn() {
   return Boolean(state.account?.logged_in && !state.account?.expired);
@@ -257,10 +373,83 @@ function showToast(message, type = "info", detail = "") {
   }, duration);
 }
 
+function dismissRunningToasts() {
+  if (!toastStack) return;
+  toastStack.querySelectorAll(".toast-running").forEach((toast) => toast.remove());
+}
+
+function setInlineFeedback(element, message, type = "info", { autoHide = true } = {}) {
+  if (!element) return;
+  const existing = inlineFeedbackTimers.get(element);
+  if (existing) window.clearTimeout(existing);
+
+  if (!message) {
+    element.hidden = true;
+    element.textContent = "";
+    element.className = "inline-feedback";
+    return;
+  }
+
+  element.hidden = false;
+  element.textContent = message;
+  element.className = `inline-feedback inline-feedback--${type}`;
+
+  if (autoHide && type !== "info") {
+    const timer = window.setTimeout(() => setInlineFeedback(element, "", "info"), INLINE_FEEDBACK_MS);
+    inlineFeedbackTimers.set(element, timer);
+  }
+}
+
+function toggleLlmApiKeyVisibility() {
+  const input = document.getElementById("llm-api-key-input");
+  const toggle = document.getElementById("llm-api-key-toggle");
+  if (!input || !toggle) return;
+  const showPlain = input.type === "password";
+  input.type = showPlain ? "text" : "password";
+  toggle.textContent = showPlain ? "隐藏" : "显示";
+  toggle.setAttribute("aria-label", showPlain ? "隐藏 API Key" : "显示 API Key");
+  toggle.setAttribute("aria-pressed", showPlain ? "true" : "false");
+}
+
+function bindLlmApiKeyToggle() {
+  const toggle = document.getElementById("llm-api-key-toggle");
+  if (!toggle || toggle.dataset.bound === "true") return;
+  toggle.dataset.bound = "true";
+  toggle.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleLlmApiKeyVisibility();
+  });
+}
+
+function getQrcodeFocusable() {
+  const panel = qrcodeModal?.querySelector(".qrcode-panel");
+  if (!panel) return [];
+  return [...panel.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
+    .filter((el) => !el.hidden && el.getAttribute("aria-hidden") !== "true");
+}
+
+function trapQrcodeFocus(event) {
+  if (!qrcodeModal || qrcodeModal.hidden || event.key !== "Tab") return;
+  const items = getQrcodeFocusable();
+  if (!items.length) return;
+  const first = items[0];
+  const last = items[items.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
 function ensureQrcodeModalVisible() {
   if (!qrcodeModal || state.qrcodeDismissed) return;
+  qrcodeLastFocus = document.activeElement;
   qrcodeModal.hidden = false;
   document.body.classList.add("modal-open");
+  window.requestAnimationFrame(() => qrcodeClose?.focus());
 }
 
 function loadQrcodeImage(refreshedAt) {
@@ -343,6 +532,10 @@ function hideQrcodeModal(manual = false) {
   }
   qrcodeModal.hidden = true;
   document.body.classList.remove("modal-open");
+  if (qrcodeLastFocus && typeof qrcodeLastFocus.focus === "function") {
+    qrcodeLastFocus.focus();
+  }
+  qrcodeLastFocus = null;
 }
 
 async function cancelLoginJob() {
@@ -350,10 +543,7 @@ async function cancelLoginJob() {
     const job = await fetchJSON("/api/jobs/current");
     if (job.state === "running" && job.action === "login") {
       await fetchJSON("/api/jobs/cancel", { method: "POST" });
-      if (state.polling) {
-        window.clearInterval(state.polling);
-        state.polling = null;
-      }
+      stopJobPolling();
       setButtonsDisabled(false);
       updateJobUI({ state: "idle", message: "已取消扫码登录", log: "登录流程已结束" });
       showToast("已取消扫码登录", "info");
@@ -366,7 +556,8 @@ async function cancelLoginJob() {
 function setLogDockOpen(open) {
   state.logDockOpen = open;
   if (!logDockPanel || !logDockToggle) return;
-  logDockPanel.hidden = !open;
+  logDockPanel.classList.toggle("is-open", open);
+  logDockPanel.setAttribute("aria-hidden", String(!open));
   logDockToggle.hidden = open;
   logDockToggle.setAttribute("aria-expanded", String(open));
   logDock?.classList.toggle("open", open);
@@ -377,22 +568,82 @@ function toggleLogDock(forceOpen) {
   setLogDockOpen(next);
 }
 
-function renderPipelineSteps(labels, activeIndex) {
-  if (!progressSteps) return;
-  progressSteps.hidden = false;
-  progressSteps.innerHTML = labels
+function participateStepLabelsForType(lotteryType) {
+  return lotteryType === "预约抽奖" ? ["预约"] : [...PARTICIPATE_STEP_LABELS];
+}
+
+function findTripleTargetForLane(lane, job) {
+  const targets = job?.result?.targets || state.tripleTargets?.items || [];
+  const laneKey = String(lane?.idPart || "").trim();
+  if (!laneKey) return null;
+  return (
+    targets.find((item) => {
+      const title = String(item?.activity_title || "").trim();
+      const dynamicId = String(item?.dynamic_id || "").trim();
+      return (
+        title === laneKey ||
+        dynamicId === laneKey ||
+        dynamicId.endsWith(laneKey) ||
+        laneKey.endsWith(dynamicId.slice(-6))
+      );
+    }) || null
+  );
+}
+
+function participateActiveStepIndex(status, labelCount) {
+  const text = String(status || "");
+  if (PARTICIPATE_DONE_KEYWORDS.some((keyword) => text.includes(keyword))) {
+    return labelCount;
+  }
+  const match = text.match(/（\s*(\d+)\s*\/\s*(\d+)\s*）/);
+  if (match) {
+    const step = Number(match[1]);
+    if (step > 0) return Math.min(step - 1, Math.max(0, labelCount - 1));
+  }
+  if (PARTICIPATE_PENDING_KEYWORDS.some((keyword) => text.includes(keyword)) || text.includes("检查")) {
+    return -1;
+  }
+  const reserveIndex = text.includes("预约") ? 0 : -1;
+  for (let index = 0; index < PARTICIPATE_STEP_LABELS.length; index += 1) {
+    if (text.includes(PARTICIPATE_STEP_LABELS[index])) return Math.min(index, labelCount - 1);
+  }
+  return reserveIndex;
+}
+
+function buildPipelineStepsHtml(labels, activeIndex, options = {}) {
+  const failed = Boolean(options.failed);
+  return labels
     .map((label, index) => {
       let stepState = "pending";
-      if (index < activeIndex) stepState = "done";
-      else if (index === activeIndex) stepState = "active";
-      const connector = index < labels.length - 1 ? `<span class="pipeline-connector ${index < activeIndex ? "done" : ""}"></span>` : "";
+      if (failed && activeIndex >= 0) {
+        if (index < activeIndex) stepState = "done";
+        else if (index === activeIndex) stepState = "failed";
+      } else if (activeIndex >= labels.length) {
+        stepState = "done";
+      } else if (activeIndex >= 0) {
+        if (index < activeIndex) stepState = "done";
+        else if (index === activeIndex) stepState = "active";
+      }
+      const connectorDone = stepState === "done" || (activeIndex >= 0 && index < activeIndex);
+      const connector =
+        index < labels.length - 1
+          ? `<span class="pipeline-connector ${connectorDone ? "done" : ""}"></span>`
+          : "";
+      const dotContent = stepState === "done" ? "✓" : stepState === "failed" ? "×" : index + 1;
       return `
         <div class="pipeline-node ${stepState}">
-          <span class="pipeline-dot" aria-hidden="true">${stepState === "done" ? "✓" : index + 1}</span>
-          <span class="pipeline-label">${label}</span>
+          <span class="pipeline-dot" aria-hidden="true">${dotContent}</span>
+          <span class="pipeline-label">${escapeHtml(label)}</span>
         </div>${connector}`;
     })
     .join("");
+}
+
+function renderPipelineSteps(labels, activeIndex) {
+  if (!progressSteps) return;
+  progressSteps.hidden = false;
+  progressSteps.classList.remove("is-triple");
+  progressSteps.innerHTML = buildPipelineStepsHtml(labels, activeIndex);
 }
 
 function buildJobKey(job) {
@@ -502,9 +753,16 @@ function classifyLaneStatus(status) {
   const text = String(status || "");
   if (PARTICIPATE_FAIL_KEYWORDS.some((keyword) => text.includes(keyword))) return "failed";
   if (PARTICIPATE_DONE_KEYWORDS.some((keyword) => text.includes(keyword))) return "done";
-  if (text.includes("排队")) return "pending";
+  if (PARTICIPATE_PENDING_KEYWORDS.some((keyword) => text.includes(keyword))) return "pending";
   if (PARTICIPATE_ACTIVE_KEYWORDS.some((keyword) => text.includes(keyword))) return "active";
   return "pending";
+}
+
+function summarizeTripleProgressLanes(lanes) {
+  const doneCount = lanes.filter((lane) => classifyLaneStatus(lane.status) === "done").length;
+  const activeLanes = lanes.filter((lane) => classifyLaneStatus(lane.status) === "active");
+  const failedCount = lanes.filter((lane) => classifyLaneStatus(lane.status) === "failed").length;
+  return { doneCount, activeLanes, failedCount };
 }
 
 function formatProgressTitle(job) {
@@ -512,7 +770,7 @@ function formatProgressTitle(job) {
   if (job.action === "participate_triple") {
     const lanes = parseTripleProgressLanes(job.progress_message);
     const count = lanes.length || Number(job.result?.targets?.length) || 3;
-    return `三连参与 · ${count} 个活动`;
+    return `三连参与 · 并行 ${count} 个活动`;
   }
   return job.label || "任务运行中…";
 }
@@ -529,11 +787,18 @@ function formatProgressDetail(job) {
   }
   if (job.action === "participate_triple") {
     const lanes = parseTripleProgressLanes(job.progress_message);
-    if (!lanes.length) return "顺序处理中，请稍候…";
-    const doneCount = lanes.filter((lane) => classifyLaneStatus(lane.status) === "done").length;
-    const activeLane = lanes.find((lane) => classifyLaneStatus(lane.status) === "active");
-    if (activeLane) return `进行中 ${doneCount}/${lanes.length} · 当前：…${activeLane.idPart} ${activeLane.status}`;
-    return `进行中 ${doneCount}/${lanes.length} 个活动已完成步骤`;
+    if (!lanes.length) return "并行处理中，请稍候…";
+    const { doneCount, activeLanes, failedCount } = summarizeTripleProgressLanes(lanes);
+    if (failedCount > 0) {
+      return `已停止 ${doneCount}/${lanes.length} 完成 · ${failedCount} 个失败`;
+    }
+    if (activeLanes.length > 1) {
+      return `并行进行中 ${doneCount}/${lanes.length} · ${activeLanes.length} 个活动同时执行`;
+    }
+    if (activeLanes.length === 1) {
+      return `并行进行中 ${doneCount}/${lanes.length} · 当前：…${activeLanes[0].idPart} ${activeLanes[0].status}`;
+    }
+    return `并行进行中 ${doneCount}/${lanes.length} 个活动已完成步骤`;
   }
   return sanitizeUserText(job.progress_message || job.message || "请稍候，任务在后台执行中");
 }
@@ -684,21 +949,36 @@ function showParticipationResult(job) {
 function renderTripleParticipateProgress(job) {
   if (!progressSteps) return;
   progressSteps.hidden = false;
+  progressSteps.classList.add("is-triple");
   const lanes = parseTripleProgressLanes(job.progress_message);
   if (!lanes.length) {
-    progressSteps.innerHTML = `<p class="caption">三连参与进行中…</p>`;
+    progressSteps.innerHTML = `<p class="caption">三连参与并行进行中…</p>`;
     return;
   }
   progressSteps.innerHTML = `
-    <div class="triple-progress-lanes">
+    <div class="triple-progress-stack">
       ${lanes
-        .map((lane) => {
+        .map((lane, index) => {
+          const target = findTripleTargetForLane(lane, job);
+          const lotteryType = target?.lottery_type || "";
+          const labels = participateStepLabelsForType(lotteryType);
           const laneState = classifyLaneStatus(lane.status);
+          const failed = laneState === "failed";
+          const activeIndex = participateActiveStepIndex(lane.status, labels.length);
+          const title = truncateText(target?.activity_title || lane.idPart, 36);
           return `
-            <div class="triple-progress-lane is-${laneState}">
-              <span class="triple-progress-id">活动 …${escapeHtml(lane.idPart)}</span>
-              <span class="triple-progress-status">${escapeHtml(lane.status)}</span>
-            </div>`;
+            <section class="triple-progress-lane is-${laneState}">
+              <div class="triple-progress-lane-head">
+                <span class="triple-progress-index">#${index + 1}</span>
+                <div class="triple-progress-lane-copy">
+                  <span class="triple-progress-title">${escapeHtml(title)}</span>
+                  <span class="triple-progress-status">${escapeHtml(lane.status)}</span>
+                </div>
+              </div>
+              <div class="progress-pipeline triple-lane-pipeline">
+                ${buildPipelineStepsHtml(labels, activeIndex, { failed })}
+              </div>
+            </section>`;
         })
         .join("")}
     </div>`;
@@ -715,8 +995,13 @@ function renderParticipateSteps(job) {
       renderRefreshAllPipeline(job);
       return;
     }
+    if (job.state === "running" && job.action === "refresh_watch") {
+      renderRefreshWatchPipeline(job);
+      return;
+    }
     progressSteps.hidden = true;
     progressSteps.innerHTML = "";
+    progressSteps.classList.remove("is-triple");
     return;
   }
   const total = Number(job.progress_total) || PARTICIPATE_STEP_LABELS.length;
@@ -727,21 +1012,53 @@ function renderParticipateSteps(job) {
 }
 
 function refreshAllDataSourceCount(job) {
-  const total = Number(job.progress_total) || 10;
-  return Math.max(1, total - 4);
+  const total = Number(job.progress_total) || REFRESH_ALL_DS_COUNT + REFRESH_ALL_PIPELINE_SUBSTEPS;
+  return Math.max(1, total - REFRESH_ALL_PIPELINE_SUBSTEPS);
+}
+
+function refreshAllPipelinePhaseFromMessage(message) {
+  const text = String(message || "");
+  if (/入库|落库|写入活动库/.test(text)) return 3;
+  if (/详情进度|活动详情/.test(text)) return 2;
+  if (/分类|新链接/.test(text)) return 1;
+  return null;
+}
+
+function refreshAllSubprogressRatio(message) {
+  const match = String(message || "").match(/\((\d+)\s*\/\s*(\d+)\)/);
+  if (!match) return null;
+  return Number(match[1]) / Math.max(1, Number(match[2]));
+}
+
+function refreshAllPipelinePhase(step, dsCount, message) {
+  if (step > dsCount) {
+    const fromMessage = refreshAllPipelinePhaseFromMessage(message);
+    if (fromMessage !== null) return fromMessage;
+  }
+  if (step <= dsCount) return 0;
+  if (step === dsCount + 1) return 1;
+  if (step === dsCount + 2) return 2;
+  return 3;
 }
 
 function renderRefreshAllPipeline(job) {
   if (!progressSteps) return;
   const step = Number(job.progress_step) || 0;
   const dsCount = refreshAllDataSourceCount(job);
+  const message = job.progress_message || job.message || "";
+  renderPipelineSteps(REFRESH_ALL_PIPELINE, refreshAllPipelinePhase(step, dsCount, message));
+}
+
+function renderRefreshWatchPipeline(job) {
+  if (!progressSteps) return;
+  progressSteps.hidden = false;
+  const step = Number(job.progress_step) || 0;
   let phase = 0;
-  if (step <= dsCount) phase = 0;
-  else if (step === dsCount + 1) phase = 1;
-  else if (step === dsCount + 2) phase = 2;
-  else if (step === dsCount + 3) phase = 3;
-  else phase = 4;
-  renderPipelineSteps(REFRESH_ALL_PIPELINE, phase);
+  if (step <= 1) phase = 0;
+  else if (step === 2) phase = 1;
+  else if (step === 3) phase = 2;
+  else phase = 3;
+  renderPipelineSteps(REFRESH_WATCH_PIPELINE, phase);
 }
 
 function calcJobProgressPercent(job) {
@@ -750,21 +1067,49 @@ function calcJobProgressPercent(job) {
   if (total <= 0) return 8;
   if (job.action === "refresh_all") {
     const dsCount = refreshAllDataSourceCount(job);
+    const detail = String(job.progress_message || "");
     if (step <= 0) return 6;
-    if (step <= dsCount) return Math.round(10 + (step / dsCount) * 44);
-    if (step === dsCount + 1) return 62;
-    if (step === dsCount + 2) return 72;
-    if (step === dsCount + 3) {
+    if (step <= dsCount) return Math.round(10 + (step / dsCount) * 38);
+    const phase = refreshAllPipelinePhase(step, dsCount, detail);
+    const ratio = refreshAllSubprogressRatio(detail);
+    if (phase === 1) {
+      return ratio != null ? Math.min(68, Math.round(50 + ratio * 18)) : 52;
+    }
+    if (phase === 2) {
+      return ratio != null ? Math.min(90, Math.round(70 + ratio * 18)) : 74;
+    }
+    if (phase === 3) return Math.min(100, 96);
+  }
+  if (job.action === "refresh_watch") {
+    if (step <= 0) return 6;
+    if (step === 1) {
       const detail = String(job.progress_message || "");
-      if (detail.includes("本地活动缓存") || detail.includes("跳过详情")) return 84;
+      const match = detail.match(/(\d+)\s*\/\s*(\d+)/);
+      if (match) {
+        const ratio = Number(match[1]) / Math.max(1, Number(match[2]));
+        return Math.min(42, Math.round(10 + ratio * 32));
+      }
+      return 18;
+    }
+    if (step === 2) {
+      const detail = String(job.progress_message || "");
       const match = detail.match(/\((\d+)\s*\/\s*(\d+)\)/);
       if (match) {
         const ratio = Number(match[1]) / Math.max(1, Number(match[2]));
-        return Math.min(90, Math.round(74 + ratio * 14));
+        return Math.min(68, Math.round(46 + ratio * 20));
+      }
+      return 50;
+    }
+    if (step === 3) {
+      const detail = String(job.progress_message || "");
+      const match = detail.match(/\((\d+)\s*\/\s*(\d+)\)/);
+      if (match) {
+        const ratio = Number(match[1]) / Math.max(1, Number(match[2]));
+        return Math.min(90, Math.round(72 + ratio * 16));
       }
       return 76;
     }
-    if (step >= dsCount + 4) return Math.min(100, 96);
+    if (step >= 4) return Math.min(100, 96);
   }
   if (job.action === "participate" || job.action === "participate_triple") {
     if (total <= 0) return 0;
@@ -788,12 +1133,12 @@ function renderStats(summary) {
     { label: "已参加", value: counts["已参加"] || 0 },
     { label: "已结束", value: counts["已结束"] || 0 },
     { label: "进行中", value: drawCounts.active || 0 },
-    { label: "新增链接", value: summary.new_count || 0 },
+    { label: "上次新入库", value: summary.new_count ?? 0 },
   ];
   statsGrid.innerHTML = cards
     .map(
-      (card) => `
-      <article class="stat-card">
+      (card, index) => `
+      <article class="stat-card is-entering" style="--card-delay:${index * 55}ms">
         <p class="stat-label">${card.label}</p>
         <p class="stat-value">${card.value}</p>
       </article>`
@@ -897,12 +1242,14 @@ function renderAccountViews(account) {
       sidebarAccountCard.innerHTML = `
         <div class="sidebar-account-mini" title="${escapeHtml(account.message || "请扫码登录")}">
           <div class="account-avatar account-avatar-fallback"></div>
-          <div class="sidebar-account-text">
+          <div class="sidebar-account-text sidebar-fade">
             <p class="sidebar-account-name">${escapeHtml(sidebarName)}</p>
             <p class="sidebar-account-sub">${escapeHtml(sidebarSub)}</p>
           </div>
         </div>`;
     }
+    updateWatchUserFormState();
+    if (state.watchUsers) renderWatchUsersPanel(state.watchUsers);
     return;
   }
 
@@ -954,12 +1301,14 @@ function renderAccountViews(account) {
     sidebarAccountCard.innerHTML = `
       <div class="sidebar-account-mini" title="${escapeHtml(account.uname || "B站用户")}">
         ${sidebarAvatar}
-        <div class="sidebar-account-text">
+        <div class="sidebar-account-text sidebar-fade">
           <p class="sidebar-account-name">${escapeHtml(account.uname || "B站用户")}</p>
           <p class="sidebar-account-sub">UID ${escapeHtml(account.mid || "—")}</p>
         </div>
       </div>`;
   }
+  updateWatchUserFormState();
+  if (state.watchUsers) renderWatchUsersPanel(state.watchUsers);
 }
 
 async function loadAccount() {
@@ -1029,6 +1378,51 @@ async function logoutAccount() {
     });
   }
   showToast("已退出登录", "success", "本地 Cookie 已清除，请重新扫码登录");
+}
+
+function closeLogoutConfirmModal() {
+  if (!logoutConfirmModal) return;
+  logoutConfirmModal.hidden = true;
+  document.body.classList.remove("modal-open");
+}
+
+function requestLogoutConfirm() {
+  return new Promise((resolve) => {
+    if (!logoutConfirmModal || !logoutConfirmCancel || !logoutConfirmYes) {
+      resolve(window.confirm("确认退出登录？退出后需要重新扫码登录。"));
+      return;
+    }
+
+    const cleanup = () => {
+      closeLogoutConfirmModal();
+      logoutConfirmCancel.removeEventListener("click", onCancel);
+      logoutConfirmYes.removeEventListener("click", onConfirm);
+      logoutConfirmBackdrop?.removeEventListener("click", onCancel);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+
+    const onCancel = () => {
+      cleanup();
+      resolve(false);
+    };
+
+    const onConfirm = () => {
+      cleanup();
+      resolve(true);
+    };
+
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") onCancel();
+    };
+
+    logoutConfirmModal.hidden = false;
+    document.body.classList.add("modal-open");
+    logoutConfirmCancel.addEventListener("click", onCancel);
+    logoutConfirmYes.addEventListener("click", onConfirm);
+    logoutConfirmBackdrop?.addEventListener("click", onCancel);
+    document.addEventListener("keydown", onKeyDown);
+    logoutConfirmCancel.focus();
+  });
 }
 
 async function loadSettings() {
@@ -1119,7 +1513,7 @@ async function saveParticipateTextMode(mode) {
   }
   renderParticipateSettings(state.settings || { participate_text_mode: result.participate_text_mode || mode });
   const label = mode === "random_comment" ? "随机借用评论" : "自定义文案";
-  showToast("文案模式已切换", "success", label);
+  setInlineFeedback(participateTextFeedback, `已切换为「${label}」`, "success");
   return true;
 }
 
@@ -1135,7 +1529,7 @@ function bindParticipateSettings() {
       try {
         await saveParticipateTextMode(mode);
       } catch (error) {
-        showToast(String(error.message || error), "error");
+        setInlineFeedback(participateTextFeedback, String(error.message || error), "error");
       } finally {
         button.disabled = originalDisabled;
       }
@@ -1199,11 +1593,8 @@ function renderLlmSettingsForm(settings) {
 
 async function refreshLlmSettings() {
   const button = document.getElementById("refresh-llm-settings");
-  const originalText = button?.textContent || "刷新配置";
-  if (button) {
-    button.disabled = true;
-    button.textContent = "刷新中…";
-  }
+  setButtonLoading(button, true, { label: "刷新中…" });
+  setInlineFeedback(llmActionFeedback, "", "info");
   try {
     const result = await fetchJSON("/api/settings/llm");
     state.settings = { ...(state.settings || {}), llm: result.llm, setup_complete: result.setup_complete };
@@ -1212,42 +1603,49 @@ async function refreshLlmSettings() {
     const detail = result.llm?.configured
       ? `${result.llm.model_name || "已配置"} · ${result.llm.api_key_hint || ""}`
       : "本地配置文件为空或未完整填写";
-    showToast("配置已刷新", "success", detail);
+    setInlineFeedback(llmActionFeedback, `配置已刷新 · ${detail}`, "success");
+  } catch (error) {
+    setInlineFeedback(llmActionFeedback, String(error.message || error), "error");
+    throw error;
   } finally {
-    if (button) {
-      button.disabled = false;
-      button.textContent = originalText;
-    }
+    setButtonLoading(button, false);
   }
 }
 
 async function saveLlmSettings() {
   if (!isLoggedIn()) {
-    showToast("请先扫码登录", "info", "登录后才能配置 LLM");
+    setInlineFeedback(llmActionFeedback, "请先扫码登录后再保存", "info", { autoHide: false });
     return;
   }
-  const result = await fetchJSON("/api/settings/llm", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(getLlmFormValues()),
-  });
-  state.settings = { ...(state.settings || {}), llm: result.llm, setup_complete: result.setup_complete };
-  renderLlmSettingsForm(state.settings);
-  if (state.account) renderAccountViews(state.account);
-  showToast("LLM 配置已保存", "success", `${result.llm.model_name || "已配置"} · ${result.llm.api_key_hint || ""}`);
+  setInlineFeedback(llmActionFeedback, "", "info");
+  try {
+    const result = await fetchJSON("/api/settings/llm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(getLlmFormValues()),
+    });
+    state.settings = { ...(state.settings || {}), llm: result.llm, setup_complete: result.setup_complete };
+    renderLlmSettingsForm(state.settings);
+    if (state.account) renderAccountViews(state.account);
+    setInlineFeedback(
+      llmActionFeedback,
+      `已保存 · ${result.llm.model_name || "已配置"} · ${result.llm.api_key_hint || ""}`,
+      "success"
+    );
+  } catch (error) {
+    setInlineFeedback(llmActionFeedback, String(error.message || error), "error");
+    throw error;
+  }
 }
 
 async function testLlmSettings() {
   if (!isLoggedIn()) {
-    showToast("请先扫码登录", "info", "登录后才能测试 LLM");
+    setInlineFeedback(llmActionFeedback, "请先扫码登录后再测试", "info", { autoHide: false });
     return;
   }
   const button = document.getElementById("test-llm-settings");
-  const originalText = button?.textContent || "测试连接";
-  if (button) {
-    button.disabled = true;
-    button.textContent = "测试中…";
-  }
+  setButtonLoading(button, true, { label: "测试中…" });
+  setInlineFeedback(llmActionFeedback, "正在测试连接…", "info", { autoHide: false });
   try {
     const result = await fetchJSON("/api/settings/llm/test", {
       method: "POST",
@@ -1262,33 +1660,30 @@ async function testLlmSettings() {
     };
     renderLlmSettingsForm(state.settings);
     if (state.account) renderAccountViews(state.account);
-    showToast("LLM 连接正常", "success", result.message || "");
+    setInlineFeedback(llmActionFeedback, result.message || "LLM 连接正常", "success");
+  } catch (error) {
+    setInlineFeedback(llmActionFeedback, String(error.message || error), "error");
+    throw error;
   } finally {
-    if (button) {
-      button.disabled = false;
-      button.textContent = originalText;
-    }
+    setButtonLoading(button, false);
   }
 }
 
 async function saveParticipateText() {
   if (!isLoggedIn()) {
-    showToast("请先扫码登录", "info", "登录后才能修改参与文案");
+    setInlineFeedback(participateTextFeedback, "请先扫码登录后再保存", "info", { autoHide: false });
     return;
   }
   const input = document.getElementById("participate-text-input");
   const button = document.getElementById("save-participate-text");
   const value = input?.value?.trim() || "";
-  const originalText = button?.textContent || "保存文案";
-  if (button) {
-    button.disabled = true;
-    button.textContent = "保存中…";
-  }
+  setButtonLoading(button, true, { label: "保存中…" });
   const mode = state.settings?.participate_text_mode || "custom";
   const payload =
     mode === "random_comment"
       ? { participate_fallback_text: value }
       : { participate_text: value };
+  setInlineFeedback(participateTextFeedback, "", "info");
   try {
     const result = await fetchJSON("/api/settings/participate-text", {
       method: "PUT",
@@ -1315,24 +1710,22 @@ async function saveParticipateText() {
       mode === "random_comment"
         ? result.participate_fallback_text || value
         : result.participate_text || value;
-    showToast(
-      mode === "random_comment" ? "兜底文案已保存" : "参与文案已保存",
-      "success",
-      savedText
+    setInlineFeedback(
+      participateTextFeedback,
+      mode === "random_comment" ? `兜底文案已保存：${savedText}` : `参与文案已保存：${savedText}`,
+      "success"
     );
   } catch (error) {
-    showToast(String(error.message || error), "error");
+    setInlineFeedback(participateTextFeedback, String(error.message || error), "error");
+    throw error;
   } finally {
-    if (button) {
-      button.disabled = false;
-      button.textContent = originalText;
-    }
+    setButtonLoading(button, false);
   }
 }
 
 async function resetParticipateText() {
   if (!isLoggedIn()) {
-    showToast("请先扫码登录", "info", "登录后才能修改参与文案");
+    setInlineFeedback(participateTextFeedback, "请先扫码登录后再恢复", "info", { autoHide: false });
     return;
   }
   const mode = state.settings?.participate_text_mode || "custom";
@@ -1341,37 +1734,239 @@ async function resetParticipateText() {
     mode === "random_comment"
       ? { participate_fallback_text: defaults.fallback }
       : { participate_text: defaults.custom };
-  const result = await fetchJSON("/api/settings/participate-text", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  const input = document.getElementById("participate-text-input");
-  if (input) {
-    input.value = getParticipateTextForMode(
-      {
-        ...(state.settings || {}),
-        participate_text: result.participate_text,
-        participate_fallback_text: result.participate_fallback_text,
-      },
-      mode
-    );
-  }
-  if (state.settings) {
-    if (result.participate_text) state.settings.participate_text = result.participate_text;
-    if (result.participate_fallback_text) {
-      state.settings.participate_fallback_text = result.participate_fallback_text;
+  setInlineFeedback(participateTextFeedback, "", "info");
+  try {
+    const result = await fetchJSON("/api/settings/participate-text", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const input = document.getElementById("participate-text-input");
+    if (input) {
+      input.value = getParticipateTextForMode(
+        {
+          ...(state.settings || {}),
+          participate_text: result.participate_text,
+          participate_fallback_text: result.participate_fallback_text,
+        },
+        mode
+      );
     }
+    if (state.settings) {
+      if (result.participate_text) state.settings.participate_text = result.participate_text;
+      if (result.participate_fallback_text) {
+        state.settings.participate_fallback_text = result.participate_fallback_text;
+      }
+    }
+    const restoredText =
+      mode === "random_comment"
+        ? result.participate_fallback_text || defaults.fallback
+        : result.participate_text || defaults.custom;
+    setInlineFeedback(
+      participateTextFeedback,
+      mode === "random_comment" ? `已恢复默认兜底：${restoredText}` : `已恢复默认文案：${restoredText}`,
+      "success"
+    );
+  } catch (error) {
+    setInlineFeedback(participateTextFeedback, String(error.message || error), "error");
+    throw error;
   }
-  const restoredText =
-    mode === "random_comment"
-      ? result.participate_fallback_text || defaults.fallback
-      : result.participate_text || defaults.custom;
-  showToast(
-    mode === "random_comment" ? "已恢复默认兜底文案" : "已恢复默认文案",
-    "success",
-    restoredText
-  );
+}
+
+function clearWatchMidError() {
+  if (!watchAddMidInput || !watchAddMidError) return;
+  watchAddMidInput.classList.remove("is-invalid");
+  watchAddMidError.hidden = true;
+  watchAddMidError.textContent = "";
+}
+
+function showWatchMidError(message) {
+  if (!watchAddMidInput || !watchAddMidError) return;
+  watchAddMidInput.classList.add("is-invalid");
+  watchAddMidError.hidden = false;
+  watchAddMidError.textContent = message;
+}
+
+function closeWatchUserConfirm(exceptChip = null) {
+  document.querySelectorAll(".watch-user-chip.is-confirming").forEach((chip) => {
+    if (chip !== exceptChip) chip.classList.remove("is-confirming");
+  });
+}
+
+function renderWatchUsersPanel(data) {
+  if (!data) return;
+  state.watchUsers = data;
+  const count = Number(data.count) || (data.users || []).length;
+  if (watchMetricCount) watchMetricCount.textContent = String(count);
+  if (watchMetricLinks) watchMetricLinks.textContent = String(data.last_scan_link_count ?? "—");
+  if (watchUsersBadge) watchUsersBadge.textContent = `${count} 人`;
+  if (watchLastSynced) watchLastSynced.textContent = formatUnixTimestamp(data.last_synced_at);
+  if (watchNextWindow) {
+    const window = data.next_window || {};
+    watchNextWindow.textContent = formatWatchWindow(window.start, window.end);
+  }
+  if (watchWindowCap) {
+    watchWindowCap.textContent = formatWindowDays(data.max_window_seconds);
+  }
+  updateWatchUserFormState();
+
+  if (!watchUserGrid) return;
+  const users = data.users || [];
+  const canManage = isLoggedIn();
+  if (!users.length) {
+    watchUserGrid.innerHTML = `<p class="caption watch-user-empty">${canManage ? "暂无监控用户，可在上方添加" : "暂无监控用户"}</p>`;
+    return;
+  }
+  watchUserGrid.innerHTML = users
+    .map(
+      (user) => `
+      <article class="watch-user-chip" data-watch-mid="${escapeHtml(user.mid)}">
+        <a class="watch-user-link" href="https://space.bilibili.com/${encodeURIComponent(user.mid)}/dynamic" target="_blank" rel="noopener" title="${escapeHtml(user.name)}">${escapeHtml(user.name)}</a>
+        <span class="watch-user-mid">MID ${escapeHtml(user.mid)}</span>
+        <div class="watch-user-actions">
+          <button type="button" class="watch-user-remove" data-watch-remove="${escapeHtml(user.mid)}" aria-label="移除 ${escapeHtml(user.name)}" ${canManage ? "" : "disabled"} title="${canManage ? "移出监控名单" : "登录后可管理"}">×</button>
+          <div class="watch-user-confirm-actions">
+            <button type="button" class="btn btn-secondary btn-compact watch-user-confirm-yes" data-watch-confirm="${escapeHtml(user.mid)}">确认</button>
+            <button type="button" class="watch-user-confirm-no" data-watch-cancel>取消</button>
+          </div>
+        </div>
+      </article>`
+    )
+    .join("");
+}
+
+function updateWatchUserFormState() {
+  const canManage = isLoggedIn();
+  if (watchAddMidInput) watchAddMidInput.disabled = !canManage;
+  if (watchAddBtn) {
+    watchAddBtn.disabled = !canManage;
+    watchAddBtn.title = canManage ? "" : "登录后可添加监控用户";
+  }
+}
+
+async function loadWatchUsers() {
+  try {
+    const data = await fetchJSON("/api/watch-users");
+    renderWatchUsersPanel(data);
+    return data;
+  } catch (error) {
+    if (watchUserGrid) {
+      watchUserGrid.innerHTML = `<p class="caption watch-user-empty">加载失败：${escapeHtml(String(error.message || error))}</p>`;
+    }
+    throw error;
+  }
+}
+
+function parseWatchMidInput(raw) {
+  const text = String(raw || "").trim();
+  if (!/^\d+$/.test(text)) return null;
+  if (text.length > 16) return null;
+  try {
+    const mid = BigInt(text);
+    if (mid <= 0n) return null;
+    if (mid <= BigInt(Number.MAX_SAFE_INTEGER)) return Number(text);
+    return text;
+  } catch {
+    return null;
+  }
+}
+
+async function submitWatchUser(event) {
+  event.preventDefault();
+  clearWatchMidError();
+  if (!isLoggedIn()) {
+    showToast("请先扫码登录", "info", "登录后才能管理监控用户");
+    return;
+  }
+  const rawMid = String(watchAddMidInput?.value || "").trim();
+  if (!rawMid) {
+    showWatchMidError("请输入用户 MID");
+    watchAddMidInput?.focus();
+    return;
+  }
+  const mid = parseWatchMidInput(rawMid);
+  if (mid === null) {
+    showWatchMidError("请输入有效的 B 站用户 MID");
+    watchAddMidInput?.focus();
+    return;
+  }
+  setButtonLoading(watchAddBtn, true, { label: "添加中…" });
+  try {
+    const result = await fetchJSON("/api/watch-users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mid }),
+    });
+    if (watchAddForm) watchAddForm.reset();
+    clearWatchMidError();
+    await loadWatchUsers();
+    highlightWatchUserChip(mid);
+    const addedName = result?.user?.name || String(mid);
+    if (result?.name_fallback) {
+      showToast("已添加监控用户（昵称暂用 MID）", "info", addedName);
+    } else {
+      showToast("已添加监控用户", "success", addedName);
+    }
+  } catch (error) {
+    const message = String(error.message || error);
+    if (message.includes("已在监控列表")) {
+      showWatchMidError(message);
+      watchAddMidInput?.focus();
+    } else {
+      showWatchMidError(message);
+    }
+  } finally {
+    setButtonLoading(watchAddBtn, false);
+    updateWatchUserFormState();
+  }
+}
+
+async function removeWatchUser(mid) {
+  if (!isLoggedIn()) {
+    showToast("请先扫码登录", "info", "登录后才能管理监控用户");
+    return;
+  }
+  try {
+    await fetchJSON(`/api/watch-users/${encodeURIComponent(mid)}`, { method: "DELETE" });
+    await loadWatchUsers();
+    showToast("已移出监控名单", "success");
+  } catch (error) {
+    showToast(String(error.message || error), "error");
+  }
+}
+
+function bindWatchUsers() {
+  watchAddForm?.addEventListener("submit", submitWatchUser);
+  watchAddMidInput?.addEventListener("input", clearWatchMidError);
+  watchUserGrid?.addEventListener("click", async (event) => {
+    const cancelBtn = event.target.closest("[data-watch-cancel]");
+    if (cancelBtn) {
+      cancelBtn.closest(".watch-user-chip")?.classList.remove("is-confirming");
+      return;
+    }
+
+    const confirmBtn = event.target.closest("[data-watch-confirm]");
+    if (confirmBtn && !confirmBtn.disabled) {
+      const mid = Number(confirmBtn.dataset.watchConfirm || 0);
+      const chip = confirmBtn.closest(".watch-user-chip");
+      if (!mid) return;
+      setButtonLoading(confirmBtn, true);
+      try {
+        await removeWatchUser(mid);
+        chip?.classList.remove("is-confirming");
+      } finally {
+        setButtonLoading(confirmBtn, false);
+      }
+      return;
+    }
+
+    const removeBtn = event.target.closest("[data-watch-remove]");
+    if (!removeBtn || removeBtn.disabled) return;
+    const chip = removeBtn.closest(".watch-user-chip");
+    if (!chip) return;
+    closeWatchUserConfirm(chip);
+    chip.classList.add("is-confirming");
+  });
 }
 
 function renderSources(sources) {
@@ -1403,48 +1998,117 @@ function renderSources(sources) {
     .join("");
 }
 
+function buildActivityParticipateBtn(item) {
+  if (item.can_participate) {
+    return `<button class="btn btn-primary btn-compact btn-pill" data-action="participate" data-dynamic-id="${escapeHtml(item.dynamic_id)}">参与</button>`;
+  }
+  return `<span class="caption">—</span>`;
+}
+
+function buildActivityLastNote(item) {
+  if (!item.last_participation) return "";
+  return `<div class="last-result ${escapeHtml(item.last_participation.status || "")}">上次：${escapeHtml(formatLastParticipation(item.last_participation))}</div>`;
+}
+
+function buildActivityLink(item) {
+  if (item.source_url) {
+    return `<a class="activity-link" href="${escapeHtml(item.source_url)}" target="_blank" rel="noopener">打开动态</a>`;
+  }
+  return `<span class="caption">—</span>`;
+}
+
+function renderActivityTableRow(item) {
+  const title = escapeHtml(item.activity_title || item.prize || "未知活动");
+  return `
+    <tr data-dynamic-id="${escapeHtml(item.dynamic_id || "")}">
+      <td class="activity-cell">
+        <div class="activity-title">${title}</div>
+        ${buildActivityLastNote(item)}
+      </td>
+      <td class="link-cell">${buildActivityLink(item)}</td>
+      <td class="chip-cell"><span class="type-chip">${escapeHtml(item.lottery_type)}</span></td>
+      <td class="heat-cell"><span class="heat-pill${item.heat_missing ? " heat-pill-missing" : ""}">${formatHeat(item)}</span></td>
+      <td class="chip-cell"><span class="${badgeClass(item.activity_status)}">${escapeHtml(item.activity_status)}</span></td>
+      <td class="time-cell"><span class="time-pill">${escapeHtml(formatLotteryTime(item.lottery_time))}</span></td>
+      <td class="chip-cell">${buildActivityParticipateBtn(item)}</td>
+    </tr>`;
+}
+
+function renderActivityCard(item) {
+  const title = escapeHtml(item.activity_title || item.prize || "未知活动");
+  const ended = item.activity_status === "已结束" ? " is-ended" : "";
+  return `
+    <article class="activity-card${ended}" data-dynamic-id="${escapeHtml(item.dynamic_id || "")}">
+      <div class="activity-card-head">
+        <h3 class="activity-card-title">${title}</h3>
+        <span class="${badgeClass(item.activity_status)}">${escapeHtml(item.activity_status)}</span>
+      </div>
+      ${buildActivityLastNote(item)}
+      <div class="activity-card-meta">
+        <span class="type-chip">${escapeHtml(item.lottery_type)}</span>
+        <span class="heat-pill${item.heat_missing ? " heat-pill-missing" : ""}">${formatHeat(item)}</span>
+        <span class="time-pill">${escapeHtml(formatLotteryTime(item.lottery_time))}</span>
+      </div>
+      <div class="activity-card-actions">
+        ${buildActivityLink(item)}
+        ${buildActivityParticipateBtn(item)}
+      </div>
+    </article>`;
+}
+
+function formatFilterSummary(payload) {
+  const total = Number(payload.total) || 0;
+  const page = Number(payload.page) || 1;
+  const pages = Math.max(1, Number(payload.pages) || 1);
+  const filters = [];
+  const { q, type, status, drawWindow, sort, order } = state.filters;
+  if (q) filters.push(`关键词「${escapeHtml(q)}」`);
+  if (type) filters.push(escapeHtml(type));
+  if (status) filters.push(escapeHtml(status));
+  if (drawWindow === "soon") filters.push("即将开奖");
+  if (sort === "heat") filters.push(order === "asc" ? "热度升序" : "热度降序");
+  const filterText = filters.length ? `（${filters.join(" · ")}）` : "";
+  if (total === 0) return `未找到匹配活动${filterText}`;
+  return `共 <strong>${total}</strong> 条${filterText} · 第 ${page}/${pages} 页`;
+}
+
+function flashActivityRows(dynamicIds) {
+  dynamicIds.forEach((dynamicId) => {
+    if (!dynamicId) return;
+    document.querySelectorAll(`[data-dynamic-id="${dynamicId}"]`).forEach((el) => {
+      el.classList.add("row-flash");
+      window.setTimeout(() => el.classList.remove("row-flash"), 1800);
+    });
+  });
+}
+
 function renderActivities(payload) {
   const items = payload.items || [];
-  if (!items.length) {
-    activitiesBody.innerHTML = `<tr class="empty-row"><td colspan="7">没有匹配的活动</td></tr>`;
-  } else {
-    activitiesBody.innerHTML = items
-      .map((item) => {
-        const participateBtn = item.can_participate
-          ? `<button class="btn btn-primary btn-compact btn-pill" data-action="participate" data-dynamic-id="${escapeHtml(item.dynamic_id)}">参与</button>`
-          : `<span class="caption">—</span>`;
-        const lastNote = item.last_participation
-          ? `<div class="last-result ${escapeHtml(item.last_participation.status || "")}">上次：${escapeHtml(formatLastParticipation(item.last_participation))}</div>`
-          : "";
-        const linkCell = item.source_url
-          ? `<a class="activity-link" href="${escapeHtml(item.source_url)}" target="_blank" rel="noopener">打开动态</a>`
-          : `<span class="caption">—</span>`;
-        const checkAtHint = item.check_at_recommended
-          ? `<div class="activity-check-at-hint">已开奖，建议查看 @我的 通知</div>`
-          : "";
-        return `
-          <tr>
-            <td class="activity-cell">
-              <div class="activity-title">${escapeHtml(item.activity_title || item.prize || "未知活动")}</div>
-              ${checkAtHint}
-              ${lastNote}
-            </td>
-            <td class="link-cell">${linkCell}</td>
-            <td class="chip-cell"><span class="type-chip">${escapeHtml(item.lottery_type)}</span></td>
-            <td class="heat-cell"><span class="heat-pill${item.heat_missing ? " heat-pill-missing" : ""}">${formatHeat(item)}</span></td>
-            <td class="chip-cell"><span class="${badgeClass(item.activity_status)}">${escapeHtml(item.activity_status)}</span></td>
-            <td class="time-cell"><span class="time-pill">${escapeHtml(formatLotteryTime(item.lottery_time))}</span></td>
-            <td class="chip-cell">${participateBtn}</td>
-          </tr>`;
-      })
-      .join("");
+
+  if (filterResultSummary) {
+    filterResultSummary.innerHTML = formatFilterSummary(payload);
+    filterResultSummary.hidden = false;
+    pulseFilterSummary();
   }
 
+  if (!items.length) {
+    activitiesBody.innerHTML = `<tr class="empty-row"><td colspan="7">没有匹配的活动</td></tr>`;
+    if (activitiesCards) {
+      activitiesCards.innerHTML = `<p class="caption activity-cards-empty">没有匹配的活动</p>`;
+    }
+  } else {
+    activitiesBody.innerHTML = items.map(renderActivityTableRow).join("");
+    if (activitiesCards) activitiesCards.innerHTML = items.map(renderActivityCard).join("");
+  }
+
+  const page = Number(payload.page) || 1;
+  const pages = Math.max(1, Number(payload.pages) || 1);
+  const total = Number(payload.total) || 0;
   pagination.innerHTML = `
-    <span class="caption">第 ${payload.page} / ${payload.pages} 页，共 ${payload.total} 条</span>
-    <div class="action-row">
-      <button class="btn btn-secondary btn-compact" id="page-prev" ${payload.page <= 1 ? "disabled" : ""}>上一页</button>
-      <button class="btn btn-secondary btn-compact" id="page-next" ${payload.page >= payload.pages ? "disabled" : ""}>下一页</button>
+    <span class="caption pagination-summary">第 ${page} / ${pages} 页 · 本页 ${items.length} 条 · 共 ${total} 条</span>
+    <div class="action-row pagination-actions">
+      <button class="btn btn-secondary btn-compact btn-pill" id="page-prev" ${page <= 1 ? "disabled" : ""}>上一页</button>
+      <button class="btn btn-secondary btn-compact btn-pill" id="page-next" ${page >= pages ? "disabled" : ""}>下一页</button>
     </div>`;
 
   document.getElementById("page-prev")?.addEventListener("click", () => {
@@ -1458,6 +2122,15 @@ function renderActivities(payload) {
   bindActionButtons();
   const preview = resolveTripleTargets(payload);
   if (preview) applyTripleTargets(preview);
+}
+
+function setProgressAria(percent, labelText) {
+  if (!progressTrack) return;
+  const rounded = Math.max(0, Math.min(100, Math.round(percent)));
+  progressTrack.setAttribute("aria-valuenow", String(rounded));
+  if (labelText) {
+    progressTrack.setAttribute("aria-valuetext", labelText);
+  }
 }
 
 function updateProgressUI(job) {
@@ -1478,6 +2151,7 @@ function updateProgressUI(job) {
     state.smoothJobPercent = 0;
     state.activeJobKey = "";
     if (progressBanner) progressBanner.dataset.percent = "0";
+    setProgressAria(0, "0%");
     renderParticipateSteps(job);
     return;
   }
@@ -1504,8 +2178,15 @@ function updateProgressUI(job) {
     const circumference = 97.4;
     progressRing.style.strokeDashoffset = String(circumference - (circumference * percent) / 100);
   }
+  setProgressAria(percent, `${display.showPercentSuffix ? `${Math.round(percent)}%` : display.value}${display.suffix || ""}`.trim());
   if (progressChip) {
-    const chipMap = { participate: "参与任务", participate_triple: "三连参与", refresh_all: "同步任务", login: "登录任务" };
+    const chipMap = {
+      participate: "参与任务",
+      participate_triple: "三连参与",
+      refresh_all: "同步任务",
+      refresh_watch: "监控扫描",
+      login: "登录任务",
+    };
     progressChip.textContent = chipMap[job.action] || "任务进行中";
   }
   progressLabel.textContent = formatProgressTitle(job);
@@ -1529,19 +2210,56 @@ function updateJobUI(job) {
   updateProgressUI(job);
 }
 
-function switchSection(sectionId) {
+function activateSection(sectionId) {
+  const target = document.getElementById(`section-${sectionId}`);
   document.querySelectorAll(".nav-item").forEach((item) => {
     item.classList.toggle("active", item.dataset.section === sectionId);
   });
   document.querySelectorAll(".view-section").forEach((section) => {
-    const active = section.id === `section-${sectionId}`;
+    const active = section === target;
+    section.classList.remove("is-leaving");
     section.classList.toggle("active", active);
     if (active) {
+      section.classList.remove("is-entering");
+      void section.offsetWidth;
+      if (!prefersReducedMotion()) {
+        section.classList.add("is-entering");
+      }
       document.getElementById("page-title").textContent = section.dataset.title || sectionId;
       document.getElementById("page-subtitle").textContent = section.dataset.subtitle || "";
     }
   });
   document.getElementById("sidebar")?.classList.remove("open");
+  if (sectionId === "sources") {
+    loadWatchUsers().catch(() => {});
+  }
+}
+
+function switchSection(sectionId) {
+  const target = document.getElementById(`section-${sectionId}`);
+  const current = document.querySelector(".view-section.active");
+  if (!target || current === target) return;
+
+  if (sectionSwitchTimer) {
+    window.clearTimeout(sectionSwitchTimer);
+    sectionSwitchTimer = null;
+  }
+
+  if (!prefersReducedMotion() && current) {
+    current.classList.add("is-leaving");
+    current.classList.remove("is-entering");
+    sectionSwitchTimer = window.setTimeout(() => {
+      current.classList.remove("active", "is-leaving", "is-entering");
+      activateSection(sectionId);
+      sectionSwitchTimer = null;
+    }, 220);
+    return;
+  }
+
+  if (current) {
+    current.classList.remove("active", "is-leaving", "is-entering");
+  }
+  activateSection(sectionId);
 }
 
 function bindNavigation() {
@@ -1558,6 +2276,12 @@ function bindNavigation() {
   document.getElementById("log-dock-collapse")?.addEventListener("click", () => toggleLogDock(false));
   document.getElementById("qrcode-close")?.addEventListener("click", () => hideQrcodeModal(true));
   document.getElementById("qrcode-backdrop")?.addEventListener("click", () => hideQrcodeModal(true));
+  document.addEventListener("keydown", (event) => {
+    trapQrcodeFocus(event);
+    if (event.key === "Escape" && qrcodeModal && !qrcodeModal.hidden) {
+      hideQrcodeModal(true);
+    }
+  });
 }
 
 async function loadSummary() {
@@ -1580,42 +2304,6 @@ function formatLotteryTime(value) {
   if (!text || text === "—") return "—";
   if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(text)) return text;
   return "—";
-}
-
-async function refreshActivityStatus() {
-  if (!isLoggedIn()) {
-    showToast("请先扫码登录", "info", "登录后才能刷新活动状态");
-    return;
-  }
-  const button = document.getElementById("refresh-status-btn");
-  const originalText = button?.textContent || "刷新任务状态";
-  if (button) {
-    button.disabled = true;
-    button.textContent = "刷新中…";
-  }
-  try {
-    const result = await fetchJSON("/api/activities/refresh-status", { method: "POST" });
-    const drawnCount = Number(result.draw_reminder?.drawn_participated_count) || 0;
-    if (drawnCount > 0) {
-      showToast(
-        result.message || "状态已刷新",
-        "info",
-        `${drawnCount} 个已参加活动已开奖，建议打开 B 站查看 @我的 通知。`
-      );
-    } else {
-      showToast(result.message || "状态已刷新", "success");
-    }
-    await loadActivities();
-    const summary = await fetchJSON("/api/summary");
-    renderStats(summary);
-  } catch (error) {
-    showToast(sanitizeUserText(error.message || error), "error");
-  } finally {
-    if (button) {
-      button.disabled = false;
-      button.textContent = originalText;
-    }
-  }
 }
 
 function setFilterPillGroup(selector, activeButton) {
@@ -1656,8 +2344,7 @@ function setDrawWindowFilter(value) {
 
 function updateDrawWindowHint() {
   if (!filterDrawWindowHint || !state.filters.drawWindow) return;
-  const label = state.filters.drawWindow === "drawn" ? "已开奖" : "即将开奖";
-  filterDrawWindowHint.textContent = `仅筛选你已参加的活动 · ${label}（近 3 天）`;
+  filterDrawWindowHint.textContent = "仅筛选你已参加、且 3 天内即将开奖的活动";
 }
 
 function buildActivityFilterQueryParams() {
@@ -1836,19 +2523,11 @@ async function startJob(action, params = {}) {
       /* 继续发起新任务 */
     }
   }
-  const actionNames = {
-    login: "扫码登录",
-    refresh_all: "一键更新",
-    refresh_status: "刷新任务状态",
-    participate: "参与活动",
-    participate_triple: "三连参与",
-  };
   if (action === "participate" || action === "participate_triple") {
     hideParticipationResult(true);
     state.smoothJobPercent = 0;
     state.activeJobKey = "";
   }
-  showToast(`正在启动${actionNames[action] || action}`, "running", "任务日志已展开，可查看实时进度");
   toggleLogDock(true);
   try {
     await fetchJSON("/api/jobs", {
@@ -1878,6 +2557,67 @@ async function startJob(action, params = {}) {
   startPolling();
 }
 
+function collectFinishedDynamicIds(job) {
+  if (job.action === "participate_triple") {
+    return (job.result?.items || []).map((item) => item?.dynamic_id).filter(Boolean);
+  }
+  if (job.action === "participate" && job.result?.dynamic_id) {
+    return [job.result.dynamic_id];
+  }
+  return [];
+}
+
+async function handleJobCompletion(job) {
+  dismissRunningToasts();
+
+  const isParticipation = job.action === "participate" || job.action === "participate_triple";
+  if (job.action === "login" && job.state === "success" && !state.qrcodeDismissed) {
+    renderQrcodeLoginState({
+      ...job,
+      result: { ...(job.result || {}), login_phase: "success" },
+      message: "登录成功，账号已就绪",
+    });
+    await new Promise((resolve) => window.setTimeout(resolve, 450));
+  }
+
+  if (isParticipation && (job.state === "success" || job.state === "error")) {
+    showParticipationResult(job);
+  } else if (job.state === "success") {
+    if (SYNC_TOAST_ACTIONS.has(job.action)) {
+      const detail = formatToastDetail(job);
+      showToast(sanitizeUserText(job.message) || "任务完成", "success", detail);
+    }
+  } else if (job.state === "error") {
+    if (job.action === "login" && !state.qrcodeDismissed) {
+      renderQrcodeLoginState({
+        ...job,
+        result: { ...(job.result || {}), login_phase: "error" },
+        message: sanitizeUserText(job.message) || "登录失败，请重试",
+      });
+    } else {
+      showToast(sanitizeUserText(job.message) || "任务失败", "error", formatToastDetail(job));
+    }
+  }
+
+  const finishedDynamicIds = collectFinishedDynamicIds(job);
+  try {
+    await loadSummary();
+    await syncProjectState();
+    await loadActivities();
+    if (job.action === "refresh_watch") {
+      await loadWatchUsers();
+    }
+  } catch (error) {
+    showToast(String(error.message || error), "error");
+  }
+  clearActionButtonLoading();
+  if (job.action === "participate_triple") {
+    renderTripleParticipateBar(state.tripleTargets);
+  }
+  flashActivityRows(finishedDynamicIds);
+  if (job.action === "login" && job.state === "success") hideQrcodeModal(false);
+}
+
 function bindActionButtons() {
   document.querySelectorAll("[data-action]").forEach((button) => {
     if (button.dataset.bound === "true") return;
@@ -1889,30 +2629,36 @@ function bindActionButtons() {
       if (action === "participate_triple") {
         Object.assign(params, buildActivityFilterJobParams());
       }
-      const originalText = button.textContent;
       if (action === "participate") {
-        button.textContent = "参与中…";
-        button.classList.add("is-loading");
+        setButtonLoading(button, true, { label: "参与中…" });
       }
       if (action === "participate_triple") {
-        button.classList.add("is-loading");
-        const labelEl = document.getElementById("triple-participate-btn-label");
-        if (labelEl) labelEl.textContent = "参与中";
+        setButtonLoading(button, true, { label: "参与中" });
       }
       try {
         await startJob(action, params);
       } catch (error) {
         showToast(String(error.message || error), "error");
-        if (action === "participate") {
-          button.textContent = originalText;
-        }
-        button.classList.remove("is-loading");
+        setButtonLoading(button, false);
         if (action === "participate_triple") {
           renderTripleParticipateBar(state.tripleTargets);
         }
       }
     });
   });
+}
+
+function resolveJobPollIntervalMs(action) {
+  if (action === "login") return 500;
+  if (action === "participate" || action === "participate_triple") return 400;
+  return 1000;
+}
+
+function stopJobPolling() {
+  if (state.polling) {
+    window.clearTimeout(state.polling);
+    state.polling = null;
+  }
 }
 
 function startPolling() {
@@ -1931,74 +2677,24 @@ function startPolling() {
             loadQrcodeImage(refreshedAt);
           }
         }
+        state.polling = window.setTimeout(poll, resolveJobPollIntervalMs(job.action));
         return;
       }
       if (job.state === "idle" && job.action === "login") {
-        window.clearInterval(state.polling);
-        state.polling = null;
+        stopJobPolling();
         setButtonsDisabled(false);
         hideQrcodeModal(false);
         updateJobUI(job);
         return;
       }
-      const finishedDynamicIds =
-        job.action === "participate_triple"
-          ? (job.result?.items || []).map((item) => item?.dynamic_id).filter(Boolean)
-          : job.action === "participate" && job.result?.dynamic_id
-            ? [job.result.dynamic_id]
-            : [];
-      if (job.action === "login" && job.state === "success" && !state.qrcodeDismissed) {
-        renderQrcodeLoginState({ ...job, result: { ...(job.result || {}), login_phase: "success" }, message: "登录成功，账号已就绪" });
-        await new Promise((resolve) => window.setTimeout(resolve, 450));
-      }
-      const isParticipation = job.action === "participate" || job.action === "participate_triple";
-      if (isParticipation && (job.state === "success" || job.state === "error")) {
-        showParticipationResult(job);
-      } else if (job.state === "success") {
-        const detail = formatToastDetail(job);
-        showToast(sanitizeUserText(job.message) || "任务完成", "success", detail);
-      } else if (job.state === "error") {
-        if (job.action === "login" && !state.qrcodeDismissed) {
-          renderQrcodeLoginState({
-            ...job,
-            result: { ...(job.result || {}), login_phase: "error" },
-            message: sanitizeUserText(job.message) || "登录失败，请重试",
-          });
-        }
-        showToast(sanitizeUserText(job.message) || "任务失败", "error", formatToastDetail(job));
-      }
-      window.clearInterval(state.polling);
-      state.polling = null;
-      try {
-        await loadSummary();
-        await syncProjectState();
-        await loadActivities();
-      } catch (error) {
-        showToast(String(error.message || error), "error");
-      }
-      document.querySelectorAll("[data-action='participate'].is-loading").forEach((btn) => {
-        btn.textContent = "参与";
-        btn.classList.remove("is-loading");
-      });
-      document.querySelectorAll("[data-action='participate_triple'].is-loading").forEach((btn) => {
-        btn.classList.remove("is-loading");
-      });
-      finishedDynamicIds.forEach((dynamicId) => {
-        document.querySelectorAll("tr").forEach((row) => {
-          if (row.textContent?.includes(dynamicId)) {
-            row.classList.add("row-flash");
-            window.setTimeout(() => row.classList.remove("row-flash"), 1800);
-          }
-        });
-      });
-      if (job.action === "login" && job.state === "success") hideQrcodeModal(false);
+      stopJobPolling();
+      await handleJobCompletion(job);
     } catch (error) {
       console.error(error);
+      state.polling = window.setTimeout(poll, 1500);
     }
   };
   poll();
-  const intervalMs = 200;
-  state.polling = window.setInterval(poll, intervalMs);
 }
 
 function bindFilterPills() {
@@ -2058,50 +2754,28 @@ function bindFilterPills() {
   });
 }
 
-document.getElementById("refresh-llm-settings")?.addEventListener("click", async () => {
-  try {
-    await refreshLlmSettings();
-  } catch (error) {
-    showToast(String(error.message || error), "error");
-  }
+document.getElementById("refresh-llm-settings")?.addEventListener("click", () => {
+  refreshLlmSettings().catch(() => {});
 });
 
-document.getElementById("test-llm-settings")?.addEventListener("click", async () => {
-  try {
-    await testLlmSettings();
-  } catch (error) {
-    showToast(String(error.message || error), "error");
-  }
+document.getElementById("test-llm-settings")?.addEventListener("click", () => {
+  testLlmSettings().catch(() => {});
 });
 
-document.getElementById("save-llm-settings")?.addEventListener("click", async () => {
-  try {
-    await saveLlmSettings();
-  } catch (error) {
-    showToast(String(error.message || error), "error");
-  }
+document.getElementById("save-llm-settings")?.addEventListener("click", () => {
+  saveLlmSettings().catch(() => {});
 });
 
-document.getElementById("save-participate-text")?.addEventListener("click", async () => {
-  try {
-    await saveParticipateText();
-  } catch (error) {
-    showToast(String(error.message || error), "error");
-  }
+document.getElementById("save-participate-text")?.addEventListener("click", () => {
+  saveParticipateText().catch(() => {});
 });
 
-document.getElementById("reset-participate-text")?.addEventListener("click", async () => {
-  try {
-    await resetParticipateText();
-  } catch (error) {
-    showToast(String(error.message || error), "error");
-  }
+document.getElementById("reset-participate-text")?.addEventListener("click", () => {
+  resetParticipateText().catch(() => {});
 });
 
 sidebarRefreshBtn?.addEventListener("click", async () => {
-  const originalText = sidebarRefreshBtn.textContent;
-  sidebarRefreshBtn.disabled = true;
-  sidebarRefreshBtn.textContent = "刷新中…";
+  setButtonLoading(sidebarRefreshBtn, true, { label: "刷新中…" });
   try {
     const account = await loadAccount();
     const merged = (await loadAccountExtras()) || account;
@@ -2112,12 +2786,13 @@ sidebarRefreshBtn?.addEventListener("click", async () => {
   } catch (error) {
     showToast(String(error.message || error), "error");
   } finally {
-    sidebarRefreshBtn.disabled = false;
-    sidebarRefreshBtn.textContent = originalText;
+    setButtonLoading(sidebarRefreshBtn, false);
   }
 });
 
 sidebarLogoutBtn?.addEventListener("click", async () => {
+  const confirmed = await requestLogoutConfirm();
+  if (!confirmed) return;
   sidebarLogoutBtn.disabled = true;
   try {
     await logoutAccount();
@@ -2130,13 +2805,17 @@ sidebarLogoutBtn?.addEventListener("click", async () => {
 
 async function init() {
   initSystemPreferences();
+  setLogDockOpen(false);
   bindNavigation();
   bindFilterPills();
   bindParticipateSettings();
+  bindLlmApiKeyToggle();
+  bindWatchUsers();
   bindActionButtons();
   await syncProjectState();
   try {
     const job = await loadSummary();
+    loadWatchUsers().catch(() => {});
     await loadActivities();
     if (job?.state === "running") startPolling();
   } catch (error) {
@@ -2145,7 +2824,7 @@ async function init() {
 }
 
 function initSystemPreferences() {
-  applySidebarCollapsed(localStorage.getItem("binggo-sidebar-collapsed") === "1");
+  applySidebarCollapsed(localStorage.getItem("binggo-sidebar-collapsed") === "1", { animate: false });
   applyTheme(localStorage.getItem("binggo-theme") === "dark" ? "dark" : "light");
   document.getElementById("sidebar-collapse")?.addEventListener("click", () => {
     const collapsed = !document.querySelector(".app-shell")?.classList.contains("sidebar-collapsed");
@@ -2155,7 +2834,6 @@ function initSystemPreferences() {
     const isDark = document.documentElement.dataset.theme === "dark";
     applyTheme(isDark ? "light" : "dark");
   });
-  document.getElementById("refresh-status-btn")?.addEventListener("click", refreshActivityStatus);
   jobResultClose?.addEventListener("click", () => hideParticipationResult());
   jobResultBanner?.addEventListener("mouseenter", () => {
     if (jobResultBanner.hidden || jobResultBanner.classList.contains("is-hiding")) return;
@@ -2172,16 +2850,37 @@ function initSystemPreferences() {
   });
 }
 
-function applySidebarCollapsed(collapsed) {
-  document.querySelector(".app-shell")?.classList.toggle("sidebar-collapsed", collapsed);
+const SIDEBAR_ANIM_MS = 400;
+
+function applySidebarCollapsed(collapsed, { animate = true } = {}) {
+  const shell = document.querySelector(".app-shell");
+  if (!shell) return;
+  const isCollapsed = shell.classList.contains("sidebar-collapsed");
+  if (isCollapsed === collapsed) {
+    document.documentElement.classList.remove("sidebar-init-collapsed");
+    return;
+  }
+
+  if (animate) {
+    shell.classList.add("sidebar-animating");
+    void shell.offsetWidth;
+  }
+  document.documentElement.classList.remove("sidebar-init-collapsed");
+  shell.classList.toggle("sidebar-collapsed", collapsed);
   const btn = document.getElementById("sidebar-collapse");
   if (btn) {
     btn.classList.toggle("active", collapsed);
     btn.title = collapsed ? "展开侧边栏" : "收起侧边栏";
+    btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
     const text = btn.querySelector(".system-btn-text");
     if (text) text.textContent = collapsed ? "展开侧栏" : "靠边收起";
   }
   localStorage.setItem("binggo-sidebar-collapsed", collapsed ? "1" : "0");
+  if (!animate) return;
+  window.clearTimeout(shell._sidebarAnimTimer);
+  shell._sidebarAnimTimer = window.setTimeout(() => {
+    shell.classList.remove("sidebar-animating");
+  }, SIDEBAR_ANIM_MS);
 }
 
 function applyTheme(theme) {
@@ -2191,7 +2890,10 @@ function applyTheme(theme) {
   if (btn) {
     btn.classList.toggle("active", next === "dark");
     const text = btn.querySelector(".system-btn-text");
+    const label = next === "dark" ? "切换日间模式" : "切换夜间模式";
     if (text) text.textContent = next === "dark" ? "日间模式" : "夜间模式";
+    btn.title = label;
+    btn.setAttribute("aria-label", label);
     btn.querySelector(".icon-moon")?.toggleAttribute("hidden", next === "dark");
     btn.querySelector(".icon-sun")?.toggleAttribute("hidden", next !== "dark");
   }

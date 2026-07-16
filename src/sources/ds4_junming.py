@@ -50,7 +50,6 @@ def check_update(*, force: bool = False) -> CheckResult:
         links, hints = extract_opus_links_with_hints(
             detail,
             exclude_link_text=EXCLUDE_LINK_TEXT_RE,
-            default_hint="互动抽奖",
         )
 
         set_last_container(

@@ -171,11 +171,20 @@ def test_summarize_triple_participate_targets() -> None:
     assert summary["items"][0]["dynamic_id"] == _id(1)
 
 
-def test_run_action_participate_triple_sequential(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_action_participate_triple_concurrent(monkeypatch: pytest.MonkeyPatch) -> None:
     targets = [_row(_id(101), can_participate=True), _row(_id(102), can_participate=True)]
     calls: list[str] = []
+    client_instances: list[object] = []
 
-    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None) -> dict:
+    class FakeClient:
+        def __enter__(self):
+            client_instances.append(self)
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None) -> dict:
         calls.append(dynamic_id)
         on_step(1, 5, f"{dynamic_id} 点赞", "like")
         return {
@@ -196,15 +205,64 @@ def test_run_action_participate_triple_sequential(monkeypatch: pytest.MonkeyPatc
     with (
         patch("web.actions.pick_triple_participate_targets", return_value=targets),
         patch("web.actions.resolve_participate_lottery_type", return_value="互动抽奖"),
+        patch("web.actions.ensure_activity_participatable"),
         patch("web.actions._execute_participate", side_effect=fake_execute),
         patch("web.actions.invalidate_activity_cache"),
+        patch("web.actions.mark_enriched_joined"),
+        patch("web.actions.refresh_local_activity_statuses"),
+        patch("web.actions.BilibiliClient", FakeClient),
     ):
         payload = run_action("participate_triple", {}, on_progress=on_progress)
 
-    assert calls == [_id(101), _id(102)]
+    assert set(calls) == {_id(101), _id(102)}
+    assert len(calls) == 2
+    assert len(client_instances) == 2
     assert payload["ok"] is True
     assert payload["result"]["joined"] == 2
     assert len(payload["result"]["items"]) == 2
+
+
+def test_run_action_participate_triple_fail_fast_stops_other_targets() -> None:
+    import time
+
+    targets = [_row(_id(401), can_participate=True), _row(_id(402), can_participate=True)]
+    progress_messages: list[str] = []
+
+    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None) -> dict:
+        if dynamic_id == _id(401):
+            time.sleep(0.4)
+        if dynamic_id == _id(402):
+            raise RuntimeError("模拟参与失败")
+        on_step(1, 5, f"{dynamic_id} 点赞", "like")
+        return {
+            "dynamic_id": dynamic_id,
+            "status": "joined",
+            "message": "完成",
+            "actions": _interact_actions(),
+            "lottery_type": "互动抽奖",
+        }
+
+    def on_progress(**kwargs) -> None:
+        message = kwargs.get("message")
+        if message:
+            progress_messages.append(str(message))
+
+    with (
+        patch("web.actions.pick_triple_participate_targets", return_value=targets),
+        patch("web.actions.resolve_participate_lottery_type", return_value="互动抽奖"),
+        patch("web.actions.ensure_activity_participatable"),
+        patch("web.actions._execute_participate", side_effect=fake_execute),
+        patch("web.actions.invalidate_activity_cache"),
+        patch("web.actions.mark_enriched_joined"),
+        patch("web.actions.refresh_local_activity_statuses"),
+        patch("web.actions.BilibiliClient"),
+    ):
+        with pytest.raises(RuntimeError, match="模拟参与失败"):
+            run_action("participate_triple", {}, on_progress=on_progress)
+
+    combined = "\n".join(progress_messages)
+    assert "失败" in combined
+    assert "已停止" in combined
 
 
 def test_run_action_participate_triple_rejects_joined_with_failed_core_action() -> None:
@@ -219,17 +277,16 @@ def test_run_action_participate_triple_rejects_joined_with_failed_core_action() 
 
     with (
         patch("web.actions.pick_triple_participate_targets", return_value=targets),
+        patch("web.actions.ensure_activity_participatable"),
         patch("web.actions._execute_participate", return_value=fake_payload),
         patch("web.actions.resolve_participate_lottery_type", return_value="互动抽奖"),
         patch("web.actions.invalidate_activity_cache"),
+        patch("web.actions.mark_enriched_joined"),
+        patch("web.actions.refresh_local_activity_statuses"),
+        patch("web.actions.BilibiliClient"),
     ):
-        payload = run_action("participate_triple", {}, on_progress=lambda **_kwargs: None)
-
-    item = payload["result"]["items"][0]
-    assert item["status"] == "failed"
-    assert payload["result"]["joined"] == 0
-    assert payload["result"]["failed"] == 1
-    assert payload["ok"] is False
+        with pytest.raises(RuntimeError):
+            run_action("participate_triple", {}, on_progress=lambda **_kwargs: None)
 
 
 def test_run_action_participate_triple_uses_mixed_progress_budget() -> None:
@@ -239,7 +296,7 @@ def test_run_action_participate_triple_uses_mixed_progress_budget() -> None:
     ]
     progress_totals: list[int] = []
 
-    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None) -> dict:
+    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None) -> dict:
         if dynamic_id == _id(1):
             on_step(1, 1, "正在预约直播…", "reserve")
             return {
@@ -266,8 +323,12 @@ def test_run_action_participate_triple_uses_mixed_progress_budget() -> None:
     with (
         patch("web.actions.pick_triple_participate_targets", return_value=targets),
         patch("web.actions.resolve_participate_lottery_type", side_effect=lambda dynamic_id, **_: "预约抽奖" if dynamic_id == _id(1) else "互动抽奖"),
+        patch("web.actions.ensure_activity_participatable"),
         patch("web.actions._execute_participate", side_effect=fake_execute),
         patch("web.actions.invalidate_activity_cache"),
+        patch("web.actions.mark_enriched_joined"),
+        patch("web.actions.refresh_local_activity_statuses"),
+        patch("web.actions.BilibiliClient"),
     ):
         run_action("participate_triple", {}, on_progress=on_progress)
 
@@ -290,6 +351,7 @@ def test_run_action_participate_triple_uses_lookup_type_for_execution() -> None:
         on_step,
         *,
         lottery_type: str | None = None,
+        client=None,
     ) -> dict:
         captured_types.append(lottery_type)
         on_step(1, 1, "正在预约直播…", "reserve")
@@ -304,8 +366,12 @@ def test_run_action_participate_triple_uses_lookup_type_for_execution() -> None:
     with (
         patch("web.actions.pick_triple_participate_targets", return_value=targets),
         patch("web.actions.resolve_participate_lottery_type", return_value="预约抽奖"),
+        patch("web.actions.ensure_activity_participatable"),
         patch("web.actions._execute_participate", side_effect=fake_execute),
         patch("web.actions.invalidate_activity_cache"),
+        patch("web.actions.mark_enriched_joined"),
+        patch("web.actions.refresh_local_activity_statuses"),
+        patch("web.actions.BilibiliClient"),
     ):
         payload = run_action("participate_triple", {}, on_progress=lambda **_kwargs: None)
 
