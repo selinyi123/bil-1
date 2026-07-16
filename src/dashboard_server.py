@@ -5,9 +5,25 @@ from __future__ import annotations
 import asyncio
 import sys
 
+from src.app_paths import is_frozen
+
 DASHBOARD_HOST = "127.0.0.1"
-DASHBOARD_PORT = 8181
-DASHBOARD_URL = f"http://{DASHBOARD_HOST}:{DASHBOARD_PORT}"
+DEV_DASHBOARD_PORT = 8787
+PACKAGED_DASHBOARD_PORT = 8181
+
+
+def get_dashboard_port() -> int:
+    """源码/开发模式用 8787，Windows 安装包用 8181。"""
+    return PACKAGED_DASHBOARD_PORT if is_frozen() else DEV_DASHBOARD_PORT
+
+
+def get_dashboard_url() -> str:
+    return f"http://{DASHBOARD_HOST}:{get_dashboard_port()}"
+
+
+# 模块导入时按当前运行形态解析（开发进程与打包进程各自固定）
+DASHBOARD_PORT = get_dashboard_port()
+DASHBOARD_URL = get_dashboard_url()
 
 
 def run_dashboard_server(*, log_level: str = "info") -> None:
@@ -18,7 +34,7 @@ def run_dashboard_server(*, log_level: str = "info") -> None:
     uvicorn.run(
         "web.app:app",
         host=DASHBOARD_HOST,
-        port=DASHBOARD_PORT,
+        port=get_dashboard_port(),
         reload=False,
         log_level=log_level,
     )

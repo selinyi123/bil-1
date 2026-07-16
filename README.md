@@ -48,7 +48,9 @@ pip install -r requirements.txt
 python scripts/run_dashboard.py
 ```
 
-浏览器打开 **http://127.0.0.1:8181**
+浏览器打开 **http://127.0.0.1:8787**（源码 / `python scripts/run_dashboard.py`）
+
+> Windows 安装包版使用 **8181** 端口，见下方「下载安装包」一节。
 
 ### Windows 用户：下载安装包（无需安装 Python）
 
@@ -64,7 +66,7 @@ python scripts/run_dashboard.py
 使用步骤：
 
 1. 下载并安装（或解压）
-2. 双击 **Binggo** — 浏览器会自动打开控制台
+2. 双击 **Binggo** — 浏览器会自动打开 `http://127.0.0.1:8181`
 3. 按页面提示扫码登录、配置 LLM（仅转发抽奖需要）
 
 数据保存在 `%APPDATA%\Binggo`（Cookie、活动库、设置）。卸载程序**不会**自动删除该目录，便于保留你的数据。
@@ -76,7 +78,7 @@ python scripts/run_dashboard.py
 若提示端口占用（Windows PowerShell）：
 
 ```powershell
-netstat -ano | findstr ":8181"
+netstat -ano | findstr ":8787"
 Stop-Process -Id <PID> -Force
 ```
 
@@ -248,7 +250,8 @@ python -m pytest tests/ -q
 - `config/cookies.txt`、`config/llm.env`、`config/participate_settings.json`、`config/watch_users.json` 已加入 `.gitignore`
 - `data/` 运行时数据默认不提交
 - Cookie 与 LLM Key 仅存本地，不会上传到仓库
-- 控制台仅监听本机 `127.0.0.1:8181`
+- 源码开发：本机 `127.0.0.1:8787`
+- Windows 安装包：本机 `127.0.0.1:8181`
 - 推送代码前请确认未包含个人凭证与参与记录
 
 ---
@@ -260,7 +263,7 @@ python -m pytest tests/ -q
 **Windows 安装包修复**
 
 - 修复打包版启动超时：服务改为独立子进程启动并写入错误日志
-- 本地端口改为 `8181`
+- 本地端口：安装包 `8181`，源码开发仍为 `8787`
 - 应用图标改为与网站一致的赤陶色 Binggo 图标
 
 ### v3.0.1（2026-07-16）
