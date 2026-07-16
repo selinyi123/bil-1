@@ -1,7 +1,7 @@
 {
   "seed_version": 1,
-  "exported_at": 1784200730,
-  "source": "local dev export",
+  "exported_at": 1784211307,
+  "source": "D:\\Code_list\\Code_Python\\bilibili_binggo\\data\\state.json",
   "sources": {
     "DS-1": {
       "container_url": "https://www.bilibili.com/video/BV1Z6j76dEKC",
@@ -16,10 +16,10 @@
       "title": "互动抽奖合集(7.16-7.17)"
     },
     "DS-3": {
-      "container_url": "https://www.bilibili.com/read/cv51537454",
-      "checked_at": 1784194972,
-      "container_id": "51537454",
-      "title": "【官方抽奖合集】（精选大奖版）7.17——7.21开奖部分！"
+      "container_url": "https://www.bilibili.com/read/cv51543207",
+      "checked_at": 1784210331,
+      "container_id": "51543207",
+      "title": "2026.7.16史上最全抽奖合集（重磅出击！史上最好！最全！）"
     },
     "DS-4": {
       "container_url": "https://www.bilibili.com/read/cv51489112",
@@ -43,6 +43,6 @@
     }
   },
   "watch": {
-    "last_synced_at": 1784194991
+    "last_synced_at": 1784210419
   }
 }

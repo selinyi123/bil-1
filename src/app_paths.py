@@ -7,7 +7,7 @@ import shutil
 import sys
 from pathlib import Path
 
-__version__ = "3.0.4"
+__version__ = "3.0.5"
 
 
 def is_frozen() -> bool:
@@ -59,6 +59,15 @@ ACCOUNT_CACHE_PATH = DATA_DIR / "cache" / "account_profile.json"
 _SEEDED = False
 
 
+def _bootstrap_user_data() -> None:
+    """首次安装时写入内置活动库与数据源检查点。"""
+    from src.activity_store import seed_activities_if_empty
+    from src.state_store import seed_state_if_missing
+
+    seed_state_if_missing()
+    seed_activities_if_empty()
+
+
 def ensure_user_dirs() -> None:
     """创建用户目录，并从安装包复制配置模板（仅首次）。"""
     global _SEEDED
@@ -85,6 +94,7 @@ def ensure_user_dirs() -> None:
                 dst = config_dir / item.name
                 if not dst.exists():
                     shutil.copy2(item, dst)
+        _bootstrap_user_data()
     _SEEDED = True
 
 

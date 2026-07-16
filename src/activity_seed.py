@@ -81,4 +81,12 @@ def read_seed_activities(*, now: int | None = None) -> list[dict[str, Any]]:
         payload = load_seed_payload(path)
     except (OSError, json.JSONDecodeError, ValueError):
         return []
+    # 种子文件导出时已清洗；直接采用，避免二次过滤导致新用户开箱为空
+    activities = payload.get("activities") or []
+    if activities and all(isinstance(item, dict) for item in activities):
+        return [
+            sanitize_seed_activity(item)
+            for item in activities
+            if isinstance(item, dict) and item.get("dynamic_id")
+        ]
     return extract_seed_activities(payload, now=now)

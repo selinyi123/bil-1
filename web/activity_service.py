@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from src.activity_status import resolve_activity_status
-from src.activity_store import ACTIVITIES_OUTPUT_PATH
+from src.activity_store import ACTIVITIES_OUTPUT_PATH, load_payload
 from src.draw_reminder import matches_draw_window_filter
 from src.lottery_classifier import PARTICIPATABLE_TYPES, is_charging_lottery_activity
 from src.lottery_time import format_timestamp, is_activity_past_end, lottery_time_text
@@ -208,7 +208,7 @@ def _participatable_stored(item: dict) -> bool:
 
 
 def _load_activities_payload() -> dict:
-    return _load_json(ACTIVITIES_OUTPUT_PATH)
+    return load_payload()
 
 
 def get_summary() -> dict[str, Any]:
