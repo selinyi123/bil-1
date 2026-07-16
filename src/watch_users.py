@@ -10,9 +10,7 @@ from typing import Any
 from src.bilibili_client import BilibiliClient
 from src.watch_user_profile import resolve_watch_user_name
 
-ROOT = Path(__file__).resolve().parents[1]
-WATCH_USERS_PATH = ROOT / "config" / "watch_users.json"
-CANDIDATES_PATH = ROOT / "config" / "watch_users_candidates.json"
+from src.app_paths import WATCH_CANDIDATES_PATH as CANDIDATES_PATH, WATCH_USERS_PATH, ensure_user_dirs
 _watch_lock = threading.Lock()
 
 

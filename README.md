@@ -1,4 +1,4 @@
-# bilibili_binggo (Binggo) · v3.0
+# bilibili_binggo (Binggo) · v3.0.1
 
 本地运行的 B 站抽奖活动管理工具。自动聚合多个 UP 合集里的抽奖动态，在 Web 控制台里完成同步、筛选、一键参与与状态追踪。
 
@@ -48,6 +48,27 @@ python scripts/run_dashboard.py
 ```
 
 浏览器打开 **http://127.0.0.1:8787**
+
+### Windows 用户：下载安装包（无需安装 Python）
+
+适合电脑小白，从 GitHub **Releases** 下载：
+
+| 文件 | 说明 |
+|------|------|
+| `Binggo-Setup-win64.exe` | 安装版：双击安装，开始菜单 / 桌面快捷方式，安装后点「Binggo」即可 |
+| `Binggo-Portable-win64.zip` | 便携版：解压后双击 `Binggo.exe` |
+
+使用步骤：
+
+1. 下载并安装（或解压）
+2. 双击 **Binggo** — 浏览器会自动打开控制台
+3. 按页面提示扫码登录、配置 LLM（仅转发抽奖需要）
+
+数据保存在 `%APPDATA%\Binggo`（Cookie、活动库、设置）。卸载程序**不会**自动删除该目录，便于保留你的数据。
+
+> 发布新版本：在 GitHub 创建 Release 后会自动构建上述安装包。开发者本地构建见 [packaging/windows/README.md](packaging/windows/README.md)。
+
+### 从源码运行（开发者）
 
 若提示端口占用（Windows PowerShell）：
 
@@ -231,7 +252,21 @@ python -m pytest tests/ -q
 
 ## 更新日志
 
+### v3.0.1（2026-07-16）
+
+**Windows 一键安装**
+
+- 新增 `Binggo-Setup-win64.exe` 安装版与 `Binggo-Portable-win64.zip` 便携版
+- 双击启动、自动打开浏览器；用户数据保存在 `%APPDATA%\Binggo`
+- GitHub Release 自动构建 Windows 安装包
+
 ### v3.0（2026-07-16）
+
+**Windows 安装包（小白用户）**
+
+- 提供 `Binggo-Setup-win64.exe` 安装版与 `Binggo-Portable-win64.zip` 便携版
+- 双击即可启动，自动打开浏览器；数据保存在 `%APPDATA%\Binggo`
+- GitHub Release 自动构建（见 `packaging/windows/`）
 
 **流水线重设计**
 

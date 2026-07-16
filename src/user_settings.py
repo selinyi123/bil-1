@@ -12,7 +12,7 @@ MAX_PARTICIPATE_TEXT_LEN = 233
 ParticipateTextMode = Literal["custom", "random_comment"]
 DEFAULT_PARTICIPATE_TEXT_MODE: ParticipateTextMode = "custom"
 VALID_PARTICIPATE_TEXT_MODES = frozenset({"custom", "random_comment"})
-GLOBAL_SETTINGS_PATH = Path(__file__).resolve().parents[1] / "config" / "participate_settings.json"
+from src.app_paths import GLOBAL_SETTINGS_PATH
 
 
 def _settings_path() -> Path:

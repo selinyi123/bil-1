@@ -13,6 +13,10 @@ if str(ROOT) not in sys.path:
 from src.app_logging import setup_logging
 
 
+from src.app_paths import ensure_user_dirs
+from src.app_logging import setup_logging
+
+
 def main() -> int:
     try:
         import uvicorn
@@ -22,6 +26,8 @@ def main() -> int:
 
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+    ensure_user_dirs()
 
     log_path = setup_logging()
     print(f"日志文件: {log_path}")

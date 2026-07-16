@@ -19,9 +19,7 @@ except ImportError:  # pragma: no cover
 
 logger = get_logger("login")
 
-ROOT = Path(__file__).resolve().parents[1]
-COOKIE_PATH = ROOT / "config" / "cookies.txt"
-QR_IMAGE_PATH = ROOT / "data" / "login_qrcode.png"
+from src.app_paths import COOKIE_PATH, QR_IMAGE_PATH, ensure_user_dirs
 
 PASSPORT_HEADERS = {
     "User-Agent": (

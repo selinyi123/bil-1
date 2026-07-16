@@ -218,7 +218,6 @@
 
 [data-theme="dark"] .filter-pill.active {
   background: var(--accent-soft);
-  border-color: rgba(196, 165, 116, 0.35);
   color: var(--accent-hover);
 }
 
@@ -1066,25 +1065,12 @@ html.sidebar-init-collapsed .system-btn {
 
 .stat-card {
   position: relative;
-  overflow: hidden;
   padding: 18px 20px;
   transition:
     transform var(--motion-base) var(--motion-ease-out),
     box-shadow var(--motion-base) var(--motion-ease),
     background var(--motion-base) var(--motion-ease),
     border-color var(--motion-base) var(--motion-ease);
-}
-
-.stat-card::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: linear-gradient(90deg, var(--accent), transparent 72%);
-  opacity: 0;
-  transition: opacity var(--motion-base) var(--motion-ease);
 }
 
 .stat-card.is-entering {
@@ -1098,10 +1084,6 @@ html.sidebar-init-collapsed .system-btn {
     background: var(--bg-elevated);
     border-color: color-mix(in srgb, var(--accent) 22%, var(--border-soft));
     box-shadow: var(--shadow-md), var(--surface-highlight);
-  }
-
-  .stat-card:hover::before {
-    opacity: 1;
   }
 }
 
@@ -2525,11 +2507,7 @@ html.sidebar-init-collapsed .system-btn {
 .filter-pill.active {
   background: var(--surface);
   color: var(--foreground);
-  box-shadow:
-    0 2px 10px rgba(31, 27, 24, 0.06),
-    inset 0 1px 0 rgba(255, 255, 255, 0.75),
-    inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, var(--border-soft));
-  transform: translateY(-1px);
+  font-weight: 600;
 }
 
 .filter-pill:active {
@@ -2823,7 +2801,7 @@ html.sidebar-init-collapsed .system-btn {
 .triple-progress-stack {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 5px;
   width: 100%;
 }
 
@@ -2865,23 +2843,23 @@ html.sidebar-init-collapsed .system-btn {
 .triple-progress-lane {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 8px 10px;
-  border-radius: 12px;
+  gap: 3px;
+  padding: 5px 10px;
+  border-radius: 11px;
   border: 1px solid var(--border-soft);
   background: var(--surface-soft);
 }
 
 .triple-lane-pipeline {
   margin-top: 0;
-  padding: 6px 8px;
-  border-radius: 12px;
+  padding: 4px 8px;
+  border-radius: 10px;
 }
 
 .progress-pipeline.is-triple {
   display: block;
   overflow: visible;
-  margin-top: 8px;
+  margin-top: 5px;
   padding: 0;
   background: transparent;
 }
@@ -2926,7 +2904,7 @@ html.sidebar-init-collapsed .system-btn {
 }
 
 .progress-banner-inner:has(.progress-pipeline.is-triple) .progress-banner-head {
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   gap: 14px;
 }
 
@@ -3734,6 +3712,31 @@ body.job-running .main-shell .topbar {
 
 .progress-pipeline::-webkit-scrollbar {
   display: none;
+}
+
+.triple-progress-lane .triple-lane-pipeline {
+  margin-top: 0;
+  padding: 4px 8px;
+  border-radius: 10px;
+}
+
+.triple-progress-lane .triple-lane-pipeline .pipeline-node {
+  gap: 4px;
+  padding: 2px 5px;
+}
+
+.triple-progress-lane .triple-lane-pipeline .pipeline-dot {
+  width: 19px;
+  height: 19px;
+  font-size: 10px;
+}
+
+.triple-progress-lane .triple-lane-pipeline .pipeline-label {
+  font-size: 11px;
+}
+
+.triple-progress-lane .triple-lane-pipeline .pipeline-connector {
+  width: 13px;
 }
 
 .pipeline-node {

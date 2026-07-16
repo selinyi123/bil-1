@@ -14,7 +14,7 @@ from web.user_messages import friendly_network_error
 NAV_URL = "https://api.bilibili.com/x/web-interface/nav"
 NAV_STAT_URL = "https://api.bilibili.com/x/web-interface/nav/stat"
 ACCOUNT_CLIENT_TIMEOUT = 8.0
-ACCOUNT_CACHE_PATH = Path(__file__).resolve().parents[1] / "data" / "cache" / "account_profile.json"
+from src.app_paths import ACCOUNT_CACHE_PATH
 
 
 def _api_code(payload: dict[str, Any]) -> int:

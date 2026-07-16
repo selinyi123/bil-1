@@ -5,8 +5,8 @@ import threading
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-DATA_DIR = ROOT / "data"
+from src.app_paths import DATA_DIR, ensure_user_dirs
+
 STATE_PATH = DATA_DIR / "state.json"
 _state_lock = threading.Lock()
 
@@ -23,6 +23,7 @@ def _read_state_unlocked() -> dict:
 
 
 def _write_state_unlocked(state: dict) -> None:
+    ensure_user_dirs()
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     tmp_path = STATE_PATH.with_suffix(".json.tmp")
     tmp_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")

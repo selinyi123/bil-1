@@ -13,9 +13,7 @@ from pathlib import Path
 import httpx
 
 from src.bilibili_rate_limit import acquire_bilibili_request_slot
-
-ROOT = Path(__file__).resolve().parents[1]
-COOKIE_PATH = ROOT / "config" / "cookies.txt"
+from src.app_paths import COOKIE_PATH
 
 DEFAULT_HEADERS = {
     "User-Agent": (

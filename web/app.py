@@ -45,14 +45,16 @@ from src.llm_client import test_llm_connection
 from src.sources.common import is_valid_dynamic_id, load_previous_output
 from src.state_store import get_watch_last_synced_at
 from src.app_logging import setup_logging, get_logger
+from src.app_paths import ensure_user_dirs
 
+ensure_user_dirs()
 setup_logging(console=False)
 logger = get_logger("api")
 
 WEB_DIR = Path(__file__).resolve().parent
 STATIC_DIR = WEB_DIR / "static"
 
-app = FastAPI(title="bilibili_binggo 控制台", version="3.0.0")
+app = FastAPI(title="bilibili_binggo 控制台", version="3.0.1")
 
 ALLOWED_JOB_ACTIONS = frozenset(
     {"login", "refresh_all", "refresh_watch", "refresh_status", "participate", "participate_triple"}

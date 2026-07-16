@@ -4,8 +4,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-LLM_ENV_PATH = ROOT / "config" / "llm.env"
+from src.app_paths import LLM_ENV_PATH
 
 
 @dataclass(frozen=True)
