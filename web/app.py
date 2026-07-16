@@ -54,7 +54,7 @@ logger = get_logger("api")
 WEB_DIR = Path(__file__).resolve().parent
 STATIC_DIR = WEB_DIR / "static"
 
-app = FastAPI(title="bilibili_binggo 控制台", version="3.0.3")
+app = FastAPI(title="bilibili_binggo 控制台", version="3.0.4")
 
 ALLOWED_JOB_ACTIONS = frozenset(
     {

@@ -11,7 +11,28 @@ STATE_PATH = DATA_DIR / "state.json"
 _state_lock = threading.Lock()
 
 
+def _seed_state_if_missing() -> bool:
+    if STATE_PATH.exists():
+        return False
+    from src.state_seed import read_seed_state
+
+    payload = read_seed_state()
+    if not payload.get("sources"):
+        return False
+    ensure_user_dirs()
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    _write_state_unlocked(payload)
+    return True
+
+
+def seed_state_if_missing() -> bool:
+    """若本地 state.json 不存在，从内置种子导入（供测试与显式预热）。"""
+    with _state_lock:
+        return _seed_state_if_missing()
+
+
 def _read_state_unlocked() -> dict:
+    _seed_state_if_missing()
     if not STATE_PATH.exists():
         return {"sources": {}}
     try:

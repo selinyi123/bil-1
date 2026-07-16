@@ -13,6 +13,7 @@ datas = [
     (str(root / "config" / "llm.env.example"), "config"),
     (str(root / "config" / "sources.yaml"), "config"),
     (str(root / "config" / "activities_seed.json"), "config"),
+    (str(root / "config" / "state_seed.json"), "config"),
 ]
 
 hiddenimports = [
