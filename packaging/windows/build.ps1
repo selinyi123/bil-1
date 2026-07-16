@@ -45,13 +45,3 @@ Set-Content -Path (Join-Path $DistDir "使用说明.txt") -Value $ReadmePortable
 Write-Host "完成:"
 Write-Host "  程序目录: $DistDir"
 Write-Host "  便携 ZIP: $ZipPath"
-
-$Iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-if (Test-Path $Iscc) {
-    Write-Host "==> Inno Setup 安装包"
-    & $Iscc (Join-Path $Root "packaging\windows\installer.iss")
-    Write-Host "  安装包: $(Join-Path $Root 'dist\Binggo-Setup-win64.exe')"
-} else {
-    Write-Host "未检测到 Inno Setup，跳过 .exe 安装包（仅生成便携 ZIP）。"
-    Write-Host "安装 Inno Setup 6 后重新运行本脚本可生成安装包。"
-}

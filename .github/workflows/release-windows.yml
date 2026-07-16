@@ -25,12 +25,14 @@ jobs:
         run: ./packaging/windows/build.ps1
 
       - name: Install Inno Setup
-        run: choco install innosetup -y
+        run: choco install innosetup -y --no-progress
 
       - name: Build installer
         shell: pwsh
         run: |
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" packaging/windows/installer.iss
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { throw "Inno Setup compiler not found" }
+          & $iscc packaging/windows/installer.iss
 
       - name: Upload workflow artifacts
         if: github.event_name == 'workflow_dispatch'
