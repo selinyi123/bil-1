@@ -131,6 +131,8 @@ function isRefreshPipelineAction(action) {
   return action === "refresh_all" || action === "refresh_source";
 }
 
+let sectionSwitchTimer = null;
+
 function prefersReducedMotion() {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
