@@ -1,4 +1,4 @@
-# bilibili_binggo (Binggo) · v3.0.2
+# bilibili_binggo (Binggo) · v3.0.3
 
 本地运行的 B 站抽奖活动管理工具。自动聚合多个 UP 合集里的抽奖动态，在 Web 控制台里完成同步、筛选、一键参与与状态追踪。
 
@@ -257,6 +257,12 @@ python -m pytest tests/ -q
 ---
 
 ## 更新日志
+
+### v3.0.3（2026-07-16）
+
+**Windows 安装包修复**
+
+- 修复无窗口子进程下 uvicorn 因 `stdout/stderr` 为空导致 8181 页面空白、启动超时
 
 ### v3.0.2（2026-07-16）
 
