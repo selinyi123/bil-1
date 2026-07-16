@@ -1,8 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
 from pathlib import Path
 
+from PyInstaller.utils.hooks import collect_submodules
+
 block_cipher = None
 root = Path(SPECPATH).resolve().parents[1]
+icon_path = Path(SPECPATH).resolve().parent / "binggo.ico"
 
 datas = [
     (str(root / "web" / "static"), "web/static"),
@@ -19,23 +22,37 @@ hiddenimports = [
     "uvicorn.protocols",
     "uvicorn.protocols.http",
     "uvicorn.protocols.http.auto",
+    "uvicorn.protocols.http.h11_impl",
     "uvicorn.protocols.websockets",
     "uvicorn.protocols.websockets.auto",
     "uvicorn.lifespan",
     "uvicorn.lifespan.on",
     "fastapi",
     "starlette.routing",
+    "starlette.responses",
+    "starlette.staticfiles",
     "httpx",
+    "httpcore",
+    "anyio",
+    "sniffio",
+    "h11",
+    "httptools",
+    "click",
     "qrcode",
     "PIL",
     "PIL.Image",
+    "multipart",
+    "email_validator",
     "web.app",
     "web.actions",
     "web.activity_service",
     "web.account_service",
     "web.job_runner",
     "web.user_messages",
+    "src.dashboard_server",
 ]
+hiddenimports += collect_submodules("src")
+hiddenimports += collect_submodules("web")
 
 a = Analysis(
     [str(root / "binggo_launcher.py")],
@@ -71,7 +88,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,
+    icon=str(icon_path) if icon_path.exists() else None,
 )
 
 coll = COLLECT(

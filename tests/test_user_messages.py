@@ -36,7 +36,7 @@ def test_sanitize_log_strips_uvicorn_stack() -> None:
         "无新专栏，使用缓存，链接 137 条，保留缓存\n"
         "OSError: [Errno 22] Invalid argument\n"
         '  File "scripts/run_dashboard.py", line 26, in main\n'
-        '    uvicorn.run("web.app:app", host="127.0.0.1", port=8787, reload=False)\n'
+        '    run_dashboard_server()\n'
         "    server.run()\n"
     )
     cleaned = sanitize_log(log)

@@ -1,9 +1,9 @@
-# bilibili_binggo (Binggo) · v3.0.1
+# bilibili_binggo (Binggo) · v3.0.2
 
 本地运行的 B 站抽奖活动管理工具。自动聚合多个 UP 合集里的抽奖动态，在 Web 控制台里完成同步、筛选、一键参与与状态追踪。
 
 > 仅绑定 `127.0.0.1`，数据保存在本机，适合个人日常使用。  
-> **Windows 小白用户**：[点此下载 v3.0.1 安装包](https://github.com/luovicter-collab/bilibinggo/releases/tag/v3.0.1)（无需安装 Python）
+> **Windows 小白用户**：[点此下载最新安装包](https://github.com/luovicter-collab/bilibinggo/releases/latest)（无需安装 Python）
 
 ---
 
@@ -48,11 +48,11 @@ pip install -r requirements.txt
 python scripts/run_dashboard.py
 ```
 
-浏览器打开 **http://127.0.0.1:8787**
+浏览器打开 **http://127.0.0.1:8181**
 
 ### Windows 用户：下载安装包（无需安装 Python）
 
-**👉 [下载 Windows 版 v3.0.1](https://github.com/luovicter-collab/bilibinggo/releases/tag/v3.0.1)**（安装版 / 便携版）
+**👉 [下载 Windows 版（最新 Release）](https://github.com/luovicter-collab/bilibinggo/releases/latest)**（安装版 / 便携版）
 
 适合电脑小白，从上述 Release 页面下载：
 
@@ -76,7 +76,7 @@ python scripts/run_dashboard.py
 若提示端口占用（Windows PowerShell）：
 
 ```powershell
-netstat -ano | findstr ":8787"
+netstat -ano | findstr ":8181"
 Stop-Process -Id <PID> -Force
 ```
 
@@ -248,12 +248,20 @@ python -m pytest tests/ -q
 - `config/cookies.txt`、`config/llm.env`、`config/participate_settings.json`、`config/watch_users.json` 已加入 `.gitignore`
 - `data/` 运行时数据默认不提交
 - Cookie 与 LLM Key 仅存本地，不会上传到仓库
-- 控制台仅监听本机 `127.0.0.1:8787`
+- 控制台仅监听本机 `127.0.0.1:8181`
 - 推送代码前请确认未包含个人凭证与参与记录
 
 ---
 
 ## 更新日志
+
+### v3.0.2（2026-07-16）
+
+**Windows 安装包修复**
+
+- 修复打包版启动超时：服务改为独立子进程启动并写入错误日志
+- 本地端口改为 `8181`
+- 应用图标改为与网站一致的赤陶色 Binggo 图标
 
 ### v3.0.1（2026-07-16）
 

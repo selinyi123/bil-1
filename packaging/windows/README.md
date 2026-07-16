@@ -36,5 +36,5 @@ powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1
 ## 技术说明
 
 - 启动器：`binggo_launcher.py` → PyInstaller 打包为 `Binggo.exe`
-- 界面：本机 `127.0.0.1:8787` + 自动打开浏览器
+- 界面：本机 `127.0.0.1:8181` + 自动打开浏览器
 - 重复双击：若已在运行，会直接打开浏览器而不会启动第二个实例

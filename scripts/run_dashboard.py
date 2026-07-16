@@ -11,15 +11,13 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.app_logging import setup_logging
-
-
 from src.app_paths import ensure_user_dirs
-from src.app_logging import setup_logging
+from src.dashboard_server import DASHBOARD_URL, run_dashboard_server
 
 
 def main() -> int:
     try:
-        import uvicorn
+        import uvicorn  # noqa: F401
     except ImportError:
         print("请先安装依赖: pip install -r requirements.txt", file=sys.stderr)
         return 1
@@ -28,11 +26,10 @@ def main() -> int:
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     ensure_user_dirs()
-
     log_path = setup_logging()
     print(f"日志文件: {log_path}")
-    print("控制台地址: http://127.0.0.1:8787")
-    uvicorn.run("web.app:app", host="127.0.0.1", port=8787, reload=False)
+    print(f"控制台地址: {DASHBOARD_URL}")
+    run_dashboard_server()
     return 0
 
 

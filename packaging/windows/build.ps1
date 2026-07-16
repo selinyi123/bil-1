@@ -10,7 +10,10 @@ Set-Location $Root
 Write-Host "==> 安装打包依赖"
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
-python -m pip install pyinstaller>=6.0.0
+python -m pip install pyinstaller>=6.0.0 pillow>=10.0.0
+
+Write-Host "==> 生成应用图标"
+python packaging/windows/generate_icon.py
 
 Write-Host "==> PyInstaller 构建"
 python -m PyInstaller packaging/windows/binggo.spec --noconfirm --clean
@@ -30,7 +33,7 @@ Binggo 便携版（Windows）
 
 1. 解压本 ZIP 到任意文件夹（路径尽量不要有中文）
 2. 双击 Binggo.exe
-3. 浏览器会自动打开 http://127.0.0.1:8787
+3. 浏览器会自动打开 http://127.0.0.1:8181
 4. 按页面提示扫码登录、配置 LLM（转发抽奖需要）
 
 数据默认保存在：%APPDATA%\Binggo
