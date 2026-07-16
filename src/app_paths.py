@@ -7,7 +7,7 @@ import shutil
 import sys
 from pathlib import Path
 
-__version__ = "3.0.5"
+__version__ = "3.0.6"
 
 
 def is_frozen() -> bool:
@@ -57,15 +57,20 @@ QR_IMAGE_PATH = DATA_DIR / "login_qrcode.png"
 ACCOUNT_CACHE_PATH = DATA_DIR / "cache" / "account_profile.json"
 
 _SEEDED = False
+_BOOTSTRAPPED = False
 
 
 def _bootstrap_user_data() -> None:
     """首次安装时写入内置活动库与数据源检查点。"""
+    global _BOOTSTRAPPED
+    if _BOOTSTRAPPED:
+        return
     from src.activity_store import seed_activities_if_empty
     from src.state_store import seed_state_if_missing
 
     seed_state_if_missing()
     seed_activities_if_empty()
+    _BOOTSTRAPPED = True
 
 
 def ensure_user_dirs() -> None:
@@ -80,22 +85,23 @@ def ensure_user_dirs() -> None:
     (data_dir / "cache").mkdir(parents=True, exist_ok=True)
     (data_dir / "logs").mkdir(parents=True, exist_ok=True)
 
-    bundled_config = install_root() / "config"
-    if bundled_config.is_dir():
-        for item in bundled_config.iterdir():
-            if not item.is_file():
-                continue
-            if item.name.endswith(".example"):
-                dst = config_dir / item.name
-                if not dst.exists():
-                    shutil.copy2(item, dst)
-                continue
-            if item.name == "sources.yaml":
-                dst = config_dir / item.name
-                if not dst.exists():
-                    shutil.copy2(item, dst)
+    if not _SEEDED:
+        bundled_config = install_root() / "config"
+        if bundled_config.is_dir():
+            for item in bundled_config.iterdir():
+                if not item.is_file():
+                    continue
+                if item.name.endswith(".example"):
+                    dst = config_dir / item.name
+                    if not dst.exists():
+                        shutil.copy2(item, dst)
+                    continue
+                if item.name == "sources.yaml":
+                    dst = config_dir / item.name
+                    if not dst.exists():
+                        shutil.copy2(item, dst)
         _bootstrap_user_data()
-    _SEEDED = True
+        _SEEDED = True
 
 
 def runtime_label() -> str:

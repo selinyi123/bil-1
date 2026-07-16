@@ -1033,8 +1033,9 @@ function refreshAllDataSourceCount(job) {
   return Math.max(1, total - REFRESH_ALL_PIPELINE_SUBSTEPS);
 }
 
-function refreshAllPipelinePhaseFromMessage(message) {
+def refreshAllPipelinePhaseFromMessage(message) {
   const text = String(message || "");
+  if (/跳过.*流水线|均无新专栏|无新专栏/.test(text)) return 3;
   if (/入库|落库|写入活动库/.test(text)) return 3;
   if (/详情进度|活动详情/.test(text)) return 2;
   if (/分类|新链接/.test(text)) return 1;
@@ -1084,7 +1085,9 @@ function calcJobProgressPercent(job) {
   if (total <= 0) return 8;
   if (isRefreshPipelineAction(job.action)) {
     const dsCount = refreshAllDataSourceCount(job);
-    const detail = String(job.progress_message || "");
+    const detail = String(job.progress_message || job.message || "");
+    if (step >= total) return 100;
+    if (/跳过.*流水线|均无新专栏|无新专栏/.test(detail)) return 100;
     if (step <= 0) return 6;
     if (step <= dsCount) return Math.round(10 + (step / dsCount) * 38);
     const phase = refreshAllPipelinePhase(step, dsCount, detail);
@@ -1095,7 +1098,7 @@ function calcJobProgressPercent(job) {
     if (phase === 2) {
       return ratio != null ? Math.min(90, Math.round(70 + ratio * 18)) : 74;
     }
-    if (phase === 3) return Math.min(100, 96);
+    if (phase === 3) return 100;
   }
   if (job.action === "refresh_watch") {
     if (step <= 0) return 6;
@@ -1126,7 +1129,7 @@ function calcJobProgressPercent(job) {
       }
       return 76;
     }
-    if (step >= 4) return Math.min(100, 96);
+    if (step >= 4) return 100;
   }
   if (job.action === "participate" || job.action === "participate_triple") {
     if (total <= 0) return 0;
