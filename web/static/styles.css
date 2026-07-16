@@ -1866,8 +1866,21 @@ html.sidebar-init-collapsed .system-btn {
 .source-row-head {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
+}
+
+.source-row-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.source-refresh-btn {
+  white-space: nowrap;
 }
 
 .source-row-head h3 {

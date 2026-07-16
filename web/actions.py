@@ -176,8 +176,13 @@ DS_HANDLERS: list[tuple[str, Callable[..., Any], Callable[[Any], Any]]] = [
     ("DS-5", ds5_hudong.check_update, ds5_hudong.save_result),
     ("DS-6", ds6_nuomi.check_update, ds6_nuomi.save_result),
 ]
+DS_HANDLER_BY_ID: dict[str, tuple[Callable[..., Any], Callable[[Any], Any]]] = {
+    source_id: (check_update, save_result)
+    for source_id, check_update, save_result in DS_HANDLERS
+}
 
 REFRESH_ALL_TOTAL = len(DS_HANDLERS) + REFRESH_ALL_PIPELINE_SUBSTEPS
+REFRESH_SOURCE_TOTAL = 1 + REFRESH_ALL_PIPELINE_SUBSTEPS
 ProgressCallback = Callable[..., None]
 
 
@@ -458,6 +463,109 @@ def run_action(
             "result": {
                 "sources": ds_results,
                 "sources_updated": sources_updated,
+                "pipeline": pipeline_result.to_dict(),
+            },
+            "log": sanitize_log("\n".join(log_lines).strip()),
+        }
+
+    if action == "refresh_source":
+        source_id = str(params.get("source_id") or "").strip()
+        handler = DS_HANDLER_BY_ID.get(source_id)
+        if not handler:
+            raise ValueError(f"未知数据源：{source_id}")
+        check_update, save_result = handler
+
+        progress(
+            step=0,
+            total=REFRESH_SOURCE_TOTAL,
+            message=f"正在检查 {source_id}…",
+        )
+        _, payload, log_line, check_result = _run_ds_check(1, source_id, check_update, save_result)
+        log_lines.append(log_line)
+        progress(
+            step=1,
+            total=REFRESH_SOURCE_TOTAL,
+            message=f"{source_id}：{payload['status_text']}",
+            log_append=log_line,
+        )
+
+        if not check_result.updated:
+            skip_line = f"【跳过流水线】{source_id} 为同一专栏，跳过后续步骤"
+            log_lines.append(skip_line)
+            progress(
+                step=REFRESH_SOURCE_TOTAL,
+                total=REFRESH_SOURCE_TOTAL,
+                message="无新专栏，已跳过流水线",
+                log_append=skip_line,
+            )
+            logger.info("%s 无新专栏，跳过流水线", source_id)
+            set_last_pipeline_persisted(action="refresh_source", persisted_count=0)
+            return {
+                "ok": True,
+                "message": f"{source_id} 检查完成：无新专栏，已跳过流水线",
+                "result": {
+                    "source_id": source_id,
+                    "source": {
+                        "source_id": payload["source_id"],
+                        "updated": payload["updated"],
+                        "link_count": payload["link_count"],
+                        "saved": payload["saved"],
+                    },
+                    "pipeline_skipped": True,
+                    "new_link_count": 0,
+                    "persisted_count": 0,
+                },
+                "log": sanitize_log("\n".join(log_lines).strip()),
+            }
+
+        progress(step=2, total=REFRESH_SOURCE_TOTAL, message="正在分类新链接…")
+        pipeline_result = run_refresh_all_pipeline(
+            [check_result],
+            on_progress=_make_refresh_all_pipeline_progress(
+                progress,
+                ds_count=1,
+            ),
+        )
+        invalidate_activity_cache()
+        for line in _pipeline_log_lines(pipeline_result):
+            log_lines.append(line)
+        progress(
+            step=REFRESH_SOURCE_TOTAL,
+            total=REFRESH_SOURCE_TOTAL,
+            message=pipeline_result.message or "流水线完成",
+            log_append=log_lines[-1] if log_lines else "",
+        )
+
+        summary_parts = [
+            f"{source_id} 有新专栏",
+            f"新链接 {pipeline_result.new_link_count} 条",
+            f"新入库 {pipeline_result.persisted_count} 条",
+        ]
+        if pipeline_result.skip_reasons:
+            summary_parts.append(f"跳过 {pipeline_result.skipped_count} 条")
+
+        logger.info(
+            "%s 更新完成：新链接 %s，入库 %s",
+            source_id,
+            pipeline_result.new_link_count,
+            pipeline_result.persisted_count,
+        )
+        set_last_pipeline_persisted(
+            action="refresh_source",
+            persisted_count=pipeline_result.persisted_count,
+        )
+
+        return {
+            "ok": True,
+            "message": f"{source_id} 更新完成：" + "，".join(summary_parts),
+            "result": {
+                "source_id": source_id,
+                "source": {
+                    "source_id": payload["source_id"],
+                    "updated": payload["updated"],
+                    "link_count": payload["link_count"],
+                    "saved": payload["saved"],
+                },
                 "pipeline": pipeline_result.to_dict(),
             },
             "log": sanitize_log("\n".join(log_lines).strip()),

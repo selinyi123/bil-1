@@ -57,7 +57,15 @@ STATIC_DIR = WEB_DIR / "static"
 app = FastAPI(title="bilibili_binggo 控制台", version="3.0.3")
 
 ALLOWED_JOB_ACTIONS = frozenset(
-    {"login", "refresh_all", "refresh_watch", "refresh_status", "participate", "participate_triple"}
+    {
+        "login",
+        "refresh_all",
+        "refresh_source",
+        "refresh_watch",
+        "refresh_status",
+        "participate",
+        "participate_triple",
+    }
 )
 
 
@@ -227,13 +235,32 @@ def api_start_job(request: JobRequest) -> dict[str, Any]:
     if request.action not in ALLOWED_JOB_ACTIONS:
         raise HTTPException(status_code=400, detail="暂不支持该操作")
     account = get_account_profile()
-    if request.action in {"participate", "participate_triple", "refresh_all", "refresh_status", "refresh_watch"}:
+    if request.action in {
+        "participate",
+        "participate_triple",
+        "refresh_all",
+        "refresh_source",
+        "refresh_status",
+        "refresh_watch",
+    }:
         if not account.get("logged_in"):
             raise HTTPException(status_code=401, detail="请先扫码登录后再执行此操作")
-    if request.action in {"participate", "participate_triple", "refresh_all", "refresh_watch"}:
+    if request.action in {
+        "participate",
+        "participate_triple",
+        "refresh_all",
+        "refresh_source",
+        "refresh_watch",
+    }:
         if not is_llm_ready():
             raise HTTPException(status_code=401, detail="请先保存 LLM 配置并通过连接测试后再执行此操作")
     params = request.params or {}
+    if request.action == "refresh_source":
+        from web.actions import DS_HANDLER_BY_ID
+
+        source_id = str(params.get("source_id") or "").strip()
+        if source_id not in DS_HANDLER_BY_ID:
+            raise HTTPException(status_code=400, detail="数据源 ID 无效")
     if request.action == "participate":
         dynamic_id = str(params.get("dynamic_id") or "").strip()
         if not is_valid_dynamic_id(dynamic_id):

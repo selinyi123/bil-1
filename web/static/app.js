@@ -83,7 +83,7 @@ const JOB_RESULT_AUTO_DISMISS_MS = 3000;
 const JOB_RESULT_EXIT_MS = 340;
 const JOB_RESULT_HOVER_DISMISS_MS = 2200;
 const INLINE_FEEDBACK_MS = 5000;
-const SYNC_TOAST_ACTIONS = new Set(["refresh_all", "refresh_watch", "refresh_status"]);
+const SYNC_TOAST_ACTIONS = new Set(["refresh_all", "refresh_source", "refresh_watch", "refresh_status"]);
 const inlineFeedbackTimers = new Map();
 const logDock = document.getElementById("log-dock");
 const logDockPanel = document.getElementById("log-dock-panel");
@@ -111,10 +111,25 @@ const ACTION_LABELS = {
 const INTERACT_REQUIRED_ACTIONS = ["like", "follow", "favorite", "repost"];
 const FORWARD_REQUIRED_ACTIONS = ["like", "follow", "favorite", "repost", "comment"];
 const COMMENT_OPTIONAL_PATTERNS = [/关注UP主/i, /关注 up/i, /7\s*天/i, /code=12078/i];
-const LOGIN_REQUIRED_ACTIONS = new Set(["refresh_all", "refresh_watch", "refresh_status", "participate", "participate_triple"]);
-const LLM_REQUIRED_ACTIONS = new Set(["refresh_all", "refresh_watch", "participate", "participate_triple"]);
+const LOGIN_REQUIRED_ACTIONS = new Set([
+  "refresh_all",
+  "refresh_source",
+  "refresh_watch",
+  "refresh_status",
+  "participate",
+  "participate_triple",
+]);
+const LLM_REQUIRED_ACTIONS = new Set([
+  "refresh_all",
+  "refresh_source",
+  "refresh_watch",
+  "participate",
+  "participate_triple",
+]);
 
-let sectionSwitchTimer = null;
+function isRefreshPipelineAction(action) {
+  return action === "refresh_all" || action === "refresh_source";
+}
 
 function prefersReducedMotion() {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -991,7 +1006,7 @@ function renderParticipateSteps(job) {
     return;
   }
   if (job.state !== "running" || job.action !== "participate") {
-    if (job.state === "running" && job.action === "refresh_all") {
+    if (job.state === "running" && isRefreshPipelineAction(job.action)) {
       renderRefreshAllPipeline(job);
       return;
     }
@@ -1065,7 +1080,7 @@ function calcJobProgressPercent(job) {
   const total = Number(job.progress_total) || 0;
   const step = Number(job.progress_step) || 0;
   if (total <= 0) return 8;
-  if (job.action === "refresh_all") {
+  if (isRefreshPipelineAction(job.action)) {
     const dsCount = refreshAllDataSourceCount(job);
     const detail = String(job.progress_message || "");
     if (step <= 0) return 6;
@@ -1987,7 +2002,15 @@ function renderSources(sources) {
         <div class="source-row-body">
           <div class="source-row-head">
             <h3>${escapeHtml(source.name)}</h3>
-            <span class="source-status ${statusClass}">${statusText}</span>
+            <div class="source-row-actions">
+              <span class="source-status ${statusClass}">${statusText}</span>
+              <button
+                type="button"
+                class="btn btn-secondary btn-compact btn-pill source-refresh-btn"
+                data-action="refresh_source"
+                data-source-id="${escapeHtml(source.id)}"
+              >更新此源</button>
+            </div>
           </div>
           <p class="source-row-meta">${source.link_count} 条链接 · ${escapeHtml(source.title || "暂无标题")}</p>
           <p class="source-row-time">最近检查：${escapeHtml(source.checked_at_text || "尚未更新")}</p>
@@ -1996,6 +2019,7 @@ function renderSources(sources) {
       </article>`;
     })
     .join("");
+  bindActionButtons();
 }
 
 function buildActivityParticipateBtn(item) {
@@ -2184,6 +2208,7 @@ function updateProgressUI(job) {
       participate: "参与任务",
       participate_triple: "三连参与",
       refresh_all: "同步任务",
+      refresh_source: "数据源更新",
       refresh_watch: "监控扫描",
       login: "登录任务",
     };
@@ -2626,6 +2651,7 @@ function bindActionButtons() {
       const action = button.dataset.action;
       const params = {};
       if (button.dataset.dynamicId) params.dynamic_id = button.dataset.dynamicId;
+      if (button.dataset.sourceId) params.source_id = button.dataset.sourceId;
       if (action === "participate_triple") {
         Object.assign(params, buildActivityFilterJobParams());
       }
@@ -2634,6 +2660,9 @@ function bindActionButtons() {
       }
       if (action === "participate_triple") {
         setButtonLoading(button, true, { label: "参与中" });
+      }
+      if (action === "refresh_source") {
+        setButtonLoading(button, true, { label: "更新中…" });
       }
       try {
         await startJob(action, params);
