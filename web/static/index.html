@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Noto+Serif+SC:wght@400;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/styles.css?v=20260716e3" />
+  <link rel="stylesheet" href="/styles.css?v=20260717b5" />
   <script>
     try {
       if (localStorage.getItem("binggo-sidebar-collapsed") === "1") {
@@ -104,6 +104,62 @@
       <div class="confirm-actions">
         <button type="button" class="btn btn-secondary btn-pill" id="logout-confirm-cancel">取消</button>
         <button type="button" class="btn btn-primary btn-pill" id="logout-confirm-yes">确认退出</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="auto-dock" id="auto-dock">
+    <button type="button" class="auto-dock-toggle" id="auto-dock-toggle" aria-expanded="false">
+      <span class="auto-dock-icon" aria-hidden="true">⏱</span>
+      <span class="auto-dock-label">定时点击</span>
+      <span class="auto-dock-badge" id="auto-dock-badge" hidden>运行中</span>
+    </button>
+    <div class="auto-dock-panel" id="auto-dock-panel" aria-hidden="true">
+      <div class="auto-dock-head">
+        <div class="auto-dock-head-copy">
+          <p class="auto-dock-eyebrow">Auto Scheduler</p>
+          <p class="auto-dock-title">定时点击监视器</p>
+          <p class="auto-dock-message" id="auto-dock-status">尚未启动</p>
+        </div>
+        <button type="button" class="btn btn-secondary btn-compact btn-pill auto-dock-collapse" id="auto-dock-collapse" aria-label="收起">收起</button>
+      </div>
+      <div class="auto-dock-body">
+        <div class="auto-dock-hero">
+          <div class="auto-dock-hero-top">
+            <span class="auto-dock-meta-label">距下一刻度</span>
+            <span class="auto-dock-phase-chip" id="auto-dock-phase">等待中</span>
+          </div>
+          <strong class="auto-dock-countdown" id="auto-dock-countdown">—</strong>
+          <p class="auto-dock-hero-hint" id="auto-dock-hint">—</p>
+        </div>
+        <div class="auto-dock-summary">
+          <div class="auto-dock-summary-row">
+            <span class="auto-dock-meta-label">下一任务</span>
+            <strong class="auto-dock-job-value" id="auto-dock-next-task">—</strong>
+          </div>
+          <div class="auto-dock-summary-divider" aria-hidden="true"></div>
+          <div class="auto-dock-summary-row">
+            <span class="auto-dock-meta-label">抽奖任务</span>
+            <strong class="auto-dock-job-value" id="auto-dock-job">—</strong>
+          </div>
+        </div>
+        <div class="auto-dock-pipeline-block">
+          <div class="auto-dock-pipeline-head">
+            <span class="auto-dock-meta-label">刷新批次</span>
+            <span class="auto-dock-pipeline-note">整点串行执行</span>
+          </div>
+          <div class="auto-dock-pipeline" id="auto-dock-pipeline"></div>
+        </div>
+        <div class="auto-dock-actions">
+          <button type="button" class="btn btn-primary btn-pill auto-dock-action-btn" id="auto-dock-start">启动调度</button>
+          <button type="button" class="btn btn-secondary btn-pill auto-dock-action-btn" id="auto-dock-stop" hidden>停止调度</button>
+          <button type="button" class="btn btn-secondary btn-pill auto-dock-action-btn" id="auto-dock-restart" hidden>重新启动</button>
+        </div>
+        <div class="auto-dock-fatal" id="auto-dock-fatal" hidden>
+          <p class="auto-dock-fatal-title">已停机</p>
+          <p class="auto-dock-fatal-text" id="auto-dock-fatal-text"></p>
+        </div>
+        <p class="auto-dock-safety">仅点击四个按钮 · 撞车即停 · 不取消抽奖任务</p>
       </div>
     </div>
   </div>
@@ -482,6 +538,6 @@
     </div>
   </div>
 
-  <script src="/app.js?v=20260716e4"></script>
+  <script src="/app.js?v=20260717b5"></script>
 </body>
 </html>

@@ -44,6 +44,32 @@ def _llm_retryable(exc: BaseException) -> bool:
     return is_transient_http_error(exc)
 
 
+def _supports_thinking_toggle(config: LlmConfig) -> bool:
+    base = (config.base_url or "").lower()
+    model = (config.model_name or "").lower()
+    return "deepseek" in base or model.startswith("deepseek-")
+
+
+def _build_chat_payload(
+    config: LlmConfig,
+    *,
+    messages: list[dict[str, str]],
+    temperature: float = 0,
+    max_tokens: int | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "model": config.model_name,
+        "messages": messages,
+        "temperature": temperature,
+    }
+    if max_tokens is not None:
+        payload["max_tokens"] = max_tokens
+    # DeepSeek V4 系列默认开启 thinking，结构化抽取不需要链式推理。
+    if _supports_thinking_toggle(config):
+        payload["thinking"] = {"type": "disabled"}
+    return payload
+
+
 def _post_chat_completion(*, url: str, headers: dict[str, str], payload: dict[str, Any]) -> dict[str, Any]:
     def _call() -> dict[str, Any]:
         with httpx.Client(timeout=_LLM_TIMEOUT) as client:
@@ -55,12 +81,12 @@ def _post_chat_completion(*, url: str, headers: dict[str, str], payload: dict[st
 
 
 def test_llm_connection(config: LlmConfig) -> str:
-    payload = {
-        "model": config.model_name,
-        "messages": [{"role": "user", "content": "ping"}],
-        "max_tokens": 1,
-        "temperature": 0,
-    }
+    payload = _build_chat_payload(
+        config,
+        messages=[{"role": "user", "content": "ping"}],
+        temperature=0,
+        max_tokens=1,
+    )
     headers = {
         "Authorization": f"Bearer {config.api_key}",
         "Content-Type": "application/json",
@@ -80,14 +106,14 @@ def chat_json(*, system: str, user: str, config: LlmConfig | None = None) -> dic
     if not cfg:
         raise RuntimeError("未配置 LLM，请检查 config/llm.env")
 
-    payload = {
-        "model": cfg.model_name,
-        "messages": [
+    payload = _build_chat_payload(
+        cfg,
+        messages=[
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
-        "temperature": 0,
-    }
+        temperature=0,
+    )
     headers = {
         "Authorization": f"Bearer {cfg.api_key}",
         "Content-Type": "application/json",

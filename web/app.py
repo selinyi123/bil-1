@@ -41,6 +41,7 @@ from web.activity_service import (
     summarize_triple_participate_targets,
 )
 from web.job_runner import runner
+from web.auto_scheduler import auto_scheduler
 from src.llm_client import test_llm_connection
 from src.sources.common import is_valid_dynamic_id, load_previous_output
 from src.state_store import get_watch_last_synced_at
@@ -54,7 +55,7 @@ logger = get_logger("api")
 WEB_DIR = Path(__file__).resolve().parent
 STATIC_DIR = WEB_DIR / "static"
 
-app = FastAPI(title="bilibili_binggo 控制台", version="3.0.6")
+app = FastAPI(title="bilibili_binggo 控制台", version="4.0.0")
 
 ALLOWED_JOB_ACTIONS = frozenset(
     {
@@ -280,6 +281,25 @@ def api_cancel_job() -> dict[str, Any]:
 @app.get("/api/jobs/current")
 def api_current_job() -> dict[str, Any]:
     return runner.get_status().to_dict()
+
+
+@app.get("/api/auto/status")
+def api_auto_status() -> dict[str, Any]:
+    return auto_scheduler.get_status()
+
+
+@app.post("/api/auto/start")
+def api_auto_start() -> dict[str, Any]:
+    try:
+        return auto_scheduler.start()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/auto/stop")
+def api_auto_stop() -> dict[str, Any]:
+    """只停止定时点击调度器，不会取消抽奖端正在运行的任务。"""
+    return auto_scheduler.stop(reason="用户在监视面板停止")
 
 
 def _build_settings_payload() -> dict[str, Any]:

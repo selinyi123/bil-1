@@ -4,6 +4,11 @@ const state = {
   filters: { q: "", type: "", status: "", draw: "", drawWindow: "", sort: "", order: "" },
   polling: null,
   logDockOpen: false,
+  autoDockOpen: false,
+  autoScheduler: null,
+  autoPollTimer: null,
+  autoCountdownTimer: null,
+  autoServerSkewMs: 0,
   qrcodeDismissed: false,
   lastQrcodeRefresh: 0,
   account: null,
@@ -89,6 +94,22 @@ const logDock = document.getElementById("log-dock");
 const logDockPanel = document.getElementById("log-dock-panel");
 const logDockToggle = document.getElementById("log-dock-toggle");
 const logDockBadge = document.getElementById("log-dock-badge");
+const autoDock = document.getElementById("auto-dock");
+const autoDockPanel = document.getElementById("auto-dock-panel");
+const autoDockToggle = document.getElementById("auto-dock-toggle");
+const autoDockBadge = document.getElementById("auto-dock-badge");
+const autoDockStatus = document.getElementById("auto-dock-status");
+const autoDockCountdown = document.getElementById("auto-dock-countdown");
+const autoDockJob = document.getElementById("auto-dock-job");
+const autoDockPhase = document.getElementById("auto-dock-phase");
+const autoDockHint = document.getElementById("auto-dock-hint");
+const autoDockPipeline = document.getElementById("auto-dock-pipeline");
+const autoDockNextTask = document.getElementById("auto-dock-next-task");
+const autoDockFatal = document.getElementById("auto-dock-fatal");
+const autoDockFatalText = document.getElementById("auto-dock-fatal-text");
+const autoDockStartBtn = document.getElementById("auto-dock-start");
+const autoDockStopBtn = document.getElementById("auto-dock-stop");
+const autoDockRestartBtn = document.getElementById("auto-dock-restart");
 
 const PARTICIPATE_STEP_LABELS = ["点赞", "关注", "收藏", "转发", "评论"];
 const PARTICIPATE_ACTIVE_KEYWORDS = ["点赞", "关注", "收藏", "转发", "评论", "预约", "正在", "准备", "检查"];
@@ -585,6 +606,230 @@ function toggleLogDock(forceOpen) {
   setLogDockOpen(next);
 }
 
+function setAutoDockOpen(open) {
+  state.autoDockOpen = open;
+  if (!autoDockPanel || !autoDockToggle) return;
+  autoDockPanel.classList.toggle("is-open", open);
+  autoDockPanel.setAttribute("aria-hidden", String(!open));
+  autoDockToggle.setAttribute("aria-expanded", String(open));
+  autoDock?.classList.toggle("open", open);
+  if (open) {
+    fetchAutoStatus().catch(() => {});
+    ensureAutoPolling();
+    ensureAutoCountdown();
+    tickAutoCountdown();
+  } else if (!(state.autoScheduler && state.autoScheduler.state === "running")) {
+    stopAutoPolling();
+  }
+}
+
+function toggleAutoDock(forceOpen) {
+  const next = typeof forceOpen === "boolean" ? forceOpen : !state.autoDockOpen;
+  setAutoDockOpen(next);
+}
+
+function formatAutoCountdown(targetUnix) {
+  if (!targetUnix) return "—";
+  const nowSec = Math.floor((Date.now() + state.autoServerSkewMs) / 1000);
+  const diff = Math.max(0, Number(targetUnix) - nowSec);
+  const hours = Math.floor(diff / 3600);
+  const minutes = Math.floor((diff % 3600) / 60);
+  const seconds = diff % 60;
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function resolveNextAutoTask(status) {
+  const pipeline = status?.refresh_pipeline;
+  if (pipeline?.active && Array.isArray(pipeline.steps)) {
+    const current = pipeline.steps.find((step) => step.status === "active" || step.status === "waiting");
+    if (current?.label) return sanitizeUserText(current.label);
+    const pending = pipeline.steps.find((step) => step.status === "pending");
+    if (pending?.label) return sanitizeUserText(pending.label);
+  }
+  const slot = status?.next_slot || {};
+  if (slot.action_label) return sanitizeUserText(slot.action_label);
+  if (slot.label) return sanitizeUserText(slot.label);
+  return "—";
+}
+
+function resolveAutoJobText(status) {
+  const jobProbe = status?.job_probe || {};
+  const jobState = String(jobProbe.job_state || "idle");
+  const jobLabel = sanitizeUserText(jobProbe.job_label || jobProbe.job_action || "");
+  if (jobState === "running") {
+    return jobLabel ? `运行中 · ${jobLabel}` : "运行中";
+  }
+  if (jobState === "idle") return "空闲";
+  if (jobState === "success") return jobLabel ? `已完成 · ${jobLabel}` : "已完成";
+  if (jobState === "error") return jobLabel ? `出错 · ${jobLabel}` : "出错";
+  return jobLabel || jobState || "—";
+}
+
+function renderAutoPipeline(pipeline) {
+  if (!autoDockPipeline) return;
+  const steps = Array.isArray(pipeline?.steps) ? pipeline.steps : [];
+  if (!steps.length) {
+    autoDockPipeline.innerHTML = "";
+    return;
+  }
+  autoDockPipeline.innerHTML = steps
+    .map((step, index) => {
+      const label = sanitizeUserText(step.label || step.action || "");
+      const status = step.status || "pending";
+      const stepIndex = Number.isFinite(step.index) ? Number(step.index) + 1 : index + 1;
+      return `<div class="auto-dock-step" data-status="${status}" data-index="${stepIndex}"><span class="auto-dock-step-label">${label}</span></div>`;
+    })
+    .join("");
+}
+
+function renderAutoDock(status) {
+  if (!status) return;
+  state.autoScheduler = status;
+  if (status.server_now_unix) {
+    state.autoServerSkewMs = status.server_now_unix * 1000 - Date.now();
+  }
+
+  const schedulerState = String(status.state || "idle");
+  const stateLabel = sanitizeUserText(status.state_label || status.message || "尚未启动");
+  const message = sanitizeUserText(status.message || "");
+  const phase = sanitizeUserText(status.current_phase || "—");
+  const hint = sanitizeUserText(status.next_hint || status.next_slot?.hint || "—");
+
+  if (autoDockStatus) {
+    autoDockStatus.textContent = message || stateLabel;
+  }
+  if (autoDockPhase) {
+    autoDockPhase.textContent = phase;
+  }
+  if (autoDockHint) {
+    autoDockHint.textContent = hint;
+  }
+  if (autoDockNextTask) {
+    autoDockNextTask.textContent = resolveNextAutoTask(status);
+  }
+  if (autoDockJob) {
+    autoDockJob.textContent = resolveAutoJobText(status);
+  }
+  tickAutoCountdown();
+  renderAutoPipeline(status.refresh_pipeline);
+
+  const running = schedulerState === "running";
+  const fatal = schedulerState === "fatal";
+
+  autoDock?.classList.toggle("fatal", fatal);
+  if (autoDockBadge) {
+    autoDockBadge.hidden = !running && !fatal;
+    autoDockBadge.textContent = fatal ? "已停机" : "运行中";
+    autoDockBadge.classList.toggle("fatal", fatal);
+  }
+  if (autoDockFatal) {
+    autoDockFatal.hidden = !fatal;
+  }
+  if (autoDockFatalText) {
+    autoDockFatalText.textContent = sanitizeUserText(status.fatal_error || "");
+  }
+  if (autoDockStartBtn) {
+    autoDockStartBtn.hidden = running || fatal;
+  }
+  if (autoDockStopBtn) {
+    autoDockStopBtn.hidden = !running;
+  }
+  if (autoDockRestartBtn) {
+    autoDockRestartBtn.hidden = !fatal;
+  }
+
+  if (running || state.autoDockOpen) {
+    ensureAutoPolling();
+    ensureAutoCountdown();
+  } else {
+    stopAutoPolling();
+  }
+}
+
+function tickAutoCountdown() {
+  const status = state.autoScheduler;
+  if (!autoDockCountdown) return;
+  autoDockCountdown.textContent = formatAutoCountdown(status?.next_slot?.at_unix);
+}
+
+function ensureAutoCountdown() {
+  if (state.autoCountdownTimer) return;
+  state.autoCountdownTimer = window.setInterval(tickAutoCountdown, 1000);
+}
+
+function ensureAutoPolling() {
+  if (!state.autoPollTimer) {
+    state.autoPollTimer = window.setInterval(() => {
+      fetchAutoStatus().catch(() => {});
+    }, 2000);
+  }
+  ensureAutoCountdown();
+}
+
+function stopAutoPolling() {
+  if (state.autoPollTimer) {
+    window.clearInterval(state.autoPollTimer);
+    state.autoPollTimer = null;
+  }
+  if (state.autoCountdownTimer) {
+    window.clearInterval(state.autoCountdownTimer);
+    state.autoCountdownTimer = null;
+  }
+}
+
+async function fetchAutoStatus() {
+  const status = await fetchJSON("/api/auto/status");
+  renderAutoDock(status);
+  return status;
+}
+
+async function startAutoScheduler() {
+  await fetchJSON("/api/auto/start", { method: "POST" });
+  await fetchAutoStatus();
+  ensureAutoPolling();
+  showToast("定时调度已启动", "success");
+}
+
+async function stopAutoScheduler() {
+  const ok = window.confirm("停止调度只会停下定时点击监视器，不会取消正在运行的抽奖任务。确定停止？");
+  if (!ok) return;
+  await fetchJSON("/api/auto/stop", { method: "POST" });
+  await fetchAutoStatus();
+  showToast("定时调度已停止", "info");
+}
+
+function bindAutoDock() {
+  autoDockToggle?.addEventListener("click", () => toggleAutoDock());
+  document.getElementById("auto-dock-collapse")?.addEventListener("click", () => toggleAutoDock(false));
+  autoDockStartBtn?.addEventListener("click", () => {
+    autoDockStartBtn.disabled = true;
+    startAutoScheduler()
+      .catch((error) => showToast(sanitizeUserText(error.message || error) || "启动失败", "error"))
+      .finally(() => {
+        autoDockStartBtn.disabled = false;
+      });
+  });
+  autoDockRestartBtn?.addEventListener("click", () => {
+    autoDockRestartBtn.disabled = true;
+    startAutoScheduler()
+      .catch((error) => showToast(sanitizeUserText(error.message || error) || "重启失败", "error"))
+      .finally(() => {
+        autoDockRestartBtn.disabled = false;
+      });
+  });
+  autoDockStopBtn?.addEventListener("click", () => {
+    autoDockStopBtn.disabled = true;
+    stopAutoScheduler()
+      .catch((error) => showToast(sanitizeUserText(error.message || error) || "停止失败", "error"))
+      .finally(() => {
+        autoDockStopBtn.disabled = false;
+      });
+  });
+}
+
 function participateStepLabelsForType(lotteryType) {
   return lotteryType === "预约抽奖" ? ["预约"] : [...PARTICIPATE_STEP_LABELS];
 }
@@ -1033,7 +1278,7 @@ function refreshAllDataSourceCount(job) {
   return Math.max(1, total - REFRESH_ALL_PIPELINE_SUBSTEPS);
 }
 
-def refreshAllPipelinePhaseFromMessage(message) {
+function refreshAllPipelinePhaseFromMessage(message) {
   const text = String(message || "");
   if (/跳过.*流水线|均无新专栏|无新专栏/.test(text)) return 3;
   if (/入库|落库|写入活动库/.test(text)) return 3;
@@ -2840,7 +3085,9 @@ sidebarLogoutBtn?.addEventListener("click", async () => {
 async function init() {
   initSystemPreferences();
   setLogDockOpen(false);
+  setAutoDockOpen(false);
   bindNavigation();
+  bindAutoDock();
   bindFilterPills();
   bindParticipateSettings();
   bindLlmApiKeyToggle();
@@ -2849,6 +3096,7 @@ async function init() {
   await syncProjectState();
   try {
     const job = await loadSummary();
+    fetchAutoStatus().catch(() => {});
     loadWatchUsers().catch(() => {});
     await loadActivities();
     if (job?.state === "running") startPolling();
