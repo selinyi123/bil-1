@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import threading
 import time
 from pathlib import Path
@@ -10,10 +9,16 @@ from src.lottery_classifier import is_charging_lottery_activity
 from src.lottery_time import resolve_effective_lottery_time_unix
 from src.sources.common import load_previous_output, normalize_activity_id
 from src.state_store import DATA_DIR
+from src.user_data_io import atomic_write_json
 
 ACTIVITIES_OUTPUT_PATH = DATA_DIR / "output" / "activities_latest.json"
 LEGACY_ENRICHED_PATH = DATA_DIR / "output" / "enriched_latest.json"
 _activity_lock = threading.RLock()
+
+
+def activity_file_lock() -> threading.RLock:
+    """活动库 JSON 的进程内锁；仅串行化本地读写，不阻塞网络请求。"""
+    return _activity_lock
 
 
 def _empty_payload() -> dict[str, Any]:
@@ -234,10 +239,7 @@ def update_activity(dynamic_id: str, item: dict) -> None:
 
 
 def _write_payload(payload: dict[str, Any]) -> None:
-    ACTIVITIES_OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp = ACTIVITIES_OUTPUT_PATH.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(ACTIVITIES_OUTPUT_PATH)
+    atomic_write_json(ACTIVITIES_OUTPUT_PATH, payload)
 
 
 def collect_urls_from_ids(dynamic_ids: set[str]) -> set[str]:

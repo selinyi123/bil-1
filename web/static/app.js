@@ -20,6 +20,9 @@ const state = {
   activeJobKey: "",
   jobResultTimer: null,
   watchUsers: null,
+  lastJobAttempt: null,
+  onboardingCelebrating: false,
+  statValues: {},
 };
 
 const jobMessage = document.getElementById("job-message");
@@ -41,10 +44,22 @@ const accountHero = document.getElementById("account-hero");
 const sidebarAccountCard = document.getElementById("sidebar-account-card");
 const sidebarLoginBtn = document.getElementById("sidebar-login");
 const sidebarLogoutBtn = document.getElementById("sidebar-logout");
-const logoutConfirmModal = document.getElementById("logout-confirm-modal");
-const logoutConfirmBackdrop = document.getElementById("logout-confirm-backdrop");
-const logoutConfirmCancel = document.getElementById("logout-confirm-cancel");
-const logoutConfirmYes = document.getElementById("logout-confirm-yes");
+const appConfirmModal = document.getElementById("app-confirm-modal");
+const appConfirmBackdrop = document.getElementById("app-confirm-backdrop");
+const appConfirmEyebrow = document.getElementById("app-confirm-eyebrow");
+const appConfirmTitle = document.getElementById("app-confirm-title");
+const appConfirmDesc = document.getElementById("app-confirm-desc");
+const appConfirmBullets = document.getElementById("app-confirm-bullets");
+const appConfirmCancel = document.getElementById("app-confirm-cancel");
+const appConfirmYes = document.getElementById("app-confirm-yes");
+const appConfirmSecondary = document.getElementById("app-confirm-secondary");
+const onboardingPanel = document.getElementById("onboarding-panel");
+const onboardingStepsEl = document.getElementById("onboarding-steps");
+const onboardingProgressFill = document.getElementById("onboarding-progress-fill");
+const onboardingProgressLabel = document.getElementById("onboarding-progress-label");
+const onboardingFootNote = document.getElementById("onboarding-foot-note");
+const onboardingPrimaryBtn = document.getElementById("onboarding-primary");
+const onboardingSkipBtn = document.getElementById("onboarding-skip");
 const sidebarRefreshBtn = document.getElementById("sidebar-refresh-account");
 const activitiesBody = document.getElementById("activities-body");
 const activitiesCards = document.getElementById("activities-cards");
@@ -79,6 +94,8 @@ const jobResultIcon = document.getElementById("job-result-icon");
 const jobResultEyebrow = document.getElementById("job-result-eyebrow");
 const jobResultTitle = document.getElementById("job-result-title");
 const jobResultSummary = document.getElementById("job-result-summary");
+const jobResultHint = document.getElementById("job-result-hint");
+const jobResultActions = document.getElementById("job-result-actions");
 const jobResultBody = document.getElementById("job-result-body");
 const jobResultProgress = document.getElementById("job-result-progress");
 const jobResultClose = document.getElementById("job-result-close");
@@ -88,6 +105,33 @@ const JOB_RESULT_AUTO_DISMISS_MS = 3000;
 const JOB_RESULT_EXIT_MS = 340;
 const JOB_RESULT_HOVER_DISMISS_MS = 2200;
 const INLINE_FEEDBACK_MS = 5000;
+const ONBOARDING_STORAGE_KEY = "binggo-onboarding-v1";
+const ONBOARDING_STEPS = [
+  {
+    id: "login",
+    title: "扫码登录",
+    desc: "使用哔哩哔哩 App 扫码，登录后才能参与抽奖与保存配置。",
+    cta: "去登录",
+  },
+  {
+    id: "llm_save",
+    title: "保存 LLM 配置",
+    desc: "填写 API Key 与模型名称并保存。转发抽奖解析依赖 LLM，为项目启动的必要条件。",
+    cta: "去配置",
+  },
+  {
+    id: "llm_test",
+    title: "测试 LLM 连接",
+    desc: "保存后点击「测试连接」，通过后才能使用参与、刷新等功能。",
+    cta: "去测试",
+  },
+  {
+    id: "try",
+    title: "去活动页试一次",
+    desc: "进入活动列表，尝试参与单个活动或使用「三连参与」。",
+    cta: "去活动页",
+  },
+];
 const SYNC_TOAST_ACTIONS = new Set(["refresh_all", "refresh_source", "refresh_watch", "refresh_status"]);
 const inlineFeedbackTimers = new Map();
 const logDock = document.getElementById("log-dock");
@@ -101,15 +145,15 @@ const autoDockBadge = document.getElementById("auto-dock-badge");
 const autoDockStatus = document.getElementById("auto-dock-status");
 const autoDockCountdown = document.getElementById("auto-dock-countdown");
 const autoDockJob = document.getElementById("auto-dock-job");
+const autoDockScheduler = document.getElementById("auto-dock-scheduler");
 const autoDockPhase = document.getElementById("auto-dock-phase");
 const autoDockHint = document.getElementById("auto-dock-hint");
 const autoDockPipeline = document.getElementById("auto-dock-pipeline");
-const autoDockNextTask = document.getElementById("auto-dock-next-task");
+const autoDockToggleMeta = document.getElementById("auto-dock-toggle-meta");
 const autoDockFatal = document.getElementById("auto-dock-fatal");
 const autoDockFatalText = document.getElementById("auto-dock-fatal-text");
 const autoDockStartBtn = document.getElementById("auto-dock-start");
 const autoDockStopBtn = document.getElementById("auto-dock-stop");
-const autoDockRestartBtn = document.getElementById("auto-dock-restart");
 
 const PARTICIPATE_STEP_LABELS = ["点赞", "关注", "收藏", "转发", "评论"];
 const PARTICIPATE_ACTIVE_KEYWORDS = ["点赞", "关注", "收藏", "转发", "评论", "预约", "正在", "准备", "检查"];
@@ -191,6 +235,59 @@ function clearActionButtonLoading() {
   document.querySelectorAll("[data-action].is-loading, .triple-participate-btn.is-loading").forEach((btn) => {
     setButtonLoading(btn, false);
   });
+  document.querySelectorAll(".source-row.is-updating").forEach((row) => {
+    row.classList.remove("is-updating");
+  });
+}
+
+function setSourceRowUpdating(sourceId, updating) {
+  if (!sourceId) return;
+  const row = document.querySelector(`.source-row[data-source-id="${CSS.escape(String(sourceId))}"]`);
+  if (!row) return;
+  row.classList.toggle("is-updating", Boolean(updating));
+}
+
+function flashSourceRow(sourceId) {
+  if (!sourceId || prefersReducedMotion()) return;
+  const row = document.querySelector(`.source-row[data-source-id="${CSS.escape(String(sourceId))}"]`);
+  if (!row) return;
+  row.classList.remove("is-flash");
+  void row.offsetWidth;
+  row.classList.add("is-flash");
+  window.setTimeout(() => row.classList.remove("is-flash"), 1100);
+}
+
+function pulseWatchSyncCard() {
+  const card = document.querySelector(".watch-sync-card");
+  if (!card || prefersReducedMotion()) return;
+  card.classList.remove("is-sync-pulse");
+  void card.offsetWidth;
+  card.classList.add("is-sync-pulse");
+  document.querySelectorAll(".watch-metric-value").forEach((el) => {
+    el.classList.remove("is-value-pop");
+    void el.offsetWidth;
+    el.classList.add("is-value-pop");
+  });
+  window.setTimeout(() => {
+    card.classList.remove("is-sync-pulse");
+    document.querySelectorAll(".watch-metric-value").forEach((el) => el.classList.remove("is-value-pop"));
+  }, 900);
+}
+
+function playSourcesEnter() {
+  const stack = document.querySelector("#section-sources .sources-stack");
+  if (!stack || prefersReducedMotion()) return;
+  stack.classList.remove("is-sources-entering");
+  void stack.offsetWidth;
+  stack.classList.add("is-sources-entering");
+}
+
+function playActivitiesEnter() {
+  const panel = document.querySelector("#section-activities .activities-panel");
+  if (!panel || prefersReducedMotion()) return;
+  panel.classList.remove("is-activities-entering");
+  void panel.offsetWidth;
+  panel.classList.add("is-activities-entering");
 }
 
 function pulseFilterSummary() {
@@ -198,6 +295,51 @@ function pulseFilterSummary() {
   filterResultSummary.classList.remove("is-updated");
   void filterResultSummary.offsetWidth;
   filterResultSummary.classList.add("is-updated");
+}
+
+function flashFilterPill(button) {
+  if (!button || prefersReducedMotion()) return;
+  button.classList.remove("is-just-selected");
+  void button.offsetWidth;
+  button.classList.add("is-just-selected");
+  window.setTimeout(() => button.classList.remove("is-just-selected"), 520);
+}
+
+function playActivityListEnter() {
+  if (prefersReducedMotion()) return;
+  const rows = document.querySelectorAll("#activities-body tr[data-dynamic-id], #activities-cards .activity-card");
+  rows.forEach((el, index) => {
+    el.classList.remove("is-row-entering");
+    el.style.setProperty("--row-delay", `${Math.min(index, 12) * 28}ms`);
+    void el.offsetWidth;
+    el.classList.add("is-row-entering");
+  });
+}
+
+function lotteryTypeTone(type) {
+  const text = String(type || "");
+  if (text.includes("互动")) return "interact";
+  if (text.includes("转发")) return "repost";
+  if (text.includes("预约")) return "reserve";
+  return "default";
+}
+
+function isLotterySoon(value) {
+  const text = String(value || "").trim();
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/);
+  if (!match) return false;
+  const [, y, m, d, hh, mm] = match.map(Number);
+  const target = new Date(y, m - 1, d, hh, mm).getTime();
+  if (Number.isNaN(target)) return false;
+  const now = Date.now();
+  const delta = target - now;
+  return delta >= 0 && delta <= 3 * 24 * 60 * 60 * 1000;
+}
+
+function activityStatusTone(status) {
+  if (status === "已参加") return "joined";
+  if (status === "已结束") return "ended";
+  return "pending";
 }
 
 function highlightWatchUserChip(mid) {
@@ -278,10 +420,85 @@ function renderSetupChecklist() {
   const llmTested = isLlmTested();
   return `
     <div class="setup-checklist">
-      <span class="setup-pill ${loggedIn ? "ok" : "warn"}">账号${loggedIn ? "已登录" : "未登录"}</span>
-      <span class="setup-pill ${llmOk ? "ok" : "warn"}">LLM${llmOk ? "已配置" : "未配置"}</span>
-      <span class="setup-pill ${llmTested ? "ok" : "warn"}">连接${llmTested ? "已通过" : "未测试"}</span>
+      <span class="setup-pill ${loggedIn ? "ok" : "warn"}"><span class="setup-pill-dot" aria-hidden="true"></span>账号${loggedIn ? "已登录" : "未登录"}</span>
+      <span class="setup-pill ${llmOk ? "ok" : "warn"}"><span class="setup-pill-dot" aria-hidden="true"></span>LLM${llmOk ? "已配置" : "未配置"}</span>
+      <span class="setup-pill ${llmTested ? "ok" : "warn"}"><span class="setup-pill-dot" aria-hidden="true"></span>连接${llmTested ? "已通过" : "未测试"}</span>
     </div>`;
+}
+
+function getAccountHeroTone(account) {
+  if (!account?.logged_in) {
+    return account?.network_error && account?.cookie_saved ? "offline" : "warn";
+  }
+  if (isSetupComplete()) return "ready";
+  return "warn";
+}
+
+function renderAccountAvatar(account, { large = false } = {}) {
+  const sizeClass = large ? " account-avatar-lg" : "";
+  if (account?.face) {
+    return `<img class="account-avatar${sizeClass}" src="${escapeHtml(account.face)}" alt="头像" referrerpolicy="no-referrer" crossorigin="anonymous" />`;
+  }
+  return `<div class="account-avatar account-avatar-fallback${sizeClass}"></div>`;
+}
+
+function renderAccountAvatarWrap(account, { large = false } = {}) {
+  const tone = getAccountHeroTone(account);
+  const sizeClass = large ? " is-lg" : " is-sm";
+  return `
+    <div class="account-avatar-wrap${sizeClass} is-${tone}" data-tone="${tone}">
+      ${renderAccountAvatar(account, { large })}
+      <span class="account-status-dot" aria-hidden="true"></span>
+    </div>`;
+}
+
+function flashButtonSuccess(button, label = "已保存") {
+  if (!button || prefersReducedMotion()) return;
+  const previousHtml = button.innerHTML;
+  button.classList.add("is-save-success");
+  button.textContent = label;
+  window.setTimeout(() => {
+    button.classList.remove("is-save-success");
+    if (button.dataset.loadingActive === "true") return;
+    button.innerHTML = previousHtml;
+  }, 1100);
+}
+
+function markSaveDirty(button) {
+  button?.classList.add("is-dirty");
+}
+
+function clearSaveDirty(button) {
+  button?.classList.remove("is-dirty");
+}
+
+function animateStatValue(el, from, to) {
+  if (!el) return;
+  const startValue = Number(from) || 0;
+  const endValue = Number(to) || 0;
+  if (prefersReducedMotion() || startValue === endValue) {
+    el.textContent = String(endValue);
+    return;
+  }
+  const duration = 520;
+  const startedAt = performance.now();
+  el.classList.add("is-ticking");
+  const tick = (now) => {
+    const progress = Math.min(1, (now - startedAt) / duration);
+    const eased = 1 - (1 - progress) ** 3;
+    el.textContent = String(Math.round(startValue + (endValue - startValue) * eased));
+    if (progress < 1) {
+      requestAnimationFrame(tick);
+      return;
+    }
+    el.textContent = String(endValue);
+    el.classList.remove("is-ticking");
+    el.classList.remove("is-value-pop");
+    void el.offsetWidth;
+    el.classList.add("is-value-pop");
+    window.setTimeout(() => el.classList.remove("is-value-pop"), 420);
+  };
+  requestAnimationFrame(tick);
 }
 
 function renderAccountStatusLabel(account) {
@@ -290,6 +507,496 @@ function renderAccountStatusLabel(account) {
   if (!isLlmConfigured()) return "请完成 LLM 配置";
   if (!isLlmTested()) return "请完成 LLM 连接测试";
   return "请完成登录与配置";
+}
+
+function isOnboardingDismissed() {
+  try {
+    return localStorage.getItem(ONBOARDING_STORAGE_KEY) === "done";
+  } catch {
+    return false;
+  }
+}
+
+function dismissOnboarding() {
+  try {
+    localStorage.setItem(ONBOARDING_STORAGE_KEY, "done");
+  } catch {
+    /* ignore */
+  }
+  state.onboardingCelebrating = false;
+  renderOnboardingPanel();
+}
+
+function getOnboardingCompletion() {
+  return {
+    login: isLoggedIn(),
+    llm_save: isLlmConfigured(),
+    llm_test: isLlmTested(),
+    try: false,
+  };
+}
+
+function countOnboardingDone(completion) {
+  let done = 0;
+  if (completion.login) done += 1;
+  if (completion.llm_save) done += 1;
+  if (completion.llm_test) done += 1;
+  return done;
+}
+
+function getOnboardingCurrentIndex(completion) {
+  if (!completion.login) return 0;
+  if (!completion.llm_save) return 1;
+  if (!completion.llm_test) return 2;
+  return 3;
+}
+
+function scrollToLlmSettings({ focusTest = false } = {}) {
+  switchSection("overview");
+  const panel = document.getElementById("llm-settings-panel");
+  panel?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
+  window.setTimeout(() => {
+    const target = document.getElementById(focusTest ? "test-llm-settings" : "llm-api-key-input");
+    target?.focus({ preventScroll: true });
+    panel?.classList.add("is-onboarding-focus");
+    window.setTimeout(() => panel?.classList.remove("is-onboarding-focus"), 1600);
+  }, prefersReducedMotion() ? 0 : 280);
+}
+
+function runOnboardingStepAction(stepId) {
+  if (stepId === "login") {
+    sidebarLoginBtn?.click();
+    return;
+  }
+  if (stepId === "llm_save") {
+    scrollToLlmSettings({ focusTest: false });
+    return;
+  }
+  if (stepId === "llm_test") {
+    if (!isLlmConfigured()) {
+      showToast("请先保存 LLM 配置", "info", "填写 API Key 与模型名称后点击「保存配置」");
+      scrollToLlmSettings({ focusTest: false });
+      return;
+    }
+    scrollToLlmSettings({ focusTest: true });
+    return;
+  }
+  if (stepId === "try") {
+    dismissOnboarding();
+    switchSection("activities");
+  }
+}
+
+function renderOnboardingPanel() {
+  if (!onboardingPanel) return;
+  if (isOnboardingDismissed()) {
+    onboardingPanel.hidden = true;
+    return;
+  }
+
+  const completion = getOnboardingCompletion();
+  const currentIndex = getOnboardingCurrentIndex(completion);
+  const doneCount = countOnboardingDone(completion);
+  const allCoreDone = completion.login && completion.llm_save && completion.llm_test;
+
+  onboardingPanel.hidden = false;
+  onboardingPanel.classList.toggle("is-complete", allCoreDone);
+  onboardingPanel.classList.toggle("is-celebrating", Boolean(state.onboardingCelebrating));
+
+  if (onboardingProgressFill) {
+    onboardingProgressFill.style.width = `${Math.round((doneCount / ONBOARDING_STEPS.length) * 100)}%`;
+  }
+  if (onboardingProgressLabel) {
+    onboardingProgressLabel.textContent = `${doneCount} / ${ONBOARDING_STEPS.length}`;
+  }
+
+  if (onboardingStepsEl) {
+    onboardingStepsEl.innerHTML = ONBOARDING_STEPS.map((step, index) => {
+      const stepDone =
+        step.id === "login"
+          ? completion.login
+          : step.id === "llm_save"
+            ? completion.llm_save
+            : step.id === "llm_test"
+              ? completion.llm_test
+              : false;
+      const isCurrent = index === currentIndex && !stepDone;
+      const stateClass = stepDone ? "is-done" : isCurrent ? "is-current" : "is-pending";
+      const marker = stepDone ? "✓" : String(index + 1);
+      return `
+        <li class="onboarding-step ${stateClass}" data-step-id="${step.id}">
+          <div class="onboarding-step-marker" aria-hidden="true">${marker}</div>
+          <div class="onboarding-step-copy">
+            <p class="onboarding-step-title">${escapeHtml(step.title)}</p>
+            <p class="onboarding-step-desc">${escapeHtml(step.desc)}</p>
+          </div>
+          <button type="button" class="btn btn-secondary btn-compact btn-pill onboarding-step-cta" data-onboarding-action="${step.id}" ${stepDone ? "disabled" : ""}>
+            ${stepDone ? "已完成" : escapeHtml(step.cta)}
+          </button>
+        </li>`;
+    }).join("");
+  }
+
+  if (onboardingFootNote) {
+    if (state.onboardingCelebrating) {
+      onboardingFootNote.textContent = "准备就绪！去活动页参与你的第一场抽奖吧。";
+    } else if (allCoreDone) {
+      onboardingFootNote.textContent = "登录与 LLM 已就绪，最后一步：去活动页试一次参与。";
+    } else {
+      onboardingFootNote.textContent = "按顺序完成每一步；可随时点击右侧按钮执行当前步骤。";
+    }
+  }
+
+  if (onboardingPrimaryBtn) {
+    const currentStep = ONBOARDING_STEPS[currentIndex];
+    onboardingPrimaryBtn.hidden = false;
+    if (allCoreDone) {
+      onboardingPrimaryBtn.textContent = "完成引导";
+    } else {
+      onboardingPrimaryBtn.textContent = currentStep?.cta || "下一步";
+    }
+  }
+}
+
+function bindOnboardingPanel() {
+  onboardingSkipBtn?.addEventListener("click", () => dismissOnboarding());
+  onboardingPrimaryBtn?.addEventListener("click", () => {
+    const completion = getOnboardingCompletion();
+    const currentIndex = getOnboardingCurrentIndex(completion);
+    const step = ONBOARDING_STEPS[currentIndex];
+    if (!step) return;
+    if (step.id === "try" || (completion.login && completion.llm_save && completion.llm_test)) {
+      state.onboardingCelebrating = true;
+      renderOnboardingPanel();
+      window.setTimeout(() => {
+        dismissOnboarding();
+        switchSection("activities");
+      }, prefersReducedMotion() ? 0 : 520);
+      return;
+    }
+    runOnboardingStepAction(step.id);
+  });
+  onboardingStepsEl?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-onboarding-action]");
+    if (!button || button.disabled) return;
+    runOnboardingStepAction(button.dataset.onboardingAction);
+  });
+}
+
+function closeAppConfirm() {
+  if (!appConfirmModal) return;
+  appConfirmModal.hidden = true;
+  document.body.classList.remove("modal-open");
+}
+
+function openAppConfirm({
+  eyebrow = "",
+  title = "",
+  desc = "",
+  bullets = [],
+  confirmLabel = "确认",
+  cancelLabel = "取消",
+  secondaryLabel = "",
+  danger = false,
+  onSecondary = null,
+} = {}) {
+  return new Promise((resolve) => {
+    if (!appConfirmModal || !appConfirmCancel || !appConfirmYes) {
+      resolve(window.confirm(title || "确认继续？"));
+      return;
+    }
+
+    const cleanup = () => {
+      closeAppConfirm();
+      appConfirmCancel.removeEventListener("click", onCancel);
+      appConfirmYes.removeEventListener("click", onConfirm);
+      appConfirmBackdrop?.removeEventListener("click", onCancel);
+      appConfirmSecondary?.removeEventListener("click", onSecondaryClick);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+
+    const onCancel = () => {
+      cleanup();
+      resolve(false);
+    };
+
+    const onConfirm = () => {
+      cleanup();
+      resolve(true);
+    };
+
+    const onSecondaryClick = () => {
+      cleanup();
+      try {
+        onSecondary?.();
+      } catch {
+        /* ignore */
+      }
+      resolve(false);
+    };
+
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") onCancel();
+    };
+
+    if (appConfirmEyebrow) appConfirmEyebrow.textContent = eyebrow;
+    if (appConfirmTitle) appConfirmTitle.textContent = title;
+    if (appConfirmDesc) {
+      if (desc) {
+        appConfirmDesc.hidden = false;
+        appConfirmDesc.textContent = desc;
+      } else {
+        appConfirmDesc.hidden = true;
+        appConfirmDesc.textContent = "";
+      }
+    }
+    if (appConfirmBullets) {
+      if (bullets.length) {
+        appConfirmBullets.hidden = false;
+        appConfirmBullets.innerHTML = bullets.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+      } else {
+        appConfirmBullets.hidden = true;
+        appConfirmBullets.innerHTML = "";
+      }
+    }
+    appConfirmCancel.textContent = cancelLabel;
+    appConfirmYes.textContent = confirmLabel;
+    appConfirmYes.classList.toggle("btn-danger", Boolean(danger));
+    if (appConfirmSecondary) {
+      if (secondaryLabel) {
+        appConfirmSecondary.hidden = false;
+        appConfirmSecondary.textContent = secondaryLabel;
+      } else {
+        appConfirmSecondary.hidden = true;
+        appConfirmSecondary.textContent = "";
+      }
+    }
+
+    appConfirmModal.hidden = false;
+    document.body.classList.add("modal-open");
+    appConfirmCancel.addEventListener("click", onCancel);
+    appConfirmYes.addEventListener("click", onConfirm);
+    appConfirmBackdrop?.addEventListener("click", onCancel);
+    if (secondaryLabel && appConfirmSecondary) {
+      appConfirmSecondary.addEventListener("click", onSecondaryClick);
+    }
+    document.addEventListener("keydown", onKeyDown);
+    appConfirmCancel.focus();
+  });
+}
+
+function confirmRefreshAll() {
+  return openAppConfirm({
+    eyebrow: "数据源",
+    title: "确认一键更新全部数据源？",
+    bullets: [
+      "将并行检查全部 6 个 UP 合集，请求量较大，容易触发 B 站风控",
+      "日常更推荐在「数据源」页对单个 UP 点「更新此源」",
+      "适合长时间未打开、想一次性扫完全部源时使用",
+    ],
+    confirmLabel: "仍要一键更新",
+    cancelLabel: "取消",
+    secondaryLabel: "去数据源页",
+    onSecondary: () => switchSection("sources"),
+  });
+}
+
+function buildFailureContext(message, action, log = "") {
+  const parts = [message, log].map((item) => sanitizeUserText(String(item || ""))).filter(Boolean);
+  const text = parts.join("\n");
+  return { text, lowered: text.toLowerCase(), action: String(action || "") };
+}
+
+function classifyFailureText(message, action, log = "") {
+  const { text, lowered, action: actionName } = buildFailureContext(message, action, log);
+  const displayMessage = sanitizeUserText(message) || sanitizeUserText(log) || "操作失败，请稍后重试";
+
+  if (/无可参与|没有可参与|已跳过/.test(text)) {
+    return {
+      kind: "empty",
+      severity: "info",
+      title: "提示",
+      message: displayMessage,
+      hint: "",
+      actions: [],
+      retryable: false,
+    };
+  }
+  if (/已取消扫码|取消扫码登录|任务已取消/.test(text)) {
+    return {
+      kind: "cancelled",
+      severity: "info",
+      title: "提示",
+      message: displayMessage,
+      hint: "",
+      actions: [],
+      retryable: false,
+    };
+  }
+  if (actionName === "login" || /二维码|扫码登录|sessdata|确认超时|登录未完成/.test(lowered)) {
+    return {
+      kind: "login",
+      severity: "error",
+      title: "登录未完成",
+      message: displayMessage,
+      hint: "请重新发起扫码登录，并在手机上确认。",
+      actions: [{ id: "login", label: "重新扫码" }],
+      retryable: true,
+    };
+  }
+  if (/cookie|未登录|请先扫码|登录失效|重新扫码登录|未检测到有效登录/.test(lowered)) {
+    return {
+      kind: "auth",
+      severity: "error",
+      title: "需要登录",
+      message: displayMessage,
+      hint: "本地登录状态已失效，请重新扫码。",
+      actions: [{ id: "login", label: "去登录" }],
+      retryable: true,
+    };
+  }
+  if (/llm|未配置|连接测试|api key|模型名称|无法连接 llm/.test(lowered)) {
+    return {
+      kind: "llm",
+      severity: "error",
+      title: "LLM 未就绪",
+      message: displayMessage,
+      hint: "在概览页填写 API Key 与模型名称，保存并通过连接测试。",
+      actions: [{ id: "llm", label: "去配置 LLM" }],
+      retryable: true,
+    };
+  }
+  if (/频繁|限流|412|509|风控|-509/.test(lowered)) {
+    const actions = [{ id: "retry", label: "稍后重试" }];
+    if (actionName === "refresh_all" || actionName === "refresh_source") {
+      actions.push({ id: "sources", label: "去数据源页" });
+    }
+    return {
+      kind: "rate",
+      severity: "error",
+      title: "请求过于频繁",
+      message: displayMessage,
+      hint: "建议等待几分钟后重试，或改用单个数据源更新。",
+      actions,
+      retryable: true,
+    };
+  }
+  if (/timeout|ssl|handshake|无法连接|网络|dns|代理|请求超时/.test(lowered)) {
+    return {
+      kind: "network",
+      severity: "error",
+      title: "网络异常",
+      message: displayMessage,
+      hint: "请检查本机网络、代理或 DNS，然后重试。",
+      actions: [{ id: "retry", label: "重试" }],
+      retryable: true,
+    };
+  }
+  if (/已有任务|正在运行|仍在运行|撞车/.test(text)) {
+    return {
+      kind: "busy",
+      severity: "error",
+      title: "任务冲突",
+      message: displayMessage,
+      hint: "请等待当前任务结束后再试。",
+      actions: [],
+      retryable: false,
+    };
+  }
+  if (/未找到活动|活动 id 无效|缺少 dynamic/.test(lowered)) {
+    return {
+      kind: "not_found",
+      severity: "error",
+      title: "活动不可用",
+      message: displayMessage,
+      hint: "列表可能已过期，刷新活动后再试。",
+      actions: [{ id: "refresh_activities", label: "刷新列表" }],
+      retryable: false,
+    };
+  }
+  return {
+    kind: "generic",
+    severity: "error",
+    title: "执行失败",
+    message: displayMessage,
+    hint: "若持续失败，可查看右下角任务日志了解详情。",
+    actions: [{ id: "retry", label: "重试" }],
+    retryable: true,
+  };
+}
+
+function classifyJobFailure(job) {
+  return classifyFailureText(job?.message, job?.action, job?.log);
+}
+
+async function executeFailureAction(actionId) {
+  switch (actionId) {
+    case "login":
+      sidebarLoginBtn?.click();
+      break;
+    case "llm":
+      scrollToLlmSettings({ focusTest: !isLlmConfigured() });
+      break;
+    case "retry":
+      if (state.lastJobAttempt?.action) {
+        await startJob(state.lastJobAttempt.action, { ...(state.lastJobAttempt.params || {}) });
+      }
+      break;
+    case "sources":
+      switchSection("sources");
+      break;
+    case "refresh_activities":
+      await loadActivities();
+      break;
+    default:
+      break;
+  }
+}
+
+function renderFailureActions(container, failure, job) {
+  if (!container) return;
+  const actions = failure?.actions || [];
+  if (!actions.length) {
+    container.hidden = true;
+    container.innerHTML = "";
+    return;
+  }
+  container.hidden = false;
+  container.innerHTML = actions
+    .map(
+      (action) =>
+        `<button type="button" class="btn btn-secondary btn-compact btn-pill" data-failure-action="${escapeHtml(action.id)}">${escapeHtml(action.label)}</button>`
+    )
+    .join("");
+  container.querySelectorAll("[data-failure-action]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (job?.action) {
+        state.lastJobAttempt = {
+          action: job.action,
+          params: { ...(state.lastJobAttempt?.params || {}) },
+        };
+      }
+      executeFailureAction(button.dataset.failureAction);
+    });
+  });
+}
+
+function showFailureToast(failure, job) {
+  if (!failure || failure.severity === "info") {
+    showToast(failure?.message || "提示", "info", failure?.hint || "");
+    return;
+  }
+  if (job?.action && failure.retryable !== false) {
+    state.lastJobAttempt = {
+      action: job.action,
+      params: { ...(state.lastJobAttempt?.params || {}) },
+    };
+  }
+  const actions = (failure.actions || []).map((action) => ({
+    label: action.label,
+    onClick: () => executeFailureAction(action.id),
+  }));
+  showToast(failure.message, "error", failure.hint || formatToastDetail(job), actions);
 }
 
 function sanitizeUserText(text) {
@@ -386,24 +1093,40 @@ async function fetchJSON(url, options = {}) {
   }
 }
 
-function showToast(message, type = "info", detail = "") {
+function showToast(message, type = "info", detail = "", actions = []) {
   if (!toastStack || !message) return;
   const meta = TOAST_META[type] || TOAST_META.info;
   const toast = document.createElement("div");
   toast.className = `toast toast-${type}`;
+  const actionHtml = actions.length
+    ? `<div class="toast-actions">${actions
+        .map(
+          (action, index) =>
+            `<button type="button" class="btn btn-secondary btn-compact btn-pill toast-action-btn" data-toast-action="${index}">${escapeHtml(action.label)}</button>`
+        )
+        .join("")}</div>`
+    : "";
   toast.innerHTML = `
     <div class="toast-icon" aria-hidden="true">${meta.icon}</div>
     <div class="toast-body">
       <p class="toast-title">${escapeHtml(meta.title)}</p>
       <p class="toast-message">${escapeHtml(message)}</p>
       ${detail ? `<p class="toast-detail">${escapeHtml(detail)}</p>` : ""}
+      ${actionHtml}
     </div>
     <button type="button" class="toast-close" aria-label="关闭">×</button>
     <div class="toast-progress" aria-hidden="true"></div>`;
-  const duration = type === "error" ? 6000 : type === "running" ? 2400 : 4200;
+  const duration = type === "error" ? 8000 : type === "running" ? 2400 : 4200;
   const progress = toast.querySelector(".toast-progress");
   progress.style.animationDuration = `${duration}ms`;
   toast.querySelector(".toast-close")?.addEventListener("click", () => toast.remove());
+  toast.querySelectorAll("[data-toast-action]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const action = actions[Number(button.dataset.toastAction)];
+      toast.remove();
+      action?.onClick?.();
+    });
+  });
   toastStack.appendChild(toast);
   window.setTimeout(() => {
     toast.classList.add("toast-hide");
@@ -431,11 +1154,24 @@ function setInlineFeedback(element, message, type = "info", { autoHide = true } 
   element.hidden = false;
   element.textContent = message;
   element.className = `inline-feedback inline-feedback--${type}`;
+  if (!prefersReducedMotion()) {
+    element.classList.remove("is-feedback-pop");
+    void element.offsetWidth;
+    element.classList.add("is-feedback-pop");
+  }
 
   if (autoHide && type !== "info") {
     const timer = window.setTimeout(() => setInlineFeedback(element, "", "info"), INLINE_FEEDBACK_MS);
     inlineFeedbackTimers.set(element, timer);
   }
+}
+
+function playOverviewEnter() {
+  const stack = document.querySelector("#section-overview .overview-stack");
+  if (!stack || prefersReducedMotion()) return;
+  stack.classList.remove("is-overview-entering");
+  void stack.offsetWidth;
+  stack.classList.add("is-overview-entering");
 }
 
 function toggleLlmApiKeyVisibility() {
@@ -591,6 +1327,49 @@ async function cancelLoginJob() {
   }
 }
 
+function syncLogDockTone(job) {
+  if (!logDock) return;
+  const jobState = job?.state || "idle";
+  let tone = "idle";
+  if (jobState === "running") tone = "running";
+  else if (jobState === "success") tone = "success";
+  else if (jobState === "error") tone = "error";
+
+  logDock.dataset.tone = tone;
+  logDock.classList.toggle("is-idle", tone === "idle");
+  logDock.classList.toggle("is-running", tone === "running");
+  logDock.classList.toggle("is-success", tone === "success");
+  logDock.classList.toggle("is-error", tone === "error");
+
+  const statusEl = document.getElementById("log-dock-status");
+  if (statusEl) {
+    const labels = { idle: "空闲", running: "运行中", success: "已完成", error: "失败" };
+    statusEl.textContent = labels[tone] || "空闲";
+    statusEl.className = `log-dock-status is-${tone}`;
+  }
+  if (logDockBadge) {
+    logDockBadge.hidden = tone !== "running";
+    logDockBadge.textContent = "运行中";
+  }
+}
+
+function scrollJobLogToBottom({ showHint = false } = {}) {
+  const box = document.getElementById("job-log");
+  const hint = document.getElementById("log-dock-pin-hint");
+  const body = document.getElementById("log-dock-body");
+  if (!box) return;
+  box.scrollTop = box.scrollHeight;
+  body?.classList.toggle("is-pinned", Boolean(showHint));
+  if (hint) {
+    hint.hidden = !showHint;
+    if (showHint && !prefersReducedMotion()) {
+      hint.classList.remove("is-hint-pop");
+      void hint.offsetWidth;
+      hint.classList.add("is-hint-pop");
+    }
+  }
+}
+
 function setLogDockOpen(open) {
   state.logDockOpen = open;
   if (!logDockPanel || !logDockToggle) return;
@@ -599,6 +1378,19 @@ function setLogDockOpen(open) {
   logDockToggle.hidden = open;
   logDockToggle.setAttribute("aria-expanded", String(open));
   logDock?.classList.toggle("open", open);
+  if (open) {
+    if (!prefersReducedMotion()) {
+      logDockPanel.classList.remove("is-entering");
+      void logDockPanel.offsetWidth;
+      logDockPanel.classList.add("is-entering");
+    }
+    scrollJobLogToBottom({ showHint: logDock?.classList.contains("is-running") });
+  } else {
+    logDockPanel.classList.remove("is-entering");
+    document.getElementById("log-dock-body")?.classList.remove("is-pinned");
+    const hint = document.getElementById("log-dock-pin-hint");
+    if (hint) hint.hidden = true;
+  }
 }
 
 function toggleLogDock(forceOpen) {
@@ -614,13 +1406,27 @@ function setAutoDockOpen(open) {
   autoDockToggle.setAttribute("aria-expanded", String(open));
   autoDock?.classList.toggle("open", open);
   if (open) {
+    if (!prefersReducedMotion()) {
+      autoDockPanel.classList.remove("is-entering");
+      void autoDockPanel.offsetWidth;
+      autoDockPanel.classList.add("is-entering");
+    }
     fetchAutoStatus().catch(() => {});
     ensureAutoPolling();
     ensureAutoCountdown();
     tickAutoCountdown();
-  } else if (!(state.autoScheduler && state.autoScheduler.state === "running")) {
-    stopAutoPolling();
+  } else {
+    autoDockPanel.classList.remove("is-entering");
+    if (!(state.autoScheduler && state.autoScheduler.state === "running")) {
+      stopAutoPolling();
+    }
   }
+}
+
+function getAutoCountdownSeconds(targetUnix) {
+  if (!targetUnix) return null;
+  const nowSec = Math.floor((Date.now() + state.autoServerSkewMs) / 1000);
+  return Math.max(0, Number(targetUnix) - nowSec);
 }
 
 function toggleAutoDock(forceOpen) {
@@ -641,18 +1447,17 @@ function formatAutoCountdown(targetUnix) {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
-function resolveNextAutoTask(status) {
-  const pipeline = status?.refresh_pipeline;
-  if (pipeline?.active && Array.isArray(pipeline.steps)) {
-    const current = pipeline.steps.find((step) => step.status === "active" || step.status === "waiting");
-    if (current?.label) return sanitizeUserText(current.label);
-    const pending = pipeline.steps.find((step) => step.status === "pending");
-    if (pending?.label) return sanitizeUserText(pending.label);
+function resolveAutoSchedulerText(status) {
+  const schedulerState = String(status?.state || "idle");
+  if (schedulerState === "fatal") {
+    return sanitizeUserText(status.fatal_error || status.message || "已停机");
   }
-  const slot = status?.next_slot || {};
-  if (slot.action_label) return sanitizeUserText(slot.action_label);
-  if (slot.label) return sanitizeUserText(slot.label);
-  return "—";
+  if (schedulerState !== "running") {
+    return sanitizeUserText(status.state_label || status.message || "尚未启动");
+  }
+  const phase = sanitizeUserText(status.current_phase || "");
+  if (phase && phase !== "—") return phase;
+  return sanitizeUserText(status.message || "调度运行中");
 }
 
 function resolveAutoJobText(status) {
@@ -663,9 +1468,17 @@ function resolveAutoJobText(status) {
     return jobLabel ? `运行中 · ${jobLabel}` : "运行中";
   }
   if (jobState === "idle") return "空闲";
-  if (jobState === "success") return jobLabel ? `已完成 · ${jobLabel}` : "已完成";
+  if (jobState === "success") return jobLabel ? `刚完成 · ${jobLabel}` : "刚完成";
   if (jobState === "error") return jobLabel ? `出错 · ${jobLabel}` : "出错";
   return jobLabel || jobState || "—";
+}
+
+function resolveAutoJobTone(status) {
+  const jobState = String(status?.job_probe?.job_state || "idle");
+  if (jobState === "running") return "running";
+  if (jobState === "error") return "error";
+  if (jobState === "success") return "success";
+  return "idle";
 }
 
 function renderAutoPipeline(pipeline) {
@@ -685,6 +1498,20 @@ function renderAutoPipeline(pipeline) {
     .join("");
 }
 
+function updateAutoCollapsedMeta(status) {
+  if (!autoDockToggleMeta) return;
+  const schedulerState = String(status?.state || "idle");
+  if (schedulerState === "running") {
+    const countdown = formatAutoCountdown(status?.next_slot?.at_unix);
+    autoDockToggleMeta.hidden = false;
+    autoDockToggleMeta.textContent = countdown === "—" ? "…" : countdown;
+    return;
+  }
+  // fatal / idle：角标或默认文案已够，折叠态不再重复「已停机」
+  autoDockToggleMeta.hidden = true;
+  autoDockToggleMeta.textContent = "";
+}
+
 function renderAutoDock(status) {
   if (!status) return;
   state.autoScheduler = status;
@@ -699,27 +1526,47 @@ function renderAutoDock(status) {
   const hint = sanitizeUserText(status.next_hint || status.next_slot?.hint || "—");
 
   if (autoDockStatus) {
-    autoDockStatus.textContent = message || stateLabel;
+    // 头部只保留短状态，长进度细节交给「调度 / 抽奖任务」行
+    autoDockStatus.textContent =
+      schedulerState === "running"
+        ? sanitizeUserText(status.state_label || "调度器运行中")
+        : message || stateLabel;
   }
   if (autoDockPhase) {
     autoDockPhase.textContent = phase;
+    autoDockPhase.classList.toggle("is-live", schedulerState === "running");
   }
   if (autoDockHint) {
     autoDockHint.textContent = hint;
   }
-  if (autoDockNextTask) {
-    autoDockNextTask.textContent = resolveNextAutoTask(status);
+  const hero = document.querySelector(".auto-dock-hero");
+  const pipelineBlock = document.querySelector(".auto-dock-pipeline-block");
+  const countdownSec = getAutoCountdownSeconds(status.next_slot?.at_unix);
+  const urgent = schedulerState === "running" && countdownSec !== null && countdownSec > 0 && countdownSec < 60;
+  if (hero) {
+    hero.classList.toggle("is-live", schedulerState === "running");
+    hero.classList.toggle("is-urgent", urgent);
+  }
+  if (pipelineBlock) {
+    pipelineBlock.classList.toggle("is-active", Boolean(status.refresh_pipeline?.active));
+  }
+  if (autoDockScheduler) {
+    autoDockScheduler.textContent = resolveAutoSchedulerText(status);
+    autoDockScheduler.dataset.tone = schedulerState === "fatal" ? "error" : schedulerState === "running" ? "running" : "idle";
   }
   if (autoDockJob) {
     autoDockJob.textContent = resolveAutoJobText(status);
+    autoDockJob.dataset.tone = resolveAutoJobTone(status);
   }
   tickAutoCountdown();
   renderAutoPipeline(status.refresh_pipeline);
+  updateAutoCollapsedMeta(status);
 
   const running = schedulerState === "running";
   const fatal = schedulerState === "fatal";
 
   autoDock?.classList.toggle("fatal", fatal);
+  autoDock?.classList.toggle("is-running", running);
   if (autoDockBadge) {
     autoDockBadge.hidden = !running && !fatal;
     autoDockBadge.textContent = fatal ? "已停机" : "运行中";
@@ -732,13 +1579,10 @@ function renderAutoDock(status) {
     autoDockFatalText.textContent = sanitizeUserText(status.fatal_error || "");
   }
   if (autoDockStartBtn) {
-    autoDockStartBtn.hidden = running || fatal;
+    autoDockStartBtn.hidden = running;
   }
   if (autoDockStopBtn) {
     autoDockStopBtn.hidden = !running;
-  }
-  if (autoDockRestartBtn) {
-    autoDockRestartBtn.hidden = !fatal;
   }
 
   if (running || state.autoDockOpen) {
@@ -752,7 +1596,14 @@ function renderAutoDock(status) {
 function tickAutoCountdown() {
   const status = state.autoScheduler;
   if (!autoDockCountdown) return;
-  autoDockCountdown.textContent = formatAutoCountdown(status?.next_slot?.at_unix);
+  const targetUnix = status?.next_slot?.at_unix;
+  autoDockCountdown.textContent = formatAutoCountdown(targetUnix);
+  const countdownSec = getAutoCountdownSeconds(targetUnix);
+  const running = String(status?.state || "") === "running";
+  const urgent = running && countdownSec !== null && countdownSec > 0 && countdownSec < 60;
+  autoDockCountdown.classList.toggle("is-urgent", urgent);
+  document.querySelector(".auto-dock-hero")?.classList.toggle("is-urgent", urgent);
+  updateAutoCollapsedMeta(status);
 }
 
 function ensureAutoCountdown() {
@@ -810,14 +1661,6 @@ function bindAutoDock() {
       .catch((error) => showToast(sanitizeUserText(error.message || error) || "启动失败", "error"))
       .finally(() => {
         autoDockStartBtn.disabled = false;
-      });
-  });
-  autoDockRestartBtn?.addEventListener("click", () => {
-    autoDockRestartBtn.disabled = true;
-    startAutoScheduler()
-      .catch((error) => showToast(sanitizeUserText(error.message || error) || "重启失败", "error"))
-      .finally(() => {
-        autoDockRestartBtn.disabled = false;
       });
   });
   autoDockStopBtn?.addEventListener("click", () => {
@@ -1070,6 +1913,14 @@ function hideParticipationResult(immediate = false) {
     window.clearTimeout(state.jobResultTimer);
     state.jobResultTimer = null;
   }
+  if (jobResultHint) {
+    jobResultHint.hidden = true;
+    jobResultHint.textContent = "";
+  }
+  if (jobResultActions) {
+    jobResultActions.hidden = true;
+    jobResultActions.innerHTML = "";
+  }
   if (!jobResultBanner || jobResultBanner.hidden) return;
 
   if (immediate) {
@@ -1196,6 +2047,24 @@ function showParticipationResult(job) {
     const fallback = joined > 0 ? "请查看下方各活动执行情况" : "请查看下方步骤详情";
     jobResultSummary.textContent = sanitizeUserText(job.message) || fallback;
   }
+  const needsFailureHelp = job.state === "error" || (joined > 0 && failed > 0) || (joined === 0 && failed > 0);
+  const failure = needsFailureHelp ? classifyJobFailure(job) : null;
+  if (jobResultHint) {
+    if (failure?.hint) {
+      jobResultHint.hidden = false;
+      jobResultHint.textContent = failure.hint;
+    } else {
+      jobResultHint.hidden = true;
+      jobResultHint.textContent = "";
+    }
+  }
+  if (needsFailureHelp && failure && failure.retryable !== false) {
+    state.lastJobAttempt = {
+      action: job.action,
+      params: { ...(state.lastJobAttempt?.params || {}) },
+    };
+  }
+  renderFailureActions(jobResultActions, failure, job);
   if (jobResultBody) {
     jobResultBody.innerHTML = isTriple
       ? renderTripleParticipationResults(result)
@@ -1391,25 +2260,32 @@ function setButtonsDisabled(disabled) {
 }
 
 function renderStats(summary) {
+  if (!statsGrid) return;
   const counts = summary.user_status_counts || {};
   const drawCounts = summary.counts || {};
   const cards = [
-    { label: "活动总数", value: summary.total_count || 0 },
-    { label: "未参加", value: counts["未参加"] || 0 },
-    { label: "已参加", value: counts["已参加"] || 0 },
-    { label: "已结束", value: counts["已结束"] || 0 },
-    { label: "进行中", value: drawCounts.active || 0 },
-    { label: "上次新入库", value: summary.new_count ?? 0 },
+    { key: "total", label: "活动总数", value: summary.total_count || 0 },
+    { key: "pending", label: "未参加", value: counts["未参加"] || 0 },
+    { key: "joined", label: "已参加", value: counts["已参加"] || 0 },
+    { key: "ended", label: "已结束", value: counts["已结束"] || 0 },
+    { key: "active", label: "进行中", value: drawCounts.active || 0 },
+    { key: "new", label: "上次新入库", value: summary.new_count ?? 0 },
   ];
+  const previous = state.statValues || {};
   statsGrid.innerHTML = cards
     .map(
       (card, index) => `
-      <article class="stat-card is-entering" style="--card-delay:${index * 55}ms">
+      <article class="stat-card is-entering" style="--card-delay:${index * 55}ms" data-stat-key="${card.key}">
         <p class="stat-label">${card.label}</p>
-        <p class="stat-value">${card.value}</p>
+        <p class="stat-value">${previous[card.key] ?? card.value}</p>
       </article>`
     )
     .join("");
+  cards.forEach((card) => {
+    const valueEl = statsGrid.querySelector(`[data-stat-key="${card.key}"] .stat-value`);
+    animateStatValue(valueEl, previous[card.key] ?? card.value, card.value);
+  });
+  state.statValues = Object.fromEntries(cards.map((card) => [card.key, card.value]));
 }
 
 function formatAccountStat(value, loggedIn, loading = false) {
@@ -1488,9 +2364,10 @@ function renderAccountViews(account) {
     const subtitle = networkError && cookieSaved && account.mid
       ? `UID ${escapeHtml(account.mid)} · 本地 Cookie 已保存`
       : "";
+    const tone = getAccountHeroTone(account);
     const emptyHtml = `
       <div class="account-empty">
-        <div class="account-avatar account-avatar-fallback account-avatar-lg"></div>
+        ${renderAccountAvatarWrap(account, { large: true })}
         <div>
           <h3>${escapeHtml(title)}</h3>
           ${subtitle ? `<p class="caption">${subtitle}</p>` : ""}
@@ -1499,15 +2376,19 @@ function renderAccountViews(account) {
           <span class="account-status warn">${networkError && cookieSaved ? "网络恢复后点击「刷新账号」" : "需完成登录、LLM 配置与连接测试"}</span>
         </div>
       </div>`;
-    if (accountHero) accountHero.innerHTML = emptyHtml;
+    if (accountHero) {
+      accountHero.classList.remove("is-ready", "is-warn", "is-offline");
+      accountHero.classList.add(`is-${tone}`);
+      accountHero.innerHTML = emptyHtml;
+    }
     if (sidebarAccountCard) {
       const sidebarName = networkError && cookieSaved
         ? (account.uname || `UID ${account.mid || "—"}`)
         : "未登录";
       const sidebarSub = networkError && cookieSaved ? "网络异常" : "扫码登录后开始";
       sidebarAccountCard.innerHTML = `
-        <div class="sidebar-account-mini" title="${escapeHtml(account.message || "请扫码登录")}">
-          <div class="account-avatar account-avatar-fallback"></div>
+        <div class="sidebar-account-mini is-${tone}" title="${escapeHtml(account.message || "请扫码登录")}">
+          ${renderAccountAvatarWrap(account)}
           <div class="sidebar-account-text sidebar-fade">
             <p class="sidebar-account-name">${escapeHtml(sidebarName)}</p>
             <p class="sidebar-account-sub">${escapeHtml(sidebarSub)}</p>
@@ -1516,17 +2397,17 @@ function renderAccountViews(account) {
     }
     updateWatchUserFormState();
     if (state.watchUsers) renderWatchUsersPanel(state.watchUsers);
+    renderOnboardingPanel();
     return;
   }
 
-  const avatar = account.face
-    ? `<img class="account-avatar account-avatar-lg" src="${escapeHtml(account.face)}" alt="头像" referrerpolicy="no-referrer" crossorigin="anonymous" />`
-    : `<div class="account-avatar account-avatar-fallback account-avatar-lg"></div>`;
+  const tone = getAccountHeroTone(account);
+  const ready = tone === "ready";
   const atNotifyUrl = account.at_notify_url || "https://message.bilibili.com/#/notify/at";
   const extrasLoading = Boolean(account.extras_loading);
   const atUnread = Number(formatAccountStat(account.unread_at, loggedIn, extrasLoading)) || 0;
   const heroHtml = `
-    ${avatar}
+    ${renderAccountAvatarWrap(account, { large: true })}
     <div class="account-hero-body">
       <p class="eyebrow">当前账号</p>
       <h2 class="account-hero-name">${escapeHtml(account.uname || "B站用户")}</h2>
@@ -1554,19 +2435,20 @@ function renderAccountViews(account) {
       </div>
       <div class="account-hero-footer">
         ${renderSetupChecklist()}
-        <span class="account-status ${isSetupComplete() ? "ok" : "warn"}">${escapeHtml(renderAccountStatusLabel(account))}</span>
+        <span class="account-status ${ready ? "ok" : "warn"}">${escapeHtml(renderAccountStatusLabel(account))}</span>
       </div>
     </div>`;
-  if (accountHero) accountHero.innerHTML = heroHtml;
+  if (accountHero) {
+    accountHero.classList.remove("is-ready", "is-warn", "is-offline");
+    accountHero.classList.add(`is-${tone}`);
+    accountHero.innerHTML = heroHtml;
+  }
   bindAtAlertActions(account);
 
-  const sidebarAvatar = account.face
-    ? `<img class="account-avatar" src="${escapeHtml(account.face)}" alt="头像" referrerpolicy="no-referrer" crossorigin="anonymous" />`
-    : `<div class="account-avatar account-avatar-fallback"></div>`;
   if (sidebarAccountCard) {
     sidebarAccountCard.innerHTML = `
-      <div class="sidebar-account-mini" title="${escapeHtml(account.uname || "B站用户")}">
-        ${sidebarAvatar}
+      <div class="sidebar-account-mini is-${tone}" title="${escapeHtml(account.uname || "B站用户")}">
+        ${renderAccountAvatarWrap(account)}
         <div class="sidebar-account-text sidebar-fade">
           <p class="sidebar-account-name">${escapeHtml(account.uname || "B站用户")}</p>
           <p class="sidebar-account-sub">UID ${escapeHtml(account.mid || "—")}</p>
@@ -1575,6 +2457,7 @@ function renderAccountViews(account) {
   }
   updateWatchUserFormState();
   if (state.watchUsers) renderWatchUsersPanel(state.watchUsers);
+  renderOnboardingPanel();
 }
 
 async function loadAccount() {
@@ -1647,47 +2530,16 @@ async function logoutAccount() {
 }
 
 function closeLogoutConfirmModal() {
-  if (!logoutConfirmModal) return;
-  logoutConfirmModal.hidden = true;
-  document.body.classList.remove("modal-open");
+  closeAppConfirm();
 }
 
 function requestLogoutConfirm() {
-  return new Promise((resolve) => {
-    if (!logoutConfirmModal || !logoutConfirmCancel || !logoutConfirmYes) {
-      resolve(window.confirm("确认退出登录？退出后需要重新扫码登录。"));
-      return;
-    }
-
-    const cleanup = () => {
-      closeLogoutConfirmModal();
-      logoutConfirmCancel.removeEventListener("click", onCancel);
-      logoutConfirmYes.removeEventListener("click", onConfirm);
-      logoutConfirmBackdrop?.removeEventListener("click", onCancel);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-
-    const onCancel = () => {
-      cleanup();
-      resolve(false);
-    };
-
-    const onConfirm = () => {
-      cleanup();
-      resolve(true);
-    };
-
-    const onKeyDown = (event) => {
-      if (event.key === "Escape") onCancel();
-    };
-
-    logoutConfirmModal.hidden = false;
-    document.body.classList.add("modal-open");
-    logoutConfirmCancel.addEventListener("click", onCancel);
-    logoutConfirmYes.addEventListener("click", onConfirm);
-    logoutConfirmBackdrop?.addEventListener("click", onCancel);
-    document.addEventListener("keydown", onKeyDown);
-    logoutConfirmCancel.focus();
+  return openAppConfirm({
+    eyebrow: "账号",
+    title: "确认退出登录？",
+    desc: "退出后将清除本地登录状态，需要重新扫码登录才能继续使用参与、刷新等功能。",
+    confirmLabel: "确认退出",
+    cancelLabel: "取消",
   });
 }
 
@@ -1778,6 +2630,7 @@ async function saveParticipateTextMode(mode) {
     }
   }
   renderParticipateSettings(state.settings || { participate_text_mode: result.participate_text_mode || mode });
+  clearSaveDirty(document.getElementById("save-participate-text"));
   const label = mode === "random_comment" ? "随机借用评论" : "自定义文案";
   setInlineFeedback(participateTextFeedback, `已切换为「${label}」`, "success");
   return true;
@@ -1790,16 +2643,43 @@ function bindParticipateSettings() {
     button.addEventListener("click", async () => {
       if (button.classList.contains("active")) return;
       const mode = button.dataset.participateMode || "custom";
+      const group = button.closest(".participate-mode-group");
       const originalDisabled = button.disabled;
       button.disabled = true;
+      group?.classList.add("is-switching");
+      button.classList.add("is-pending");
       try {
-        await saveParticipateTextMode(mode);
+        const ok = await saveParticipateTextMode(mode);
+        if (ok && !prefersReducedMotion()) {
+          const active = document.querySelector("[data-participate-mode].active");
+          active?.classList.add("is-just-switched");
+          window.setTimeout(() => active?.classList.remove("is-just-switched"), 720);
+        }
       } catch (error) {
         setInlineFeedback(participateTextFeedback, String(error.message || error), "error");
       } finally {
+        group?.classList.remove("is-switching");
+        button.classList.remove("is-pending");
         button.disabled = originalDisabled;
       }
     });
+  });
+}
+
+function bindSettingsDirtyTracking() {
+  const participateInput = document.getElementById("participate-text-input");
+  const participateSave = document.getElementById("save-participate-text");
+  if (participateInput && participateInput.dataset.dirtyBound !== "true") {
+    participateInput.dataset.dirtyBound = "true";
+    participateInput.addEventListener("input", () => markSaveDirty(participateSave));
+  }
+
+  const llmSave = document.getElementById("save-llm-settings");
+  ["llm-api-key-input", "llm-base-url-input", "llm-model-name-input"].forEach((id) => {
+    const input = document.getElementById(id);
+    if (!input || input.dataset.dirtyBound === "true") return;
+    input.dataset.dirtyBound = "true";
+    input.addEventListener("input", () => markSaveDirty(llmSave));
   });
 }
 
@@ -1855,6 +2735,7 @@ function renderLlmSettingsForm(settings) {
     } else if (llm.configured) status.textContent = "LLM 已配置且测试通过";
     else status.textContent = "请填写 API Key 与模型名称并保存，完成后才能使用项目功能";
   }
+  renderOnboardingPanel();
 }
 
 async function refreshLlmSettings() {
@@ -1883,6 +2764,8 @@ async function saveLlmSettings() {
     setInlineFeedback(llmActionFeedback, "请先扫码登录后再保存", "info", { autoHide: false });
     return;
   }
+  const button = document.getElementById("save-llm-settings");
+  setButtonLoading(button, true, { label: "保存中…" });
   setInlineFeedback(llmActionFeedback, "", "info");
   try {
     const result = await fetchJSON("/api/settings/llm", {
@@ -1898,7 +2781,11 @@ async function saveLlmSettings() {
       `已保存 · ${result.llm.model_name || "已配置"} · ${result.llm.api_key_hint || ""}`,
       "success"
     );
+    setButtonLoading(button, false);
+    clearSaveDirty(button);
+    flashButtonSuccess(button);
   } catch (error) {
+    setButtonLoading(button, false);
     setInlineFeedback(llmActionFeedback, String(error.message || error), "error");
     throw error;
   }
@@ -1981,11 +2868,13 @@ async function saveParticipateText() {
       mode === "random_comment" ? `兜底文案已保存：${savedText}` : `参与文案已保存：${savedText}`,
       "success"
     );
+    setButtonLoading(button, false);
+    clearSaveDirty(button);
+    flashButtonSuccess(button);
   } catch (error) {
+    setButtonLoading(button, false);
     setInlineFeedback(participateTextFeedback, String(error.message || error), "error");
     throw error;
-  } finally {
-    setButtonLoading(button, false);
   }
 }
 
@@ -2148,12 +3037,16 @@ async function submitWatchUser(event) {
   if (!rawMid) {
     showWatchMidError("请输入用户 MID");
     watchAddMidInput?.focus();
+    watchAddMidInput?.classList.add("is-shake");
+    window.setTimeout(() => watchAddMidInput?.classList.remove("is-shake"), 420);
     return;
   }
   const mid = parseWatchMidInput(rawMid);
   if (mid === null) {
     showWatchMidError("请输入有效的 B 站用户 MID");
     watchAddMidInput?.focus();
+    watchAddMidInput?.classList.add("is-shake");
+    window.setTimeout(() => watchAddMidInput?.classList.remove("is-shake"), 420);
     return;
   }
   setButtonLoading(watchAddBtn, true, { label: "添加中…" });
@@ -2248,8 +3141,8 @@ function renderSources(sources) {
       const statusClass = source.updated ? "fresh" : "cached";
       const statusText = source.updated ? "本次有更新" : "使用缓存";
       return `
-      <article class="source-row" style="--row-delay:${index * 40}ms">
-        <div class="source-row-index">${escapeHtml(source.id)}</div>
+      <article class="source-row" data-source-id="${escapeHtml(source.id)}" style="--row-delay:${index * 40}ms">
+        <div class="source-row-index" aria-hidden="true">${escapeHtml(source.id)}</div>
         <div class="source-row-body">
           <div class="source-row-head">
             <h3>${escapeHtml(source.name)}</h3>
@@ -2263,7 +3156,7 @@ function renderSources(sources) {
               >更新此源</button>
             </div>
           </div>
-          <p class="source-row-meta">${source.link_count} 条链接 · ${escapeHtml(source.title || "暂无标题")}</p>
+          <p class="source-row-meta"><span class="source-link-count">${source.link_count}</span> 条链接 · ${escapeHtml(source.title || "暂无标题")}</p>
           <p class="source-row-time">最近检查：${escapeHtml(source.checked_at_text || "尚未更新")}</p>
           <div class="source-links">${links.join("") || '<span class="caption">暂无外链</span>'}</div>
         </div>
@@ -2292,37 +3185,43 @@ function buildActivityLink(item) {
   return `<span class="caption">—</span>`;
 }
 
-function renderActivityTableRow(item) {
+function renderActivityTableRow(item, index = 0) {
   const title = escapeHtml(item.activity_title || item.prize || "未知活动");
+  const statusTone = activityStatusTone(item.activity_status);
+  const soon = isLotterySoon(item.lottery_time);
+  const typeTone = lotteryTypeTone(item.lottery_type);
   return `
-    <tr data-dynamic-id="${escapeHtml(item.dynamic_id || "")}">
+    <tr class="activity-row is-${statusTone}${soon ? " is-soon" : ""}" data-dynamic-id="${escapeHtml(item.dynamic_id || "")}" style="--row-delay:${Math.min(index, 12) * 28}ms">
       <td class="activity-cell">
         <div class="activity-title">${title}</div>
         ${buildActivityLastNote(item)}
       </td>
       <td class="link-cell">${buildActivityLink(item)}</td>
-      <td class="chip-cell"><span class="type-chip">${escapeHtml(item.lottery_type)}</span></td>
+      <td class="chip-cell"><span class="type-chip type-chip--${typeTone}">${escapeHtml(item.lottery_type)}</span></td>
       <td class="heat-cell"><span class="heat-pill${item.heat_missing ? " heat-pill-missing" : ""}">${formatHeat(item)}</span></td>
       <td class="chip-cell"><span class="${badgeClass(item.activity_status)}">${escapeHtml(item.activity_status)}</span></td>
-      <td class="time-cell"><span class="time-pill">${escapeHtml(formatLotteryTime(item.lottery_time))}</span></td>
-      <td class="chip-cell">${buildActivityParticipateBtn(item)}</td>
+      <td class="time-cell"><span class="time-pill${soon ? " is-soon" : ""}">${escapeHtml(formatLotteryTime(item.lottery_time))}</span></td>
+      <td class="chip-cell action-cell">${buildActivityParticipateBtn(item)}</td>
     </tr>`;
 }
 
-function renderActivityCard(item) {
+function renderActivityCard(item, index = 0) {
   const title = escapeHtml(item.activity_title || item.prize || "未知活动");
-  const ended = item.activity_status === "已结束" ? " is-ended" : "";
+  const statusTone = activityStatusTone(item.activity_status);
+  const ended = statusTone === "ended" ? " is-ended" : "";
+  const soon = isLotterySoon(item.lottery_time);
+  const typeTone = lotteryTypeTone(item.lottery_type);
   return `
-    <article class="activity-card${ended}" data-dynamic-id="${escapeHtml(item.dynamic_id || "")}">
+    <article class="activity-card is-${statusTone}${ended}${soon ? " is-soon" : ""}" data-dynamic-id="${escapeHtml(item.dynamic_id || "")}" style="--row-delay:${Math.min(index, 12) * 28}ms">
       <div class="activity-card-head">
         <h3 class="activity-card-title">${title}</h3>
         <span class="${badgeClass(item.activity_status)}">${escapeHtml(item.activity_status)}</span>
       </div>
       ${buildActivityLastNote(item)}
       <div class="activity-card-meta">
-        <span class="type-chip">${escapeHtml(item.lottery_type)}</span>
+        <span class="type-chip type-chip--${typeTone}">${escapeHtml(item.lottery_type)}</span>
         <span class="heat-pill${item.heat_missing ? " heat-pill-missing" : ""}">${formatHeat(item)}</span>
-        <span class="time-pill">${escapeHtml(formatLotteryTime(item.lottery_time))}</span>
+        <span class="time-pill${soon ? " is-soon" : ""}">${escapeHtml(formatLotteryTime(item.lottery_time))}</span>
       </div>
       <div class="activity-card-actions">
         ${buildActivityLink(item)}
@@ -2344,7 +3243,7 @@ function formatFilterSummary(payload) {
   if (sort === "heat") filters.push(order === "asc" ? "热度升序" : "热度降序");
   const filterText = filters.length ? `（${filters.join(" · ")}）` : "";
   if (total === 0) return `未找到匹配活动${filterText}`;
-  return `共 <strong>${total}</strong> 条${filterText} · 第 ${page}/${pages} 页`;
+  return `共 <strong class="filter-summary-count">${total}</strong> 条${filterText} · 第 ${page}/${pages} 页`;
 }
 
 function flashActivityRows(dynamicIds) {
@@ -2352,7 +3251,11 @@ function flashActivityRows(dynamicIds) {
     if (!dynamicId) return;
     document.querySelectorAll(`[data-dynamic-id="${dynamicId}"]`).forEach((el) => {
       el.classList.add("row-flash");
-      window.setTimeout(() => el.classList.remove("row-flash"), 1800);
+      el.querySelector(".badge")?.classList.add("is-badge-pop");
+      window.setTimeout(() => {
+        el.classList.remove("row-flash");
+        el.querySelector(".badge")?.classList.remove("is-badge-pop");
+      }, 1800);
     });
   });
 }
@@ -2367,13 +3270,16 @@ function renderActivities(payload) {
   }
 
   if (!items.length) {
-    activitiesBody.innerHTML = `<tr class="empty-row"><td colspan="7">没有匹配的活动</td></tr>`;
+    activitiesBody.innerHTML = `<tr class="empty-row"><td colspan="7"><div class="activity-empty">没有匹配的活动<span class="activity-empty-hint">试试调整筛选或换个关键词</span></div></td></tr>`;
     if (activitiesCards) {
-      activitiesCards.innerHTML = `<p class="caption activity-cards-empty">没有匹配的活动</p>`;
+      activitiesCards.innerHTML = `<div class="activity-empty">没有匹配的活动<span class="activity-empty-hint">试试调整筛选或换个关键词</span></div>`;
     }
   } else {
-    activitiesBody.innerHTML = items.map(renderActivityTableRow).join("");
-    if (activitiesCards) activitiesCards.innerHTML = items.map(renderActivityCard).join("");
+    activitiesBody.innerHTML = items.map((item, index) => renderActivityTableRow(item, index)).join("");
+    if (activitiesCards) {
+      activitiesCards.innerHTML = items.map((item, index) => renderActivityCard(item, index)).join("");
+    }
+    playActivityListEnter();
   }
 
   const page = Number(payload.page) || 1;
@@ -2476,12 +3382,13 @@ function updateProgressUI(job) {
 function updateJobUI(job) {
   jobMessage.textContent = sanitizeUserText(job.message) || "暂无任务";
   jobLog.textContent = sanitizeUserText(job.log) || "";
-  if (logDockBadge) {
-    const running = job.state === "running";
-    logDockBadge.hidden = !running;
-    logDockBadge.textContent = running ? "运行中" : "";
+  syncLogDockTone(job);
+  if (job.state === "running") {
+    toggleLogDock(true);
+    scrollJobLogToBottom({ showHint: true });
+  } else if (state.logDockOpen) {
+    scrollJobLogToBottom({ showHint: false });
   }
-  if (job.state === "running") toggleLogDock(true);
   setButtonsDisabled(job.state === "running");
   updateProgressUI(job);
 }
@@ -2489,7 +3396,14 @@ function updateJobUI(job) {
 function activateSection(sectionId) {
   const target = document.getElementById(`section-${sectionId}`);
   document.querySelectorAll(".nav-item").forEach((item) => {
-    item.classList.toggle("active", item.dataset.section === sectionId);
+    const active = item.dataset.section === sectionId;
+    item.classList.toggle("active", active);
+    if (active && !prefersReducedMotion()) {
+      item.classList.remove("is-nav-flash");
+      void item.offsetWidth;
+      item.classList.add("is-nav-flash");
+      window.setTimeout(() => item.classList.remove("is-nav-flash"), 480);
+    }
   });
   document.querySelectorAll(".view-section").forEach((section) => {
     const active = section === target;
@@ -2503,6 +3417,9 @@ function activateSection(sectionId) {
       }
       document.getElementById("page-title").textContent = section.dataset.title || sectionId;
       document.getElementById("page-subtitle").textContent = section.dataset.subtitle || "";
+      if (sectionId === "overview") playOverviewEnter();
+      if (sectionId === "sources") playSourcesEnter();
+      if (sectionId === "activities") playActivitiesEnter();
     }
   });
   document.getElementById("sidebar")?.classList.remove("open");
@@ -2588,6 +3505,7 @@ function setFilterPillGroup(selector, activeButton) {
     item.classList.toggle("active", active);
     item.setAttribute("aria-pressed", active ? "true" : "false");
   });
+  flashFilterPill(activeButton);
 }
 
 function setStatusFilter(value) {
@@ -2612,6 +3530,7 @@ function setDrawWindowFilter(value) {
     const isActive = (button.getAttribute("data-filter-draw-window") || "") === state.filters.drawWindow;
     button.classList.toggle("active", isActive);
     button.setAttribute("aria-pressed", isActive ? "true" : "false");
+    if (isActive) flashFilterPill(button);
   });
   if (filterDrawWindowHint) {
     filterDrawWindowHint.hidden = !state.filters.drawWindow;
@@ -2642,6 +3561,7 @@ function truncateText(text, maxLen = 28) {
 }
 
 function renderTripleParticipateBar(data) {
+  const bar = document.getElementById("triple-participate-bar");
   const descEl = document.getElementById("triple-participate-desc");
   const targetsEl = document.getElementById("triple-participate-targets");
   const btn = document.getElementById("triple-participate-btn");
@@ -2651,10 +3571,24 @@ function renderTripleParticipateBar(data) {
   const count = Number(data?.count) || 0;
   const items = data?.items || [];
   const jobRunning = document.body.classList.contains("job-running");
+  const setupOk = isSetupComplete();
 
-  if (!isSetupComplete()) {
+  let tone = "blocked";
+  if (setupOk && jobRunning) tone = "running";
+  else if (setupOk && count > 0) tone = "ready";
+  else if (setupOk) tone = "empty";
+
+  if (bar) {
+    bar.dataset.tone = tone;
+    bar.classList.toggle("is-ready", tone === "ready");
+    bar.classList.toggle("is-empty", tone === "empty");
+    bar.classList.toggle("is-blocked", tone === "blocked");
+    bar.classList.toggle("is-running", tone === "running");
+  }
+
+  if (!setupOk) {
     if (descEl) descEl.textContent = "完成登录与 LLM 配置后，可一键并行参与最多 3 个活动";
-    targetsEl.innerHTML = "";
+    targetsEl.innerHTML = `<span class="triple-participate-empty">需先完成登录与 LLM 配置</span>`;
     btn.disabled = true;
     labelEl.textContent = "三连参与";
     return;
@@ -2683,7 +3617,7 @@ function renderTripleParticipateBar(data) {
   targetsEl.innerHTML = items
     .map(
       (item, index) => `
-      <span class="triple-target-chip" title="${escapeHtml(item.activity_title || item.dynamic_id)}">
+      <span class="triple-target-chip is-entering type-${lotteryTypeTone(item.lottery_type)}" style="--chip-delay:${index * 55}ms" title="${escapeHtml(item.activity_title || item.dynamic_id)}">
         <span class="triple-target-chip-index">${index + 1}</span>
         <span class="triple-target-chip-title">${escapeHtml(truncateText(item.activity_title || item.dynamic_id))}</span>
         <span class="triple-target-chip-type">${escapeHtml(item.lottery_type || "")}</span>
@@ -2780,6 +3714,7 @@ async function loadActivities() {
 
 async function startJob(action, params = {}) {
   if (!requireSetup(action)) return;
+  state.lastJobAttempt = { action, params: { ...params } };
   if (action === "login") {
     try {
       const current = await fetchJSON("/api/jobs/current");
@@ -2877,7 +3812,12 @@ async function handleJobCompletion(job) {
         message: sanitizeUserText(job.message) || "登录失败，请重试",
       });
     } else {
-      showToast(sanitizeUserText(job.message) || "任务失败", "error", formatToastDetail(job));
+      const failure = classifyJobFailure(job);
+      if (failure.severity === "info") {
+        showToast(failure.message, "info", failure.hint || formatToastDetail(job));
+      } else {
+        showFailureToast(failure, job);
+      }
     }
   }
 
@@ -2888,6 +3828,11 @@ async function handleJobCompletion(job) {
     await loadActivities();
     if (job.action === "refresh_watch") {
       await loadWatchUsers();
+      if (job.state === "success") pulseWatchSyncCard();
+    }
+    if (job.action === "refresh_source" && job.state === "success") {
+      const sourceId = state.lastJobAttempt?.params?.source_id;
+      flashSourceRow(sourceId);
     }
   } catch (error) {
     showToast(String(error.message || error), "error");
@@ -2920,12 +3865,28 @@ function bindActionButtons() {
       }
       if (action === "refresh_source") {
         setButtonLoading(button, true, { label: "更新中…" });
+        setSourceRowUpdating(params.source_id, true);
       }
       try {
+        if (action === "refresh_all") {
+          const confirmed = await confirmRefreshAll();
+          if (!confirmed) {
+            setButtonLoading(button, false);
+            return;
+          }
+        }
         await startJob(action, params);
       } catch (error) {
-        showToast(String(error.message || error), "error");
+        const failure = classifyFailureText(error.message || error, action);
+        if (failure.severity === "info") {
+          showToast(failure.message, "info", failure.hint);
+        } else {
+          showFailureToast(failure, { action, params });
+        }
         setButtonLoading(button, false);
+        if (action === "refresh_source") {
+          setSourceRowUpdating(params.source_id, false);
+        }
         if (action === "participate_triple") {
           renderTripleParticipateBar(state.tripleTargets);
         }
@@ -3097,8 +4058,10 @@ async function init() {
   bindAutoDock();
   bindFilterPills();
   bindParticipateSettings();
+  bindSettingsDirtyTracking();
   bindLlmApiKeyToggle();
   bindWatchUsers();
+  bindOnboardingPanel();
   bindActionButtons();
   await syncProjectState();
   try {
@@ -3110,12 +4073,14 @@ async function init() {
   } catch (error) {
     showToast(sanitizeUserText(error.message || error) || "数据加载失败", "error");
   }
+  playOverviewEnter();
 }
 
 function initSystemPreferences() {
   applySidebarCollapsed(localStorage.getItem("binggo-sidebar-collapsed") === "1", { animate: false });
-  applyTheme(localStorage.getItem("binggo-theme") === "dark" ? "dark" : "light");
+  applyTheme(localStorage.getItem("binggo-theme") === "dark" ? "dark" : "light", { animate: false });
   document.getElementById("sidebar-collapse")?.addEventListener("click", () => {
+    if (window.matchMedia("(max-width: 720px)").matches) return;
     const collapsed = !document.querySelector(".app-shell")?.classList.contains("sidebar-collapsed");
     applySidebarCollapsed(collapsed);
   });
@@ -3123,6 +4088,16 @@ function initSystemPreferences() {
     const isDark = document.documentElement.dataset.theme === "dark";
     applyTheme(isDark ? "light" : "dark");
   });
+  const sidebarMobileMq = window.matchMedia("(max-width: 720px)");
+  const syncSidebarViewport = () => {
+    if (!sidebarMobileMq.matches) return;
+    document.getElementById("sidebar")?.classList.remove("open");
+  };
+  if (typeof sidebarMobileMq.addEventListener === "function") {
+    sidebarMobileMq.addEventListener("change", syncSidebarViewport);
+  } else {
+    sidebarMobileMq.addListener(syncSidebarViewport);
+  }
   jobResultClose?.addEventListener("click", () => hideParticipationResult());
   jobResultBanner?.addEventListener("mouseenter", () => {
     if (jobResultBanner.hidden || jobResultBanner.classList.contains("is-hiding")) return;
@@ -3140,6 +4115,7 @@ function initSystemPreferences() {
 }
 
 const SIDEBAR_ANIM_MS = 400;
+const THEME_ANIM_MS = 320;
 
 function applySidebarCollapsed(collapsed, { animate = true } = {}) {
   const shell = document.querySelector(".app-shell");
@@ -3172,21 +4148,48 @@ function applySidebarCollapsed(collapsed, { animate = true } = {}) {
   }, SIDEBAR_ANIM_MS);
 }
 
-function applyTheme(theme) {
+function applyTheme(theme, { animate = true } = {}) {
   const next = theme === "dark" ? "dark" : "light";
-  document.documentElement.dataset.theme = next;
-  const btn = document.getElementById("theme-toggle");
-  if (btn) {
-    btn.classList.toggle("active", next === "dark");
-    const text = btn.querySelector(".system-btn-text");
-    const label = next === "dark" ? "切换日间模式" : "切换夜间模式";
-    if (text) text.textContent = next === "dark" ? "日间模式" : "夜间模式";
-    btn.title = label;
-    btn.setAttribute("aria-label", label);
-    btn.querySelector(".icon-moon")?.toggleAttribute("hidden", next === "dark");
-    btn.querySelector(".icon-sun")?.toggleAttribute("hidden", next !== "dark");
+  const current = document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+  const run = () => {
+    document.documentElement.dataset.theme = next;
+    const btn = document.getElementById("theme-toggle");
+    if (btn) {
+      btn.classList.toggle("active", next === "dark");
+      const text = btn.querySelector(".system-btn-text");
+      const label = next === "dark" ? "切换日间模式" : "切换夜间模式";
+      if (text) text.textContent = next === "dark" ? "日间模式" : "夜间模式";
+      btn.title = label;
+      btn.setAttribute("aria-label", label);
+      btn.querySelector(".icon-moon")?.toggleAttribute("hidden", next === "dark");
+      btn.querySelector(".icon-sun")?.toggleAttribute("hidden", next !== "dark");
+      if (animate && !prefersReducedMotion()) {
+        btn.classList.remove("is-theme-flash");
+        void btn.offsetWidth;
+        btn.classList.add("is-theme-flash");
+        window.setTimeout(() => btn.classList.remove("is-theme-flash"), 520);
+      }
+    }
+    localStorage.setItem("binggo-theme", next);
+  };
+
+  if (!animate || current === next || prefersReducedMotion()) {
+    run();
+    return;
   }
-  localStorage.setItem("binggo-theme", next);
+
+  if (typeof document.startViewTransition === "function") {
+    const transition = document.startViewTransition(run);
+    transition.finished.catch(() => {});
+    return;
+  }
+
+  document.documentElement.classList.add("theme-animating");
+  run();
+  window.clearTimeout(document.documentElement._themeAnimTimer);
+  document.documentElement._themeAnimTimer = window.setTimeout(() => {
+    document.documentElement.classList.remove("theme-animating");
+  }, THEME_ANIM_MS);
 }
 
 window.addEventListener("pageshow", (event) => {

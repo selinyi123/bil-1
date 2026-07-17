@@ -46,6 +46,36 @@ def friendly_network_error(message: str) -> str:
     return message.strip() or "网络异常，请稍后重试"
 
 
+def _friendly_plain_message(msg: str) -> str:
+    text = msg.strip()
+    if not text:
+        return ""
+    lowered = text.lower()
+
+    if "cookie" in lowered and any(token in text for token in ("过期", "失效", "重新", "无效")):
+        return "Cookie 已过期，请重新扫码登录"
+    if "请先扫码登录" in text or "未检测到有效登录" in text:
+        return "请先扫码登录后再试"
+    if any(token in text for token in ("频繁", "限流", "风控")) or any(token in lowered for token in ("412", "-509")):
+        return "请求过于频繁，请稍后重试；日常建议在「数据源」页逐个更新"
+    if "未配置 llm" in lowered or ("llm" in lowered and "未配置" in text):
+        return "未配置 LLM，请在概览页填写 API Key 与模型名称并保存"
+    if "连接测试" in text or "请先测试" in text:
+        return "请先完成 LLM 连接测试后再使用项目功能"
+    if "无法连接 llm" in lowered:
+        return "无法连接 LLM 接口，请检查 API Key、接口地址与网络"
+    if "llm 服务" in lowered or "llm 返回" in lowered:
+        return text if len(text) <= 120 else "LLM 服务暂时不可用，请稍后重试"
+    if any(token in text for token in ("已有任务", "正在运行", "仍在运行")):
+        return "当前已有任务在运行，请等待结束后再试"
+    if "任务已取消" in text or text == "已取消":
+        return "任务已取消"
+    if "无可参与" in text or "没有可参与" in text:
+        return text
+
+    return friendly_network_error(text) if "网络请求失败" in text else text
+
+
 def friendly_error(exc: BaseException) -> str:
     if isinstance(exc, LoginCancelledError):
         return "已取消扫码登录"
@@ -70,13 +100,18 @@ def friendly_error(exc: BaseException) -> str:
             return "未找到活动信息，请刷新页面后重试"
         if msg.startswith("未知操作"):
             return "暂不支持该操作"
+        if "任务已取消" in msg:
+            return "任务已取消"
 
     if _looks_like_internal_error(msg):
-        return friendly_network_error(msg) if any(
-            token in msg.lower() for token in ("handshake", "timeout", "ssl", "connect", "网络")
-        ) else "操作失败，请稍后重试"
+        if any(token in msg.lower() for token in ("handshake", "timeout", "ssl", "connect", "网络")):
+            return friendly_network_error(msg)
+        return "操作失败，请稍后重试"
 
-    return friendly_network_error(msg) if "网络请求失败" in msg else (msg or "操作失败，请稍后重试")
+    mapped = _friendly_plain_message(msg)
+    if mapped:
+        return mapped
+    return "操作失败，请稍后重试"
 
 
 def _looks_like_internal_error(message: str) -> bool:

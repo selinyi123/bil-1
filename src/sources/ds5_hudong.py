@@ -11,7 +11,7 @@ from src.sources.common import (
     opus_link,
     save_result as write_result,
 )
-from src.state_store import DATA_DIR, get_last_container, get_last_cv_id, set_last_container
+from src.state_store import DATA_DIR, get_last_container, get_last_cv_id
 
 SOURCE_ID = "DS-5"
 MID = 3546776042736296
@@ -38,6 +38,7 @@ def check_update(*, force: bool = False) -> CheckResult:
                 activity_links=(prev_output or {}).get("activity_links") or [],
                 checked_at=int(time.time()),
                 link_hints=(prev_output or {}).get("link_hints") or {},
+                cv_id=str(cv_id),
             )
 
         detail = client.get_article_detail(cv_id)
@@ -52,14 +53,6 @@ def check_update(*, force: bool = False) -> CheckResult:
             container_opus_id=container_opus_id,
         )
 
-        set_last_container(
-            SOURCE_ID,
-            container_url,
-            container_id=container_opus_id,
-            title=detail.get("title") or latest.get("title", ""),
-            cv_id=str(cv_id),
-        )
-
         return CheckResult(
             source_id=SOURCE_ID,
             updated=True,
@@ -71,6 +64,7 @@ def check_update(*, force: bool = False) -> CheckResult:
             activity_links=links,
             checked_at=int(time.time()),
             link_hints=hints,
+            cv_id=str(cv_id),
         )
 
 

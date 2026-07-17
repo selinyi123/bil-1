@@ -6,7 +6,7 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-from src.sources.common import CheckResult
+from src.sources.common import CheckResult, commit_source_checkpoint
 
 
 def run_check(
@@ -32,6 +32,7 @@ def run_check(
 
     out_path = save_result(result)
     if out_path:
+        commit_source_checkpoint(result)
         print(f"\n结果已写入: {out_path}", file=sys.stderr)
         print(f"检测到更新，共提取 {len(result.activity_links)} 条活动链接。", file=sys.stderr)
     else:

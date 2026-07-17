@@ -11,7 +11,7 @@ from src.sources.common import (
     load_previous_output,
     save_result as write_result,
 )
-from src.state_store import DATA_DIR, get_last_container, set_last_container
+from src.state_store import DATA_DIR, get_last_container
 
 SOURCE_ID = "DS-4"
 MID = 126038161
@@ -50,13 +50,6 @@ def check_update(*, force: bool = False) -> CheckResult:
         links, hints = extract_opus_links_with_hints(
             detail,
             exclude_link_text=EXCLUDE_LINK_TEXT_RE,
-        )
-
-        set_last_container(
-            SOURCE_ID,
-            container_url,
-            container_id=str(cv_id),
-            title=detail.get("title") or latest.get("title", ""),
         )
 
         return CheckResult(

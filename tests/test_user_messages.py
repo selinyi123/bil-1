@@ -45,8 +45,22 @@ def test_sanitize_log_strips_uvicorn_stack() -> None:
     assert "uvicorn" not in cleaned
 
 
-def test_sanitize_log_strips_paths() -> None:
-    log = "=== 保存 ===\nC:\\Users\\me\\data\\output\\enriched_latest.json"
-    cleaned = sanitize_log(log)
-    assert "C:\\Users" not in cleaned
-    assert "[本地文件]" in cleaned or "保存" in cleaned
+def test_friendly_error_rate_limit() -> None:
+    assert "频繁" in friendly_error(RuntimeError("请求过于频繁，触发限流"))
+    assert "数据源" in friendly_error(RuntimeError("412 风控"))
+
+
+def test_friendly_error_cookie_expired() -> None:
+    assert friendly_error(RuntimeError("Cookie 已过期，请重新扫码登录")) == "Cookie 已过期，请重新扫码登录"
+
+
+def test_friendly_error_llm_not_configured() -> None:
+    assert "LLM" in friendly_error(RuntimeError("未配置 LLM，请检查 config/llm.env"))
+
+
+def test_friendly_error_llm_test_required() -> None:
+    assert "连接测试" in friendly_error(RuntimeError("请先测试 LLM 连接"))
+
+
+def test_friendly_error_busy_job() -> None:
+    assert "已有任务" in friendly_error(RuntimeError("已有任务正在运行"))

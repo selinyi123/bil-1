@@ -10,7 +10,7 @@ from src.sources.common import (
     load_previous_output,
     save_result as write_result,
 )
-from src.state_store import DATA_DIR, get_last_container, set_last_container
+from src.state_store import DATA_DIR, get_last_container
 
 SOURCE_ID = "DS-1"
 MID = 885439
@@ -46,13 +46,6 @@ def check_update(*, force: bool = False) -> CheckResult:
         detail = client.get_video_detail(bvid)
         desc = detail.get("desc") or ""
         links, hints = extract_t_bilibili_links_with_hints(desc)
-
-        set_last_container(
-            SOURCE_ID,
-            container_url,
-            container_id=bvid,
-            title=detail.get("title") or latest.get("title", ""),
-        )
 
         return CheckResult(
             source_id=SOURCE_ID,

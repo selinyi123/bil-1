@@ -9,10 +9,13 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Noto+Serif+SC:wght@400;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/styles.css?v=20260717b5" />
+  <link rel="stylesheet" href="/styles.css?v=20260718b6" />
   <script>
     try {
-      if (localStorage.getItem("binggo-sidebar-collapsed") === "1") {
+      if (
+        localStorage.getItem("binggo-sidebar-collapsed") === "1" &&
+        !window.matchMedia("(max-width: 720px)").matches
+      ) {
         document.documentElement.classList.add("sidebar-init-collapsed");
       }
     } catch (e) {}
@@ -69,9 +72,11 @@
           <p class="job-result-eyebrow" id="job-result-eyebrow">参与结果</p>
           <h2 class="job-result-title" id="job-result-title">任务完成</h2>
           <p class="job-result-summary" id="job-result-summary"></p>
+          <p class="job-result-hint" id="job-result-hint" hidden></p>
         </div>
         <button type="button" class="job-result-close" id="job-result-close" aria-label="关闭">×</button>
       </div>
+      <div class="job-result-actions" id="job-result-actions" hidden></div>
       <div class="job-result-body" id="job-result-body"></div>
       <div class="job-result-progress" id="job-result-progress" aria-hidden="true"></div>
     </div>
@@ -95,15 +100,17 @@
     </div>
   </div>
 
-  <div class="confirm-modal" id="logout-confirm-modal" hidden>
-    <div class="confirm-backdrop" id="logout-confirm-backdrop"></div>
-    <div class="confirm-panel" role="dialog" aria-modal="true" aria-labelledby="logout-confirm-title">
-      <p class="confirm-eyebrow">账号</p>
-      <h2 class="confirm-title" id="logout-confirm-title">确认退出登录？</h2>
-      <p class="confirm-desc">退出后将清除本地登录状态，需要重新扫码登录才能继续使用参与、刷新等功能。</p>
+  <div class="confirm-modal" id="app-confirm-modal" hidden>
+    <div class="confirm-backdrop" id="app-confirm-backdrop"></div>
+    <div class="confirm-panel confirm-panel-wide" role="dialog" aria-modal="true" aria-labelledby="app-confirm-title">
+      <p class="confirm-eyebrow" id="app-confirm-eyebrow"></p>
+      <h2 class="confirm-title" id="app-confirm-title"></h2>
+      <p class="confirm-desc" id="app-confirm-desc" hidden></p>
+      <ul class="confirm-bullets" id="app-confirm-bullets" hidden></ul>
       <div class="confirm-actions">
-        <button type="button" class="btn btn-secondary btn-pill" id="logout-confirm-cancel">取消</button>
-        <button type="button" class="btn btn-primary btn-pill" id="logout-confirm-yes">确认退出</button>
+        <button type="button" class="btn btn-secondary btn-pill" id="app-confirm-secondary" hidden></button>
+        <button type="button" class="btn btn-secondary btn-pill" id="app-confirm-cancel">取消</button>
+        <button type="button" class="btn btn-primary btn-pill" id="app-confirm-yes">确认</button>
       </div>
     </div>
   </div>
@@ -112,6 +119,7 @@
     <button type="button" class="auto-dock-toggle" id="auto-dock-toggle" aria-expanded="false">
       <span class="auto-dock-icon" aria-hidden="true">⏱</span>
       <span class="auto-dock-label">定时点击</span>
+      <span class="auto-dock-toggle-meta" id="auto-dock-toggle-meta" hidden>—</span>
       <span class="auto-dock-badge" id="auto-dock-badge" hidden>运行中</span>
     </button>
     <div class="auto-dock-panel" id="auto-dock-panel" aria-hidden="true">
@@ -134,8 +142,8 @@
         </div>
         <div class="auto-dock-summary">
           <div class="auto-dock-summary-row">
-            <span class="auto-dock-meta-label">下一任务</span>
-            <strong class="auto-dock-job-value" id="auto-dock-next-task">—</strong>
+            <span class="auto-dock-meta-label">调度</span>
+            <strong class="auto-dock-job-value" id="auto-dock-scheduler">—</strong>
           </div>
           <div class="auto-dock-summary-divider" aria-hidden="true"></div>
           <div class="auto-dock-summary-row">
@@ -152,8 +160,7 @@
         </div>
         <div class="auto-dock-actions">
           <button type="button" class="btn btn-primary btn-pill auto-dock-action-btn" id="auto-dock-start">启动调度</button>
-          <button type="button" class="btn btn-secondary btn-pill auto-dock-action-btn" id="auto-dock-stop" hidden>停止调度</button>
-          <button type="button" class="btn btn-secondary btn-pill auto-dock-action-btn" id="auto-dock-restart" hidden>重新启动</button>
+          <button type="button" class="btn btn-primary btn-pill auto-dock-action-btn" id="auto-dock-stop" hidden>停止调度</button>
         </div>
         <div class="auto-dock-fatal" id="auto-dock-fatal" hidden>
           <p class="auto-dock-fatal-title">已停机</p>
@@ -164,21 +171,29 @@
     </div>
   </div>
 
-  <div class="log-dock" id="log-dock">
+  <div class="log-dock is-idle" id="log-dock" data-tone="idle">
     <button type="button" class="log-dock-toggle" id="log-dock-toggle" aria-expanded="false">
-      <span class="log-dock-icon" aria-hidden="true">⌘</span>
+      <span class="log-dock-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>
+      </span>
       <span class="log-dock-label">任务日志</span>
       <span class="log-dock-badge" id="log-dock-badge" hidden>运行中</span>
     </button>
     <div class="log-dock-panel" id="log-dock-panel" aria-hidden="true">
       <div class="log-dock-head">
-        <div>
-          <p class="log-dock-title">任务日志</p>
+        <div class="log-dock-head-copy">
+          <div class="log-dock-title-row">
+            <p class="log-dock-title">任务日志</p>
+            <span class="log-dock-status is-idle" id="log-dock-status">空闲</span>
+          </div>
           <p class="log-dock-message" id="job-message">暂无任务</p>
         </div>
-        <button type="button" class="btn btn-secondary btn-compact btn-pill log-dock-collapse" id="log-dock-collapse" aria-label="收起">收起</button>
+        <button type="button" class="btn btn-ghost btn-compact btn-pill log-dock-collapse" id="log-dock-collapse" aria-label="收起">收起</button>
       </div>
-      <pre class="log-box" id="job-log"></pre>
+      <div class="log-dock-body" id="log-dock-body">
+        <pre class="log-box" id="job-log"></pre>
+        <span class="log-dock-pin-hint" id="log-dock-pin-hint" hidden>已跟随最新日志</span>
+      </div>
     </div>
   </div>
 
@@ -221,7 +236,7 @@
           </div>
           <div class="sidebar-account-actions">
             <button class="btn btn-primary btn-compact btn-block" id="sidebar-login" data-action="login">扫码登录</button>
-            <button class="btn btn-secondary btn-compact btn-block" id="sidebar-logout" hidden>退出登录</button>
+            <button class="btn btn-ghost btn-compact btn-block" id="sidebar-logout" hidden>退出登录</button>
             <button class="btn btn-secondary btn-compact btn-block" id="sidebar-refresh-account">刷新账号</button>
           </div>
         </div>
@@ -261,6 +276,28 @@
       <main class="content-area">
         <section class="view-section active" id="section-overview" data-title="概览" data-subtitle="账号状态、活动统计与快捷操作。">
           <div class="overview-stack">
+            <article class="panel onboarding-panel" id="onboarding-panel" hidden>
+              <div class="onboarding-head">
+                <div>
+                  <p class="eyebrow">上手引导</p>
+                  <h2 class="section-title">开始使用 Binggo</h2>
+                  <p class="section-desc onboarding-desc">完成以下步骤后即可参与抽奖。登录与 LLM 配置均为必要项。</p>
+                </div>
+                <button type="button" class="btn btn-secondary btn-compact btn-pill" id="onboarding-skip">跳过引导</button>
+              </div>
+              <div class="onboarding-progress" aria-hidden="true">
+                <div class="onboarding-progress-track">
+                  <div class="onboarding-progress-fill" id="onboarding-progress-fill"></div>
+                </div>
+                <span class="onboarding-progress-label" id="onboarding-progress-label">0 / 4</span>
+              </div>
+              <ol class="onboarding-steps" id="onboarding-steps"></ol>
+              <div class="onboarding-foot">
+                <p class="onboarding-foot-note" id="onboarding-foot-note"></p>
+                <button type="button" class="btn btn-primary btn-pill" id="onboarding-primary" hidden>下一步</button>
+              </div>
+            </article>
+
             <article class="panel account-hero" id="account-hero">
               <p class="caption">加载账号信息中…</p>
             </article>
@@ -271,10 +308,10 @@
               <h2 class="section-title">快捷操作</h2>
               <p class="section-desc quick-actions-desc">从 UP 合集或监控用户动态增量更新活动链接，或直接进入活动列表参与抽奖。</p>
               <div class="action-row quick-actions-row">
-                <button class="btn btn-primary btn-pill" data-action="refresh_all">一键更新活动链接</button>
                 <button class="btn btn-primary btn-pill" data-action="refresh_watch">更新监控用户动态</button>
                 <button class="btn btn-secondary btn-pill" data-action="refresh_status">刷新任务状态</button>
-                <button class="btn btn-secondary btn-pill" data-section-jump="activities">查看活动列表</button>
+                <button class="btn btn-secondary btn-pill" data-action="refresh_all">一键更新活动链接</button>
+                <button class="btn btn-ghost btn-pill" data-section-jump="activities">查看活动列表</button>
               </div>
             </article>
 
@@ -306,7 +343,7 @@
               </div>
             </article>
 
-            <article class="panel llm-settings">
+            <article class="panel llm-settings" id="llm-settings-panel">
               <div class="settings-panel-head">
                 <div class="settings-panel-intro">
                   <h2 class="section-title">LLM 配置</h2>
@@ -452,14 +489,14 @@
               </div>
             </article>
 
-            <div class="panel">
+            <div class="panel sources-collections-panel">
               <div class="panel-head panel-head-row">
                 <div>
                   <p class="eyebrow">合集数据源</p>
                   <h2 class="section-title">UP 合集</h2>
                   <p class="section-desc">检查新专栏 → 分类 → 拉取详情 → 入库，仅处理新增链接。</p>
                 </div>
-                <button type="button" class="btn btn-primary btn-pill" data-action="refresh_all">一键更新</button>
+                <button type="button" class="btn btn-secondary btn-pill" data-action="refresh_all">一键更新</button>
               </div>
               <div class="source-list" id="source-grid"></div>
             </div>
@@ -467,12 +504,12 @@
         </section>
 
         <section class="view-section" id="section-activities" data-title="活动" data-subtitle="展示可参与、已参加或已结束的活动。">
-          <div class="panel">
+          <div class="panel activities-panel">
             <div class="panel-head panel-head-row">
               <p class="section-desc">未参加且已过期的活动会自动从列表隐藏，本地历史记录仍会保留。</p>
-              <button class="btn btn-secondary btn-compact btn-pill" data-action="refresh_status">刷新任务状态</button>
+              <button class="btn btn-ghost btn-compact btn-pill" data-action="refresh_status">刷新任务状态</button>
             </div>
-            <div class="triple-participate-bar" id="triple-participate-bar">
+            <div class="triple-participate-bar" id="triple-participate-bar" data-tone="blocked">
               <div class="triple-participate-lead">
                 <p class="triple-participate-eyebrow">快捷操作</p>
                 <h3 class="triple-participate-title">三连参与</h3>
@@ -489,8 +526,9 @@
                 <span class="triple-participate-btn-label" id="triple-participate-btn-label">三连参与</span>
               </button>
             </div>
-            <div class="filters">
-              <input type="search" id="filter-q" class="input" placeholder="搜索奖品名称…" />
+            <div class="filters activities-filters">
+              <input type="search" id="filter-q" class="input filter-search" placeholder="搜索奖品名称…" />
+              <div class="filter-groups">
               <div class="filter-group" id="filter-type-group" role="group" aria-label="活动类型">
                 <button type="button" class="filter-pill active" data-filter-type="">全部类型</button>
                 <button type="button" class="filter-pill" data-filter-type="互动抽奖">互动抽奖</button>
@@ -508,15 +546,16 @@
                 <button type="button" class="filter-pill" data-filter-sort="heat" data-filter-order="asc">热度 ↑</button>
                 <button type="button" class="filter-pill active" data-filter-sort="" data-filter-order="">默认排序</button>
               </div>
-              <div class="filter-group" id="filter-draw-window-group" role="group" aria-label="开奖时间">
-                <button type="button" class="filter-pill" data-filter-draw-window="soon">即将开奖</button>
+              <div class="filter-group filter-group-emphasis" id="filter-draw-window-group" role="group" aria-label="开奖时间">
+                <button type="button" class="filter-pill filter-pill-emphasis" data-filter-draw-window="soon">即将开奖</button>
+              </div>
               </div>
             </div>
             <p class="filter-summary" id="filter-result-summary" hidden></p>
             <p class="filter-hint" id="filter-draw-window-hint" hidden>仅筛选你已参加、且 3 天内即将开奖的活动</p>
             <div class="activity-list-mobile" id="activities-cards" aria-label="活动列表"></div>
             <div class="table-wrap activity-list-desktop">
-              <table class="data-table">
+              <table class="data-table activity-table">
                 <thead>
                   <tr>
                     <th>活动</th>
@@ -538,6 +577,6 @@
     </div>
   </div>
 
-  <script src="/app.js?v=20260717b6"></script>
+  <script src="/app.js?v=20260718b6"></script>
 </body>
 </html>

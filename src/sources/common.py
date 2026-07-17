@@ -40,9 +40,25 @@ class CheckResult:
     activity_links: list[str]
     checked_at: int
     link_hints: dict[str, LotteryHint] = field(default_factory=dict)
+    cv_id: str | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+def commit_source_checkpoint(result: CheckResult) -> None:
+    """流水线/检查成功后再写入专栏检查点；检查阶段不得提前调用。"""
+    if not result.updated:
+        return
+    from src.state_store import set_last_container
+
+    set_last_container(
+        result.source_id,
+        result.container_url,
+        container_id=result.container_id or None,
+        title=result.title or None,
+        cv_id=result.cv_id,
+    )
 
 
 def opus_link(opus_id: str) -> str:

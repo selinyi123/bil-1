@@ -18,7 +18,7 @@ from src.participate_preflight import ensure_activity_participatable
 from src.participation import participate_activity
 from src.participation_log import participation_succeeded
 from src.pipeline.refresh_all_pipeline import PipelineResult, run_new_links_pipeline, run_refresh_all_pipeline
-from src.sources.common import CheckResult, is_valid_dynamic_id
+from src.sources.common import CheckResult, commit_source_checkpoint, is_valid_dynamic_id
 from web.activity_service import (
     PARTICIPATE_TRIPLE_LIMIT,
     build_triple_progress_plan,
@@ -429,6 +429,8 @@ def run_action(
                 ds_count=len(DS_HANDLERS),
             ),
         )
+        for check_result in ds_check_results:
+            commit_source_checkpoint(check_result)
         invalidate_activity_cache()
         for line in _pipeline_log_lines(pipeline_result):
             log_lines.append(line)
@@ -526,6 +528,7 @@ def run_action(
                 ds_count=1,
             ),
         )
+        commit_source_checkpoint(check_result)
         invalidate_activity_cache()
         for line in _pipeline_log_lines(pipeline_result):
             log_lines.append(line)

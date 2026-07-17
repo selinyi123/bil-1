@@ -157,3 +157,44 @@ def test_backfill_missing_lottery_times(tmp_path: Path, monkeypatch) -> None:
     assert result["updated"] == 1
     refreshed = json.loads(path.read_text(encoding="utf-8"))["activities"][0]
     assert refreshed["lottery_time"] == participate_at + SIX_MONTHS_SECONDS
+
+
+def test_persist_activity_record_parallel_writes(tmp_path: Path, monkeypatch) -> None:
+    """并行写回不应再因 Windows replace 冲突失败。"""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    from src.status_refresh import persist_activity_record
+
+    path = tmp_path / "activities_latest.json"
+    items = [
+        _activity(f"p-{i}", lottery_time=9_999_999_999 + i, activity_status="未参加")
+        for i in range(8)
+    ]
+    _write_enriched(path, activities=items)
+    monkeypatch.setattr("src.status_refresh.ENRICHED_OUTPUT_PATH", path)
+
+    def _persist(item: dict) -> str:
+        dynamic_id = str(item["dynamic_id"])
+        updated = dict(item)
+        updated["platform_participated"] = True
+        persist_activity_record(
+            updated,
+            path=path,
+            now=1_700_000_000,
+            participation=ParticipationRecord(
+                dynamic_id=dynamic_id,
+                user_status="已参加",
+                updated_at=1_700_000_000,
+            ),
+        )
+        return dynamic_id
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = [pool.submit(_persist, item) for item in items]
+        done = {future.result() for future in as_completed(futures)}
+
+    assert done == {str(item["dynamic_id"]) for item in items}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    by_id = {str(row["dynamic_id"]): row for row in payload["activities"]}
+    assert len(by_id) == 8
+    assert all(row["activity_status"] == "已参加" for row in by_id.values())
