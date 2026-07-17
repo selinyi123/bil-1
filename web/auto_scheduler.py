@@ -277,22 +277,27 @@ class AutoScheduler:
         self._set_phase("三连参与", f"触发三连参与 {key}")
         self._log("info", f"三连参与刻度 {key}")
         try:
-            self._click_and_wait("participate_triple")
+            outcome = self._click_and_wait("participate_triple")
             self._done_triple.add(key)
             with self._lock:
                 self._status.triple_slot_key = key
-            self._set_phase("等待下一刻度", "三连参与已完成")
+            if outcome and outcome.get("skipped"):
+                msg = str(outcome.get("message") or "当前没有可参与活动，已跳过")
+                self._log("info", f"三连参与已跳过：{msg}")
+                self._set_phase("等待下一刻度", msg)
+            else:
+                self._set_phase("等待下一刻度", "三连参与已完成")
         except CollisionError:
             raise
         except Exception as exc:
             if _is_hard_failure(exc):
                 self._fatal(str(exc))
                 return
-            self._log("warn", f"三连参与结束（业务结果）：{exc}")
+            self._log("info", f"三连参与已跳过：{exc}")
             self._done_triple.add(key)
-            self._set_phase("等待下一刻度", str(exc))
+            self._set_phase("等待下一刻度", f"已跳过：{exc}")
 
-    def _click_and_wait(self, action: str, *, pipeline_index: int | None = None) -> None:
+    def _click_and_wait(self, action: str, *, pipeline_index: int | None = None) -> dict[str, Any]:
         if action not in ALLOWED_CLICK_ACTIONS:
             raise ValueError(f"禁止的操作：{action}")
 
@@ -307,7 +312,7 @@ class AutoScheduler:
                 f"（action={current.get('action')}, message={current.get('message')}）"
             )
 
-        if not self._runner.start(action, {}):
+        if not self._runner.start(action, {"from_auto": True} if action == "participate_triple" else {}):
             raise CollisionError(f"点击「{label}」失败：已有任务正在运行")
 
         with self._lock:
@@ -324,8 +329,14 @@ class AutoScheduler:
         final = self._wait_until_idle(label)
         state = str(final.get("state") or "")
         msg = str(final.get("message") or "")
+        result = final.get("result") if isinstance(final.get("result"), dict) else {}
+        if result.get("skipped") or (
+            action == "participate_triple" and state == "error" and _is_triple_empty_skip(msg)
+        ):
+            return {"skipped": True, "message": msg, "job": final}
         if state == "error":
             raise RuntimeError(msg or f"「{label}」以 error 结束")
+        return {"skipped": False, "message": msg, "job": final}
 
     def _wait_until_idle(self, label: str) -> dict[str, Any]:
         """只读轮询 JobRunner，直到任务不再 running。绝不 cancel。"""
@@ -373,11 +384,19 @@ def _idle_pipeline() -> dict[str, Any]:
     }
 
 
+def _is_triple_empty_skip(message: str) -> bool:
+    text = str(message or "")
+    markers = ("没有可参与", "当前列表没有", "无可参与", "已跳过")
+    return any(marker in text for marker in markers)
+
+
 def _is_hard_failure(exc: BaseException) -> bool:
     if isinstance(exc, CollisionError):
         return True
+    if _is_triple_empty_skip(str(exc)):
+        return False
     text = str(exc)
-    soft_markers = ("没有可参与", "当前列表没有")
+    soft_markers = ("没有可参与", "当前列表没有", "无可参与", "已跳过")
     if any(m in text for m in soft_markers):
         return False
     hard_markers = (

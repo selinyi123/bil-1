@@ -1153,6 +1153,7 @@ function renderTripleParticipationResults(result) {
 
 function showParticipationResult(job) {
   if (!jobResultBanner || (job.action !== "participate" && job.action !== "participate_triple")) return;
+  if (job.result?.skipped) return;
   hideParticipationResult(true);
 
   const result = job.result || {};
@@ -2856,7 +2857,13 @@ async function handleJobCompletion(job) {
   }
 
   if (isParticipation && (job.state === "success" || job.state === "error")) {
-    showParticipationResult(job);
+    if (job.result?.skipped) {
+      if (!job.result?.from_auto) {
+        showToast(sanitizeUserText(job.message) || "当前没有可参与活动，已跳过", "info");
+      }
+    } else {
+      showParticipationResult(job);
+    }
   } else if (job.state === "success") {
     if (SYNC_TOAST_ACTIONS.has(job.action)) {
       const detail = formatToastDetail(job);

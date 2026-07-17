@@ -4,7 +4,7 @@
 #define AppPublisher "bilibili_binggo"
 #define AppURL "https://github.com/luovicter-collab/bilibinggo"
 #define AppExeName "Binggo.exe"
-#define AppVersion "4.0.0"
+#define AppVersion "4.0.1"
 
 [Setup]
 AppId={{A4B8F2E1-6C3D-4E9A-9B12-7D5E8F0A1C2B}

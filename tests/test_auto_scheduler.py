@@ -115,8 +115,40 @@ def test_probe_only_reads_runner_status() -> None:
 
 def test_soft_failure_for_empty_triple() -> None:
     assert _is_hard_failure(RuntimeError("当前列表没有可参与的未参加活动")) is False
+    assert _is_hard_failure(RuntimeError("当前没有可参与的未参加活动，已跳过")) is False
     assert _is_hard_failure(CollisionError("撞车")) is True
     assert _is_hard_failure(RuntimeError("请先扫码登录")) is True
+
+
+def test_click_and_wait_treats_skipped_triple_as_success() -> None:
+    runner = MagicMock()
+    runner.is_running.return_value = False
+    runner.start.return_value = True
+    runner.get_status.return_value.to_dict.return_value = {
+        "state": "success",
+        "message": "当前没有可参与的未参加活动，已跳过",
+        "result": {"skipped": True, "items": []},
+    }
+    scheduler = AutoScheduler(job_runner=runner)
+    outcome = scheduler._click_and_wait("participate_triple")
+    assert outcome["skipped"] is True
+    runner.start.assert_called_once_with("participate_triple", {"from_auto": True})
+    runner.cancel.assert_not_called()
+
+
+def test_click_and_wait_treats_legacy_empty_triple_error_as_skip() -> None:
+    runner = MagicMock()
+    runner.is_running.return_value = False
+    runner.start.return_value = True
+    runner.get_status.return_value.to_dict.return_value = {
+        "state": "error",
+        "message": "当前列表没有可参与的未参加活动",
+        "result": None,
+    }
+    scheduler = AutoScheduler(job_runner=runner)
+    outcome = scheduler._click_and_wait("participate_triple")
+    assert outcome["skipped"] is True
+    runner.cancel.assert_not_called()
 
 
 def test_next_slot_before_refresh() -> None:

@@ -338,8 +338,10 @@ def test_run_action_participate_triple_uses_mixed_progress_budget() -> None:
 
 def test_run_action_participate_triple_requires_targets() -> None:
     with patch("web.actions.pick_triple_participate_targets", return_value=[]):
-        with pytest.raises(ValueError, match="没有可参与"):
-            run_action("participate_triple", {})
+        payload = run_action("participate_triple", {})
+    assert payload["ok"] is True
+    assert payload["result"]["skipped"] is True
+    assert "跳过" in payload["message"]
 
 
 def test_run_action_participate_triple_uses_lookup_type_for_execution() -> None:

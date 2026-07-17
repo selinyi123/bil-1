@@ -706,13 +706,38 @@ def run_action(
 
         filters = _list_filter_params(params)
         targets = pick_triple_participate_targets(**filters)
+        from_auto = bool(params.get("from_auto"))
         if not targets:
-            raise ValueError("当前列表没有可参与的未参加活动")
+            return {
+                "ok": True,
+                "message": "当前没有可参与的未参加活动，已跳过",
+                "log": "无可参与目标，本次三连参与已跳过",
+                "result": {
+                    "skipped": True,
+                    "from_auto": from_auto,
+                    "joined": 0,
+                    "failed": 0,
+                    "items": [],
+                    "targets": [],
+                },
+            }
 
         target_titles = [str(item.get("activity_title") or item.get("dynamic_id") or "") for item in targets]
         total_steps, progress_plan = build_triple_progress_plan(targets)
         if total_steps <= 0:
-            raise ValueError("当前列表没有可参与的未参加活动")
+            return {
+                "ok": True,
+                "message": "当前没有可参与的未参加活动，已跳过",
+                "log": "进度计划为空，本次三连参与已跳过",
+                "result": {
+                    "skipped": True,
+                    "from_auto": from_auto,
+                    "joined": 0,
+                    "failed": 0,
+                    "items": [],
+                    "targets": [],
+                },
+            }
 
         logger.info("三连参与开始：%s", ", ".join(target_titles))
         progress(
