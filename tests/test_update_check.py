@@ -77,7 +77,7 @@ def test_check_already_latest(monkeypatch) -> None:
     assert result.ok is True
     assert result.update_available is False
     assert "最新" in result.message
-    assert "macOS-arm64" in (result.hint or "")
+    assert "dmg" in (result.hint or "").lower() or "macOS-arm64" in (result.hint or "")
 
 
 def test_check_network_failure(monkeypatch) -> None:

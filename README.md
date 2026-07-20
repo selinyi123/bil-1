@@ -10,7 +10,8 @@
 |------|------|
 | Windows 安装包（推荐） | `Binggo-Setup-win64.exe` → 安装后访问 **http://127.0.0.1:8181** |
 | Windows 便携版 | 解压 `Binggo-Portable-win64.zip`，双击 `Binggo.exe` |
-| macOS（Apple Silicon） | 解压 `Binggo-macOS-arm64.zip`，**右键打开** `Binggo.app` |
+| macOS 安装盘（推荐） | 打开 `Binggo-macOS-arm64.dmg`，把 Binggo 拖到「应用程序」 |
+| macOS 便携版 | 解压 `Binggo-macOS-arm64.zip`，**右键打开** `Binggo.app` |
 | 源码开发 | 先构建前端，再 `python scripts/run_dashboard.py` → **http://127.0.0.1:8787** |
 
 > **Windows：** 安装包未做商业签名；若 SmartScreen 拦截，请选择「仍要运行」。  

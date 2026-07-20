@@ -53,7 +53,7 @@ def _platform_hint(platform: str) -> str:
     if platform == "windows":
         return "请下载 Binggo-Setup-win64.exe 或 Binggo-Portable-win64.zip"
     if platform == "macos":
-        return "请下载 Binggo-macOS-arm64.zip（需 Apple Silicon）"
+        return "请下载 Binggo-macOS-arm64.dmg（推荐，拖到应用程序）或 Binggo-macOS-arm64.zip"
     return "请到 GitHub Releases 下载对应平台安装包"
 
 
@@ -72,6 +72,10 @@ def _pick_download_url(assets: list[Any], platform: str) -> str | None:
                 if key in name and name.endswith((".exe", ".zip")):
                     return url
     if platform == "macos":
+        for key in ("macos-arm64", "macos", "darwin"):
+            for name, url in names:
+                if key in name and name.endswith(".dmg"):
+                    return url
         for key in ("macos-arm64", "macos", "darwin"):
             for name, url in names:
                 if key in name and name.endswith(".zip"):

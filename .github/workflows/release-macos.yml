@@ -27,7 +27,7 @@ jobs:
           cache: npm
           cache-dependency-path: web/frontend/package-lock.json
 
-      - name: Build macOS arm64 zip
+      - name: Build macOS arm64 zip + dmg
         run: bash packaging/macos/build.sh
 
       - name: Upload workflow artifacts
@@ -35,12 +35,16 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: binggo-macos-${{ github.sha }}
-          path: dist/Binggo-macOS-arm64.zip
+          path: |
+            dist/Binggo-macOS-arm64.zip
+            dist/Binggo-macOS-arm64.dmg
 
       - name: Upload release assets
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/Binggo-macOS-arm64.zip
+          files: |
+            dist/Binggo-macOS-arm64.zip
+            dist/Binggo-macOS-arm64.dmg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
