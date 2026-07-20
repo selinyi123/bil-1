@@ -4,6 +4,7 @@
 
 [![Release](https://img.shields.io/github/v/release/luovicter-collab/bilibinggo?style=flat-square)](https://github.com/luovicter-collab/bilibinggo/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/luovicter-collab/bilibinggo/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/luovicter-collab/bilibinggo/actions/workflows/ci.yml)
+[![Stars](https://img.shields.io/github/stars/luovicter-collab/bilibinggo?style=flat-square)](https://github.com/luovicter-collab/bilibinggo/stargazers)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12+-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 
@@ -255,11 +256,3 @@ python scripts/import_json_to_db.py
 ## License
 
 MIT
-
----
-
-## Star History
-
-[![GitHub stars](https://img.shields.io/github/stars/luovicter-collab/bilibinggo?style=social)](https://github.com/luovicter-collab/bilibinggo/stargazers)
-
-[查看 Star 增长曲线](https://www.star-history.com/#luovicter-collab/bilibinggo&Date)
