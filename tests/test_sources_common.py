@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
+from src.db.snapshots import load_ds_check_dict
 from src.sources.common import (
     CheckResult,
     extract_t_bilibili_links_with_hints,
@@ -28,10 +28,15 @@ def test_extract_t_bilibili_links_with_hints() -> None:
     }
 
 
-def test_save_result_only_writes_on_update(tmp_path: Path) -> None:
-    path = tmp_path / "ds_test.json"
+def test_save_result_only_writes_on_update(isolated_home: Path) -> None:
+    """写入隔离库；source_id 使用测试专用前缀，避免万一泄漏污染正式源列表。"""
+    from src.db.engine import db_path
+
+    assert db_path().resolve().is_relative_to(isolated_home.resolve())
+    source_id = "__pytest_ds__"
+    path = Path("ds_test.json")
     unchanged = CheckResult(
-        source_id="DS-TEST",
+        source_id=source_id,
         updated=False,
         container_url="https://example.com/container",
         container_id="c1",
@@ -42,10 +47,10 @@ def test_save_result_only_writes_on_update(tmp_path: Path) -> None:
         checked_at=99,
     )
     assert save_result(path, unchanged) is None
-    assert not path.exists()
+    assert load_ds_check_dict(source_id) is None
 
     updated = CheckResult(
-        source_id="DS-TEST",
+        source_id=source_id,
         updated=True,
         container_url="https://example.com/container",
         container_id="c1",
@@ -57,6 +62,7 @@ def test_save_result_only_writes_on_update(tmp_path: Path) -> None:
     )
     saved = save_result(path, updated)
     assert saved == path
-    data = json.loads(path.read_text(encoding="utf-8"))
+    data = load_ds_check_dict(source_id)
+    assert data is not None
     assert data["updated"] is True
     assert data["checked_at"] == 100

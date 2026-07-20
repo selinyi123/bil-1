@@ -13,7 +13,6 @@ from pathlib import Path
 import httpx
 
 from src.bilibili_rate_limit import acquire_bilibili_request_slot
-from src.app_paths import COOKIE_PATH
 
 DEFAULT_HEADERS = {
     "User-Agent": (
@@ -49,11 +48,14 @@ def api_code(payload: dict) -> int:
 
 
 def _load_cookie_string() -> str | None:
+    from src import app_paths
+
     env = os.environ.get("BILI_COOKIE", "").strip()
     if env:
         return env
-    if COOKIE_PATH.exists():
-        text = COOKIE_PATH.read_text(encoding="utf-8").strip()
+    path = app_paths.cookie_file()
+    if path.exists():
+        text = path.read_text(encoding="utf-8").strip()
         return text or None
     return None
 

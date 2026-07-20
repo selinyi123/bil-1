@@ -39,7 +39,7 @@ def main() -> int:
     seed = {
         "seed_version": 1,
         "exported_at": int(time.time()),
-        "source": str(args.source),
+        "source": "bundled",
         **cleaned,
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)

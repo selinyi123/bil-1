@@ -4,16 +4,20 @@ import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
-from src.llm_config import LLM_ENV_PATH, LlmConfig, _parse_env_file
+from src.llm_config import LlmConfig, _parse_env_file
 
 from urllib.parse import urlparse
 
 DEFAULT_LLM_BASE_URL = "https://www.autodl.art/api/v1"
 DEFAULT_LLM_MODEL_NAME = "DeepSeek-V4-Flash"
 
+_MODEL_NAME_MAX_LEN = 200
+
 
 def _llm_env_path() -> Path:
-    return LLM_ENV_PATH
+    from src import app_paths
+
+    return app_paths.llm_env_file()
 
 
 def _read_values() -> dict[str, str]:
@@ -27,7 +31,6 @@ def _config_fingerprint(api_key: str, base_url: str, model_name: str) -> str:
 
 def _write_values(values: dict[str, str]) -> None:
     path = _llm_env_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
     lines = [
         f"LLM_API_KEY={values.get('LLM_API_KEY', '')}",
         f"LLM_BASE_URL={values.get('LLM_BASE_URL', '')}",
@@ -36,7 +39,9 @@ def _write_values(values: dict[str, str]) -> None:
         f"LLM_TEST_FINGERPRINT={values.get('LLM_TEST_FINGERPRINT', '')}",
         "",
     ]
-    path.write_text("\n".join(lines), encoding="utf-8")
+    from src.secure_files import write_text_secret
+
+    write_text_secret(path, "\n".join(lines))
 
 
 def mask_api_key(api_key: str) -> str:
@@ -91,9 +96,12 @@ def _resolve_base_url(raw: str) -> str:
 def get_llm_config() -> LlmConfig | None:
     values = _read_values()
     api_key = values.get("LLM_API_KEY", "").strip()
-    base_url = _resolve_base_url(values.get("LLM_BASE_URL", ""))
     model_name = values.get("LLM_MODEL_NAME", "").strip()
     if not api_key or not model_name:
+        return None
+    try:
+        base_url = _resolve_base_url(values.get("LLM_BASE_URL", ""))
+    except ValueError:
         return None
     return LlmConfig(api_key=api_key, base_url=base_url, model_name=model_name)
 
@@ -169,6 +177,8 @@ def save_llm_settings(
         raise ValueError("请填写 LLM API Key")
     if not next_model:
         raise ValueError("请填写模型名称")
+    if len(next_model) > _MODEL_NAME_MAX_LEN:
+        raise ValueError(f"模型名称过长（最多 {_MODEL_NAME_MAX_LEN} 字符）")
 
     _write_values(
         {

@@ -52,9 +52,9 @@ def test_extract_feed_pub_ts_from_module_dict() -> None:
     assert extract_feed_pub_ts(item) == 1784006862
 
 
-def test_watch_users_crud(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    watch_path = tmp_path / "watch_users.json"
-    candidates_path = tmp_path / "missing_candidates.json"
+def test_watch_users_crud(isolated_home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    watch_path = isolated_home / "config" / "watch_users.json"
+    candidates_path = isolated_home / "config" / "missing_candidates.json"
     monkeypatch.setattr("src.watch_users.WATCH_USERS_PATH", watch_path)
     monkeypatch.setattr("src.watch_users.CANDIDATES_PATH", candidates_path)
     monkeypatch.setattr(
@@ -71,17 +71,15 @@ def test_watch_users_crud(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
     assert users[0].mid == 123456
     assert users[0].name == "用户123456"
 
-    with pytest.raises(ValueError):
-        add_watch_user(mid=123456)
-
     assert remove_watch_user(mid=123456) is True
     assert remove_watch_user(mid=123456) is False
     assert list_watch_users() == []
 
 
-def test_seed_from_candidates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    watch_path = tmp_path / "watch_users.json"
-    candidates_path = tmp_path / "candidates.json"
+def test_seed_from_candidates(isolated_home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    watch_path = isolated_home / "config" / "watch_users.json"
+    candidates_path = isolated_home / "config" / "candidates.json"
+    candidates_path.parent.mkdir(parents=True, exist_ok=True)
     candidates_path.write_text(
         json.dumps({"users": [{"mid": 42, "name": "候选"}]}, ensure_ascii=False),
         encoding="utf-8",

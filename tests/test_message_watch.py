@@ -1,23 +1,22 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
 
+from src.db.models import MessageWatchRow
+from src.db.session import session_scope
 from src.message_watch import (
     acknowledge_at_unread,
     evaluate_at_unread_alert,
     get_last_seen_at_unread,
-    message_watch_path,
 )
 
 
 @pytest.fixture
-def uid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> int:
-    watch_uid = 424242
-    monkeypatch.setattr("src.message_watch.user_dir", lambda value: tmp_path / str(value))
-    return watch_uid
+def uid(isolated_home: Path) -> int:
+    _ = isolated_home
+    return 424242
 
 
 def test_first_check_establishes_baseline_without_alert(uid: int) -> None:
@@ -55,7 +54,7 @@ def test_acknowledge_clears_pending_alert(uid: int) -> None:
 
 def test_message_watch_persists(uid: int) -> None:
     evaluate_at_unread_alert(uid, 7)
-    path = message_watch_path(uid)
-    assert path.exists()
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    assert payload["last_seen_unread_at"] == 7
+    with session_scope() as session:
+        row = session.get(MessageWatchRow, uid)
+        assert row is not None
+        assert row.last_seen_unread_at == 7

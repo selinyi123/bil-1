@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 import threading
-from pathlib import Path
+import time
 
-from src.state_store import DATA_DIR
+from sqlmodel import select
+
+from src.app_paths import DATA_DIR
+from src.db.json_cols import dumps_json, loads_json
+from src.db.models import ForwardParseCacheRow
+from src.db.session import session_scope
 
 CACHE_PATH = DATA_DIR / "cache" / "forward_parse_cache.json"
 _lock = threading.Lock()
@@ -18,46 +22,42 @@ def _content_hash(text: str) -> str:
 
 
 def load_cache() -> dict[str, dict]:
-    if not CACHE_PATH.exists():
-        return {}
-    try:
-        data = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return {}
-    entries = data.get("entries") or {}
-    return entries if isinstance(entries, dict) else {}
+    with session_scope() as session:
+        out: dict[str, dict] = {}
+        for row in session.exec(select(ForwardParseCacheRow)).all():
+            out[row.dynamic_id] = {
+                "content_hash": row.content_hash,
+                "parsed": loads_json(row.parsed_json, {}),
+            }
+        return out
 
 
 def get_cached_parse(dynamic_id: str, content_text: str) -> dict | None:
-    entry = load_cache().get(dynamic_id)
-    if not entry:
-        return None
-    if entry.get("content_hash") != _content_hash(content_text):
-        return None
-    parsed = entry.get("parsed")
-    return parsed if isinstance(parsed, dict) else None
+    with session_scope() as session:
+        row = session.get(ForwardParseCacheRow, str(dynamic_id))
+        if row is None:
+            return None
+        if row.content_hash != _content_hash(content_text):
+            return None
+        parsed = loads_json(row.parsed_json, None)
+        return parsed if isinstance(parsed, dict) else None
 
 
 def put_cached_parse(dynamic_id: str, content_text: str, parsed: dict) -> None:
     with _lock:
-        entries = load_cache()
-        entries[dynamic_id] = {
-            "content_hash": _content_hash(content_text),
-            "parsed": parsed,
-        }
-        CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        CACHE_PATH.write_text(
-            json.dumps({"entries": entries}, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-
-
-def merge_cache(updates: dict[str, dict]) -> None:
-    with _lock:
-        entries = load_cache()
-        entries.update(updates)
-        CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        CACHE_PATH.write_text(
-            json.dumps({"entries": entries}, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        now = int(time.time())
+        with session_scope() as session:
+            row = session.get(ForwardParseCacheRow, str(dynamic_id))
+            if row is None:
+                session.add(
+                    ForwardParseCacheRow(
+                        dynamic_id=str(dynamic_id),
+                        content_hash=_content_hash(content_text),
+                        parsed_json=dumps_json(parsed),
+                        updated_at=now,
+                    )
+                )
+            else:
+                row.content_hash = _content_hash(content_text)
+                row.parsed_json = dumps_json(parsed)
+                row.updated_at = now

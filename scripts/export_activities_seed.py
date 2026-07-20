@@ -47,7 +47,7 @@ def main() -> int:
     seed = {
         "seed_version": 1,
         "exported_at": now,
-        "source": str(args.source),
+        "source": "bundled",
         "activity_count": len(activities),
         "activities": activities,
     }

@@ -186,7 +186,9 @@ def sanitize_log(log: str) -> str:
         if not line:
             continue
         lines.append(line)
-    return "\n".join(lines).strip()
+    from src.log_redact import redact_text
+
+    return redact_text("\n".join(lines)).strip()
 
 
 def format_participation_log(payload: dict[str, Any]) -> str:

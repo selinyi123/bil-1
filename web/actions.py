@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextvars
 import io
 import re
 import threading
@@ -8,26 +9,17 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import redirect_stderr, redirect_stdout
 from typing import Any, Callable
 
+from src.app_logging import get_logger
 from src.bilibili_client import BilibiliClient
 from src.bilibili_login import login_with_qrcode
 from src.fetch_activity_info import mark_enriched_joined
-from src.app_logging import get_logger
-from src.lottery_classifier import PARTICIPATABLE_TYPES
+from src.log_span import PhaseSpanTracker, log_span
 from src.lottery_actions import ActionResult
+from src.lottery_classifier import PARTICIPATABLE_TYPES
 from src.participate_preflight import ensure_activity_participatable
 from src.participation import participate_activity
 from src.participation_log import participation_succeeded
 from src.pipeline.refresh_all_pipeline import PipelineResult, run_new_links_pipeline, run_refresh_all_pipeline
-from src.sources.common import CheckResult, commit_source_checkpoint, is_valid_dynamic_id
-from web.activity_service import (
-    PARTICIPATE_TRIPLE_LIMIT,
-    build_triple_progress_plan,
-    invalidate_activity_cache,
-    lookup_lottery_type,
-    pick_triple_participate_targets,
-    participate_step_budget,
-    resolve_participate_lottery_type,
-)
 from src.sources import (
     ds1_xiaozhuli,
     ds2_fanqiao,
@@ -36,8 +28,18 @@ from src.sources import (
     ds5_hudong,
     ds6_nuomi,
 )
-from src.status_refresh import refresh_local_activity_statuses
+from src.sources.common import CheckResult, commit_source_checkpoint, is_valid_dynamic_id
 from src.state_store import set_last_pipeline_persisted, set_watch_last_synced_at
+from src.status_refresh import refresh_local_activity_statuses
+from web.activity_service import (
+    PARTICIPATE_TRIPLE_LIMIT,
+    build_triple_progress_plan,
+    invalidate_activity_cache,
+    lookup_lottery_type,
+    participate_step_budget,
+    pick_triple_participate_targets,
+    resolve_participate_lottery_type,
+)
 from src.watch_sync import save_watch_result, sync_watch_forwards
 from web.user_messages import format_participation_log, sanitize_log
 
@@ -207,13 +209,26 @@ def _pipeline_substep_index(message: str) -> int:
     return 1
 
 
+_PIPELINE_PHASE_BY_SUBSTEP = {
+    1: ("pipeline_classify", "pipeline_classify"),
+    2: ("pipeline_detail", "pipeline_detail"),
+    3: ("pipeline_persist", "pipeline_persist"),
+}
+
+
 def _make_refresh_all_pipeline_progress(
     progress: ProgressCallback,
     *,
     ds_count: int,
+    span_tracker: PhaseSpanTracker | None = None,
 ) -> Callable[[int, int, str], None]:
     def on_pipeline_progress(done: int, total: int, message: str) -> None:
         substep = _pipeline_substep_index(message)
+        if span_tracker is not None:
+            phase_name = _PIPELINE_PHASE_BY_SUBSTEP.get(substep)
+            if phase_name:
+                phase, span_name = phase_name
+                span_tracker.set_phase(phase, name=span_name)
         progress(
             step=ds_count + substep,
             total=REFRESH_ALL_TOTAL,
@@ -223,9 +238,18 @@ def _make_refresh_all_pipeline_progress(
     return on_pipeline_progress
 
 
-def _make_refresh_watch_pipeline_progress(progress: ProgressCallback) -> Callable[[int, int, str], None]:
+def _make_refresh_watch_pipeline_progress(
+    progress: ProgressCallback,
+    *,
+    span_tracker: PhaseSpanTracker | None = None,
+) -> Callable[[int, int, str], None]:
     def on_pipeline_progress(done: int, total: int, message: str) -> None:
         substep = _pipeline_substep_index(message)
+        if span_tracker is not None:
+            phase_name = _PIPELINE_PHASE_BY_SUBSTEP.get(substep)
+            if phase_name:
+                phase, span_name = phase_name
+                span_tracker.set_phase(phase, name=span_name)
         progress(
             step=1 + substep,
             total=REFRESH_WATCH_TOTAL,
@@ -267,8 +291,15 @@ def _run_ds_check(
     check_update: Callable[..., Any],
     save_result: Callable[[Any], Any],
 ) -> tuple[int, dict[str, Any], str, CheckResult]:
-    result, detail = _capture_output(check_update, force=False)
-    out_path = save_result(result)
+    with log_span(
+        f"ds_check:{source_id}",
+        logger=logger,
+        component="ds",
+        source_id=source_id,
+        phase="ds_check",
+    ):
+        result, detail = _capture_output(check_update, force=False)
+        out_path = save_result(result)
     status_text = "发现新专栏，已爬取" if result.updated else "同一专栏，已跳过"
     log_line = f"【{source_id}】{status_text}，共 {len(result.activity_links)} 条链接"
     payload = {
@@ -283,6 +314,11 @@ def _run_ds_check(
     return index, payload, log_line, result
 
 
+def _raise_if_cancelled(cancel_event: threading.Event | None) -> None:
+    if cancel_event is not None and cancel_event.is_set():
+        raise ValueError("任务已取消")
+
+
 def run_action(
     action: str,
     params: dict[str, Any] | None = None,
@@ -293,6 +329,7 @@ def run_action(
     params = params or {}
     progress = on_progress or _noop_progress
     log_lines: list[str] = []
+    _raise_if_cancelled(cancel_event)
 
     if action == "login":
         qrcode_refresh_count = 0
@@ -359,14 +396,24 @@ def run_action(
             total=REFRESH_ALL_TOTAL,
             message=f"正在并行检查 {len(DS_HANDLERS)} 个数据源…",
         )
+        _raise_if_cancelled(cancel_event)
 
         ds_payloads: list[tuple[int, dict[str, Any], str, CheckResult]] = []
         with ThreadPoolExecutor(max_workers=len(DS_HANDLERS)) as executor:
+            # 每个 future 各自 copy_context：同一 Context 不能被多线程并发 enter
             futures = {
-                executor.submit(_run_ds_check, index, source_id, check_update, save_result): source_id
+                executor.submit(
+                    contextvars.copy_context().run,
+                    _run_ds_check,
+                    index,
+                    source_id,
+                    check_update,
+                    save_result,
+                ): source_id
                 for index, (source_id, check_update, save_result) in enumerate(DS_HANDLERS, start=1)
             }
             for future in as_completed(futures):
+                _raise_if_cancelled(cancel_event)
                 source_id = futures[future]
                 try:
                     ds_payloads.append(future.result())
@@ -376,6 +423,7 @@ def run_action(
         ds_payloads.sort(key=lambda item: item[0])
         ds_check_results: list[CheckResult] = []
         for index, payload, log_line, check_result in ds_payloads:
+            _raise_if_cancelled(cancel_event)
             ds_check_results.append(check_result)
             if payload.get("updated"):
                 sources_updated += 1
@@ -419,16 +467,27 @@ def run_action(
                 "log": sanitize_log("\n".join(log_lines).strip()),
             }
 
+        _raise_if_cancelled(cancel_event)
         pipeline_step = len(DS_HANDLERS) + 1
         progress(step=pipeline_step, total=REFRESH_ALL_TOTAL, message="正在分类新链接…")
 
-        pipeline_result = run_refresh_all_pipeline(
-            ds_check_results,
-            on_progress=_make_refresh_all_pipeline_progress(
-                progress,
-                ds_count=len(DS_HANDLERS),
-            ),
-        )
+        pipeline_spans = PhaseSpanTracker(logger=logger, component="pipeline")
+        pipeline_error: str | None = None
+        try:
+            pipeline_result = run_refresh_all_pipeline(
+                ds_check_results,
+                on_progress=_make_refresh_all_pipeline_progress(
+                    progress,
+                    ds_count=len(DS_HANDLERS),
+                    span_tracker=pipeline_spans,
+                ),
+            )
+        except Exception as exc:
+            pipeline_error = type(exc).__name__
+            raise
+        finally:
+            pipeline_spans.close(error_kind=pipeline_error)
+        _raise_if_cancelled(cancel_event)
         for check_result in ds_check_results:
             commit_source_checkpoint(check_result)
         invalidate_activity_cache()
@@ -482,7 +541,9 @@ def run_action(
             total=REFRESH_SOURCE_TOTAL,
             message=f"正在检查 {source_id}…",
         )
+        _raise_if_cancelled(cancel_event)
         _, payload, log_line, check_result = _run_ds_check(1, source_id, check_update, save_result)
+        _raise_if_cancelled(cancel_event)
         log_lines.append(log_line)
         progress(
             step=1,
@@ -520,14 +581,25 @@ def run_action(
                 "log": sanitize_log("\n".join(log_lines).strip()),
             }
 
+        _raise_if_cancelled(cancel_event)
         progress(step=2, total=REFRESH_SOURCE_TOTAL, message="正在分类新链接…")
-        pipeline_result = run_refresh_all_pipeline(
-            [check_result],
-            on_progress=_make_refresh_all_pipeline_progress(
-                progress,
-                ds_count=1,
-            ),
-        )
+        pipeline_spans = PhaseSpanTracker(logger=logger, component="pipeline")
+        pipeline_error: str | None = None
+        try:
+            pipeline_result = run_refresh_all_pipeline(
+                [check_result],
+                on_progress=_make_refresh_all_pipeline_progress(
+                    progress,
+                    ds_count=1,
+                    span_tracker=pipeline_spans,
+                ),
+            )
+        except Exception as exc:
+            pipeline_error = type(exc).__name__
+            raise
+        finally:
+            pipeline_spans.close(error_kind=pipeline_error)
+        _raise_if_cancelled(cancel_event)
         commit_source_checkpoint(check_result)
         invalidate_activity_cache()
         for line in _pipeline_log_lines(pipeline_result):
@@ -577,11 +649,15 @@ def run_action(
     if action == "refresh_watch":
         log_lines: list[str] = []
         progress(step=0, total=REFRESH_WATCH_TOTAL, message="准备扫描监控用户动态…")
+        _raise_if_cancelled(cancel_event)
 
         def on_watch_progress(done: int, total: int, message: str) -> None:
+            _raise_if_cancelled(cancel_event)
             progress(step=1, total=REFRESH_WATCH_TOTAL, message=message)
 
-        watch_result = sync_watch_forwards(on_progress=on_watch_progress)
+        with log_span("watch_scan", logger=logger, component="pipeline", phase="watch_scan"):
+            watch_result = sync_watch_forwards(on_progress=on_watch_progress)
+        _raise_if_cancelled(cancel_event)
         watch_line = (
             f"【监控扫描】窗口内 {watch_result.link_count} 条活动链接，"
             f"成功扫描 {watch_result.users_ok}/{watch_result.users_total} 人"
@@ -596,11 +672,24 @@ def run_action(
 
         pipeline_step = 2
         progress(step=pipeline_step, total=REFRESH_WATCH_TOTAL, message="正在分类新链接…")
+        _raise_if_cancelled(cancel_event)
 
-        pipeline_result = run_new_links_pipeline(
-            watch_result.activity_links,
-            on_progress=_make_refresh_watch_pipeline_progress(progress),
-        )
+        pipeline_spans = PhaseSpanTracker(logger=logger, component="pipeline")
+        pipeline_error: str | None = None
+        try:
+            pipeline_result = run_new_links_pipeline(
+                watch_result.activity_links,
+                on_progress=_make_refresh_watch_pipeline_progress(
+                    progress,
+                    span_tracker=pipeline_spans,
+                ),
+            )
+        except Exception as exc:
+            pipeline_error = type(exc).__name__
+            raise
+        finally:
+            pipeline_spans.close(error_kind=pipeline_error)
+        _raise_if_cancelled(cancel_event)
         invalidate_activity_cache()
         for line in _pipeline_log_lines(pipeline_result):
             log_lines.append(line)
@@ -641,7 +730,15 @@ def run_action(
 
     if action == "refresh_status":
         progress(step=0, total=1, message="正在刷新活动状态…")
-        result = refresh_local_activity_statuses()
+        _raise_if_cancelled(cancel_event)
+        with log_span(
+            "status_refresh",
+            logger=logger,
+            component="pipeline",
+            phase="status_refresh",
+        ):
+            result = refresh_local_activity_statuses()
+        _raise_if_cancelled(cancel_event)
         invalidate_activity_cache()
         if result.get("skipped"):
             message = "没有需要刷新的进行中活动"
@@ -669,6 +766,7 @@ def run_action(
         dynamic_id = str(params.get("dynamic_id") or "").strip()
         if not is_valid_dynamic_id(dynamic_id):
             raise ValueError("活动 ID 无效")
+        _raise_if_cancelled(cancel_event)
         try:
             lottery_type = lookup_lottery_type(dynamic_id)
         except RuntimeError as exc:
@@ -679,10 +777,13 @@ def run_action(
         logger.info("开始参与活动 %s (%s)", dynamic_id, lottery_type)
 
         def on_step(step: int, total: int, message: str, _action_name: str) -> None:
+            _raise_if_cancelled(cancel_event)
             progress(step=step, total=total, message=message, log_append=message)
 
         with BilibiliClient() as client:
+            _raise_if_cancelled(cancel_event)
             ensure_activity_participatable(client, dynamic_id, lottery_type_hint=lottery_type)
+            _raise_if_cancelled(cancel_event)
             progress(step=0, total=total_steps, message="检查通过，开始参与…", log_append="活动可参与，开始执行参与步骤")
             payload = _participate_dynamic_payload(
                 dynamic_id,
@@ -704,8 +805,7 @@ def run_action(
         }
 
     if action == "participate_triple":
-        if cancel_event and cancel_event.is_set():
-            raise ValueError("任务已取消")
+        _raise_if_cancelled(cancel_event)
 
         filters = _list_filter_params(params)
         targets = pick_triple_participate_targets(**filters)
@@ -863,8 +963,13 @@ def run_action(
         results: list[dict[str, Any]] = []
         _emit_triple_progress()
         with ThreadPoolExecutor(max_workers=PARTICIPATE_TRIPLE_WORKERS) as executor:
+            # 每个 future 各自 copy_context：同一 Context 不能被多线程并发 enter
             future_to_id = {
-                executor.submit(_participate_triple_target, target): str(target.get("dynamic_id") or "")
+                executor.submit(
+                    contextvars.copy_context().run,
+                    _participate_triple_target,
+                    target,
+                ): str(target.get("dynamic_id") or "")
                 for target in targets
             }
             try:

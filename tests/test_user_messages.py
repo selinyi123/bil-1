@@ -30,6 +30,12 @@ def test_friendly_error_invalid_dynamic_id() -> None:
     assert friendly_error(ValueError("活动 ID 无效")) == "未找到活动信息，请刷新页面后重试"
 
 
+def test_sanitize_log_redacts_cookie_fields() -> None:
+    cleaned = sanitize_log("login ok SESSDATA=secret_value_here bili_jct=abc123")
+    assert "secret_value_here" not in cleaned
+    assert "SESSDATA=***" in cleaned or "***" in cleaned
+
+
 def test_sanitize_log_strips_uvicorn_stack() -> None:
     log = (
         "=== DS-2 检查 ===\n"

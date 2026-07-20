@@ -32,9 +32,10 @@ def _updated_result(*, source_id: str = "DS-2", cv_id: str | None = None) -> Che
     )
 
 
-def test_commit_source_checkpoint_writes_only_when_updated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("src.state_store.DATA_DIR", tmp_path)
-    monkeypatch.setattr("src.state_store.STATE_PATH", tmp_path / "state.json")
+def test_commit_source_checkpoint_writes_only_when_updated(
+    isolated_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _ = isolated_home
     save_state({"sources": {}})
 
     unchanged = _updated_result()
@@ -46,9 +47,10 @@ def test_commit_source_checkpoint_writes_only_when_updated(tmp_path: Path, monke
     assert get_last_container("DS-2") == "https://www.bilibili.com/read/cv999001"
 
 
-def test_commit_source_checkpoint_keeps_cv_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("src.state_store.DATA_DIR", tmp_path)
-    monkeypatch.setattr("src.state_store.STATE_PATH", tmp_path / "state.json")
+def test_commit_source_checkpoint_keeps_cv_id(
+    isolated_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _ = isolated_home
     save_state({"sources": {}})
 
     commit_source_checkpoint(
@@ -58,11 +60,13 @@ def test_commit_source_checkpoint_keeps_cv_id(tmp_path: Path, monkeypatch: pytes
     assert get_last_cv_id("DS-5") == "555001"
 
 
-def test_ds2_check_update_does_not_write_checkpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("src.sources.ds2_fanqiao.DATA_DIR", tmp_path)
-    monkeypatch.setattr("src.sources.ds2_fanqiao.OUTPUT_PATH", tmp_path / "ds2_latest.json")
-    monkeypatch.setattr("src.state_store.DATA_DIR", tmp_path)
-    monkeypatch.setattr("src.state_store.STATE_PATH", tmp_path / "state.json")
+def test_ds2_check_update_does_not_write_checkpoint(
+    isolated_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("src.sources.ds2_fanqiao.DATA_DIR", isolated_home / "data")
+    monkeypatch.setattr(
+        "src.sources.ds2_fanqiao.OUTPUT_PATH", isolated_home / "data" / "ds2_latest.json"
+    )
     save_state(
         {
             "sources": {
@@ -103,11 +107,10 @@ def test_ds2_check_update_does_not_write_checkpoint(tmp_path: Path, monkeypatch:
 
 
 def test_refresh_source_commits_checkpoint_only_after_pipeline_success(
-    tmp_path: Path,
+    isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("src.state_store.DATA_DIR", tmp_path)
-    monkeypatch.setattr("src.state_store.STATE_PATH", tmp_path / "state.json")
+    _ = isolated_home
     save_state(
         {
             "sources": {
@@ -153,11 +156,10 @@ def test_refresh_source_commits_checkpoint_only_after_pipeline_success(
 
 
 def test_refresh_source_keeps_checkpoint_when_pipeline_fails(
-    tmp_path: Path,
+    isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("src.state_store.DATA_DIR", tmp_path)
-    monkeypatch.setattr("src.state_store.STATE_PATH", tmp_path / "state.json")
+    _ = isolated_home
     save_state(
         {
             "sources": {

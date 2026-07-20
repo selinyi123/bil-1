@@ -12,6 +12,9 @@ client = TestClient(app)
 def test_reject_unknown_job_action() -> None:
     resp = client.post("/api/jobs", json={"action": "delete_all", "params": {}})
     assert resp.status_code == 400
+    data = resp.json()
+    assert data["error"]["code"] == "UNSUPPORTED_ACTION"
+    assert data["detail"] == data["error"]["message"]
 
 
 def test_watch_users_api_seeds_and_lists() -> None:
@@ -29,7 +32,7 @@ def test_watch_users_api_seeds_and_lists() -> None:
 
 
 def test_participate_triple_job_accepts_filter_params() -> None:
-    with patch("web.app.runner.start", return_value=True) as start_mock:
+    with patch("web.app.runner.try_start", return_value=1) as start_mock:
         resp = client.post(
             "/api/jobs",
             json={

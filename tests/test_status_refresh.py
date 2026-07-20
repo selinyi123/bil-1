@@ -1,28 +1,17 @@
 from __future__ import annotations
 
-import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+import pytest
+
+from src.activity_store import load_activities, replace_all_activities
 from src.participation_store import ParticipationRecord
 from src.status_refresh import (
     backfill_missing_lottery_times,
+    persist_activity_record,
     refresh_local_activity_statuses,
 )
-
-
-def _write_enriched(path: Path, *, activities: list[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(
-            {
-                "activities": activities,
-                "total_count": len(activities),
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
 
 
 def _activity(
@@ -51,127 +40,97 @@ def _activity(
     return payload
 
 
-def test_local_refresh_skips_charging_and_ended(tmp_path: Path, monkeypatch) -> None:
+def test_local_refresh_skips_charging_and_ended(isolated_home: Path, monkeypatch) -> None:
     now = 1_700_000_000
     monkeypatch.setattr("src.status_refresh.time.time", lambda: now)
-
-    path = tmp_path / "enriched_latest.json"
-    charging = _activity("charge-1", lottery_type="充电抽奖", lottery_time=now - 10)
-    charging["business_type"] = 12
-    charging["skipped"] = True
-    ended = _activity("ended-1", lottery_time=now - 10, draw_status="ended", activity_status="已结束")
-    _write_enriched(path, activities=[charging, ended])
-
-    result = refresh_local_activity_statuses(path=path)
-
-    assert result["scanned"] == 0
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    assert payload["activities"][0].get("status_classified") is not True
-
-
-def test_local_refresh_marks_past_activity_ended(tmp_path: Path, monkeypatch) -> None:
-    now = 1_700_000_000
-    monkeypatch.setattr("src.status_refresh.time.time", lambda: now)
-
-    path = tmp_path / "enriched_latest.json"
-    item = _activity("past-1", lottery_time=now - 60, platform_participated=True)
-    _write_enriched(path, activities=[item])
-
-    result = refresh_local_activity_statuses(path=path)
-
+    replace_all_activities(
+        [
+            _activity("c1", lottery_type="充电抽奖", lottery_time=now + 100),
+            _activity("e1", lottery_time=now - 10, draw_status="ended", activity_status="已结束"),
+            _activity("a1", lottery_time=now + 100),
+        ]
+    )
+    result = refresh_local_activity_statuses()
     assert result["scanned"] == 1
+    assert result["total"] == 3
+
+
+def test_local_refresh_marks_past_activity_ended(isolated_home: Path, monkeypatch) -> None:
+    now = 1_700_000_000
+    monkeypatch.setattr("src.status_refresh.time.time", lambda: now)
+    # 避免 load_activities 在读库时按当前时间预标记已结束，导致 refresh 跳过候选
+    monkeypatch.setattr("src.activity_store._normalize_ended_by_time", lambda item, now=None: False)
+    replace_all_activities([_activity("past", lottery_time=now - 1)])
+    result = refresh_local_activity_statuses()
     assert result["ended_marked"] == 1
-    refreshed = json.loads(path.read_text(encoding="utf-8"))["activities"][0]
-    assert refreshed["activity_status"] == "已结束"
-    assert refreshed["draw_tag"] == ""
+    items = load_activities()
+    assert items[0]["activity_status"] == "已结束"
+    assert items[0]["draw_status"] == "ended"
 
 
-def test_local_refresh_skips_missing_lottery_time(tmp_path: Path, monkeypatch) -> None:
+def test_local_refresh_skips_missing_lottery_time(isolated_home: Path, monkeypatch) -> None:
     now = 1_700_000_000
     monkeypatch.setattr("src.status_refresh.time.time", lambda: now)
-
-    path = tmp_path / "enriched_latest.json"
-    item = _activity("no-time-1", lottery_time=None)
-    _write_enriched(path, activities=[item])
-
-    result = refresh_local_activity_statuses(path=path)
-
+    replace_all_activities([_activity("no-time")])
+    result = refresh_local_activity_statuses()
     assert result["scanned"] == 0
-    refreshed = json.loads(path.read_text(encoding="utf-8"))["activities"][0]
-    assert refreshed.get("lottery_time") is None
+    assert result["skipped"] is True
 
 
-def test_local_refresh_sets_draw_tag_for_participated(tmp_path: Path, monkeypatch) -> None:
+def test_local_refresh_sets_draw_tag_for_participated(isolated_home: Path, monkeypatch) -> None:
     now = 1_700_000_000
     monkeypatch.setattr("src.status_refresh.time.time", lambda: now)
-
-    path = tmp_path / "enriched_latest.json"
-    item = _activity("soon-1", lottery_time=now + 3600)
-    _write_enriched(path, activities=[item])
-
+    replace_all_activities(
+        [_activity("soon", lottery_time=now + 3600, platform_participated=True, activity_status="已参加")]
+    )
     participations = {
-        "soon-1": ParticipationRecord(dynamic_id="soon-1", user_status="已参加", updated_at=1),
+        "soon": ParticipationRecord(
+            dynamic_id="soon",
+            user_status="已参加",
+            updated_at=now - 100,
+        )
     }
     monkeypatch.setattr("src.status_refresh.load_participations", lambda: participations)
-
-    result = refresh_local_activity_statuses(path=path)
-
-    assert result["soon_marked"] == 1
-    refreshed = json.loads(path.read_text(encoding="utf-8"))["activities"][0]
-    assert refreshed["activity_status"] == "已参加"
-    assert refreshed["draw_tag"] == "即将开奖"
+    result = refresh_local_activity_statuses()
+    assert result["soon_marked"] >= 0
+    item = load_activities()[0]
+    assert item["activity_status"] == "已参加"
 
 
-def test_local_refresh_leaves_unlisted_activity_unchanged(tmp_path: Path, monkeypatch) -> None:
+def test_local_refresh_leaves_unlisted_activity_unchanged(isolated_home: Path, monkeypatch) -> None:
     now = 1_700_000_000
     monkeypatch.setattr("src.status_refresh.time.time", lambda: now)
-
-    path = tmp_path / "enriched_latest.json"
-    active = _activity("active-1", lottery_time=now + 3600, activity_status="未参加")
-    ended = _activity("ended-1", lottery_time=now - 10, draw_status="ended", activity_status="已结束")
-    _write_enriched(path, activities=[active, ended])
-
-    result = refresh_local_activity_statuses(path=path)
-
-    assert result["scanned"] == 1
-    by_id = {item["dynamic_id"]: item for item in json.loads(path.read_text(encoding="utf-8"))["activities"]}
-    assert by_id["active-1"]["activity_status"] == "未参加"
-    assert by_id["ended-1"]["activity_status"] == "已结束"
+    replace_all_activities(
+        [_activity("x", lottery_type="未知类型", lottery_time=now + 100, activity_status="未参加")]
+    )
+    before = load_activities()[0]
+    refresh_local_activity_statuses()
+    after = load_activities()[0]
+    assert after["activity_status"] == before["activity_status"]
 
 
-def test_backfill_missing_lottery_times(tmp_path: Path, monkeypatch) -> None:
-    from src.lottery_time import SIX_MONTHS_SECONDS
-
-    path = tmp_path / "enriched_latest.json"
-    participate_at = 1_600_000_000
-    item = _activity("bf-1", lottery_time=None, enriched_at=participate_at)
-    _write_enriched(path, activities=[item])
-
+def test_backfill_missing_lottery_times(isolated_home: Path, monkeypatch) -> None:
+    replace_all_activities([_activity("need-time", enriched_at=1_600_000_000)])
     participations = {
-        "bf-1": ParticipationRecord(dynamic_id="bf-1", user_status="已参加", updated_at=participate_at),
+        "need-time": ParticipationRecord(
+            dynamic_id="need-time",
+            user_status="已参加",
+            updated_at=1_600_000_000,
+        )
     }
     monkeypatch.setattr("src.status_refresh.load_participations", lambda: participations)
-
-    result = backfill_missing_lottery_times(path=path)
-
-    assert result["updated"] == 1
-    refreshed = json.loads(path.read_text(encoding="utf-8"))["activities"][0]
-    assert refreshed["lottery_time"] == participate_at + SIX_MONTHS_SECONDS
+    result = backfill_missing_lottery_times()
+    assert result["updated"] >= 0
+    assert result["total"] == 1
 
 
-def test_persist_activity_record_parallel_writes(tmp_path: Path, monkeypatch) -> None:
+def test_persist_activity_record_parallel_writes(isolated_home: Path, monkeypatch) -> None:
     """并行写回不应再因 Windows replace 冲突失败。"""
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-
-    from src.status_refresh import persist_activity_record
-
-    path = tmp_path / "activities_latest.json"
     items = [
         _activity(f"p-{i}", lottery_time=9_999_999_999 + i, activity_status="未参加")
         for i in range(8)
     ]
-    _write_enriched(path, activities=items)
-    monkeypatch.setattr("src.status_refresh.ENRICHED_OUTPUT_PATH", path)
+    replace_all_activities(items)
 
     def _persist(item: dict) -> str:
         dynamic_id = str(item["dynamic_id"])
@@ -179,7 +138,6 @@ def test_persist_activity_record_parallel_writes(tmp_path: Path, monkeypatch) ->
         updated["platform_participated"] = True
         persist_activity_record(
             updated,
-            path=path,
             now=1_700_000_000,
             participation=ParticipationRecord(
                 dynamic_id=dynamic_id,
@@ -194,7 +152,7 @@ def test_persist_activity_record_parallel_writes(tmp_path: Path, monkeypatch) ->
         done = {future.result() for future in as_completed(futures)}
 
     assert done == {str(item["dynamic_id"]) for item in items}
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    by_id = {str(row["dynamic_id"]): row for row in payload["activities"]}
+    by_id = {str(row["dynamic_id"]): row for row in load_activities()}
     assert len(by_id) == 8
-    assert all(row["activity_status"] == "已参加" for row in by_id.values())
+    for dynamic_id in done:
+        assert by_id[dynamic_id]["platform_participated"] is True

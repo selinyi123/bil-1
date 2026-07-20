@@ -1,16 +1,16 @@
-"""定时点击调度器：进程内直连 JobRunner，只点 4 个按钮，撞车即停，绝不 cancel。"""
+"""定时点击调度器：只向 JobRunner 投递意图，撞车即停，绝不 cancel。"""
 
 from __future__ import annotations
 
 import threading
 import time
-import traceback
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
+from src.app_logging import get_logger
 from web.auto_config import (
     ACTION_LABELS,
     ALLOWED_CLICK_ACTIONS,
@@ -19,8 +19,11 @@ from web.auto_config import (
     REFRESH_HOURS,
     TRIPLE_MINUTES,
 )
+from web.event_hub import event_hub
 from web.job_runner import JobRunner, runner
+from web.user_messages import friendly_error
 
+logger = get_logger("auto")
 CN_TZ = ZoneInfo("Asia/Shanghai")
 SchedulerState = Literal["idle", "running", "stopped", "fatal"]
 STATE_LABELS = {
@@ -34,6 +37,8 @@ REFRESH_STEPS = (
     {"action": "refresh_watch", "label": "更新监控用户动态"},
     {"action": "refresh_status", "label": "刷新任务状态"},
 )
+_AUTO_SNAPSHOT_MIN_INTERVAL_SEC = 0.5
+_AUTO_SNAPSHOT_LOG_LIMIT = 30
 
 
 class CollisionError(RuntimeError):
@@ -108,6 +113,9 @@ class AutoScheduler:
         self._status = SchedulerStatus(refresh_pipeline=_idle_pipeline())
         self._done_refresh: set[str] = set()
         self._done_triple: set[str] = set()
+        self._snapshot_timer: threading.Timer | None = None
+        self._last_snapshot_mono = 0.0
+        self._snapshot_pending = False
 
     def get_status(self) -> dict[str, Any]:
         now = datetime.now(CN_TZ)
@@ -143,6 +151,7 @@ class AutoScheduler:
             self._thread = threading.Thread(target=self._loop, name="binggo-auto-scheduler", daemon=True)
             self._thread.start()
         self._log("info", "调度器已启动（仅点击 4 个按钮，不干涉抽奖程序其它功能）")
+        self._schedule_auto_snapshot(force=True)
         return self.get_status()
 
     def stop(self, *, reason: str = "用户停止") -> dict[str, Any]:
@@ -156,6 +165,7 @@ class AutoScheduler:
                 self._status.current_phase = ""
                 self._status.refresh_pipeline = _idle_pipeline()
         self._log("warn", f"调度器已停止：{reason}")
+        self._schedule_auto_snapshot(force=True)
         return self.get_status()
 
     def _fatal(self, message: str) -> None:
@@ -171,20 +181,98 @@ class AutoScheduler:
                 "active": False,
             }
         self._log("error", f"致命停机：{message}")
+        self._schedule_auto_snapshot(force=True)
 
     def _log(self, level: str, message: str) -> None:
         entry = LogEntry(ts=_now_iso(), level=level, message=message)
         with self._lock:
             self._logs.append(entry)
+        self._publish_auto_log(entry)
 
     def _set_phase(self, phase: str, message: str | None = None) -> None:
         with self._lock:
+            prev = (
+                self._status.current_phase,
+                self._status.message,
+                (self._status.next_slot or {}).get("due_at"),
+            )
             self._status.current_phase = phase
             if message is not None:
                 self._status.message = message
             slot = _next_slot(datetime.now(CN_TZ))
             self._status.next_slot = slot
             self._status.next_hint = slot.get("hint") or ""
+            changed = prev != (
+                self._status.current_phase,
+                self._status.message,
+                (self._status.next_slot or {}).get("due_at"),
+            )
+        if changed:
+            self._schedule_auto_snapshot(force=False)
+
+    def _publish_auto_log(self, entry: LogEntry) -> None:
+        try:
+            event_hub.publish(
+                "auto.log",
+                {
+                    "level": entry.level,
+                    "message": entry.message,
+                    "log_ts": entry.ts,
+                },
+            )
+        except Exception:
+            logger.exception("发布 auto.log 失败")
+
+    def _schedule_auto_snapshot(self, *, force: bool = False) -> None:
+        """变更合并推送；fatal/stopped/启停 force 立即发。"""
+        with self._lock:
+            if force:
+                if self._snapshot_timer is not None:
+                    self._snapshot_timer.cancel()
+                    self._snapshot_timer = None
+                self._snapshot_pending = False
+                should_emit_now = True
+            else:
+                now = time.monotonic()
+                elapsed = now - self._last_snapshot_mono
+                if elapsed >= _AUTO_SNAPSHOT_MIN_INTERVAL_SEC:
+                    should_emit_now = True
+                    if self._snapshot_timer is not None:
+                        self._snapshot_timer.cancel()
+                        self._snapshot_timer = None
+                    self._snapshot_pending = False
+                else:
+                    should_emit_now = False
+                    self._snapshot_pending = True
+                    if self._snapshot_timer is None:
+                        delay = max(0.05, _AUTO_SNAPSHOT_MIN_INTERVAL_SEC - elapsed)
+
+                        def _fire() -> None:
+                            with self._lock:
+                                self._snapshot_timer = None
+                                if not self._snapshot_pending:
+                                    return
+                                self._snapshot_pending = False
+                            self._emit_auto_snapshot()
+
+                        self._snapshot_timer = threading.Timer(delay, _fire)
+                        self._snapshot_timer.daemon = True
+                        self._snapshot_timer.start()
+        if should_emit_now:
+            self._emit_auto_snapshot()
+
+    def _emit_auto_snapshot(self) -> None:
+        try:
+            payload = self.get_status()
+            logs = payload.get("logs")
+            if isinstance(logs, list) and len(logs) > _AUTO_SNAPSHOT_LOG_LIMIT:
+                payload = dict(payload)
+                payload["logs"] = logs[-_AUTO_SNAPSHOT_LOG_LIMIT:]
+            event_hub.publish("auto.snapshot", payload)
+            with self._lock:
+                self._last_snapshot_mono = time.monotonic()
+        except Exception:
+            logger.exception("发布 auto.snapshot 失败")
 
     def _set_pipeline(self, *, active: bool, step_index: int = -1, waiting: bool = False) -> None:
         steps = []
@@ -198,13 +286,23 @@ class AutoScheduler:
             else:
                 status = "pending"
             steps.append({**item, "status": status, "index": i})
+        pipeline = {
+            "active": active,
+            "step_index": step_index,
+            "waiting": waiting,
+            "steps": steps,
+        }
         with self._lock:
-            self._status.refresh_pipeline = {
-                "active": active,
-                "step_index": step_index,
-                "waiting": waiting,
-                "steps": steps,
-            }
+            prev = self._status.refresh_pipeline
+            if (
+                prev
+                and prev.get("active") == pipeline["active"]
+                and prev.get("step_index") == pipeline["step_index"]
+                and prev.get("waiting") == pipeline["waiting"]
+            ):
+                return
+            self._status.refresh_pipeline = pipeline
+        self._schedule_auto_snapshot(force=False)
 
     def _loop(self) -> None:
         try:
@@ -234,7 +332,8 @@ class AutoScheduler:
         except CollisionError as exc:
             self._fatal(f"任务撞车：{exc}")
         except Exception as exc:
-            self._fatal(f"未预期错误：{exc}\n{traceback.format_exc()[-800:]}")
+            logger.exception("定时调度未预期错误")
+            self._fatal(f"未预期错误：{friendly_error(exc)}")
 
     def _run_refresh_batch(self, key: str) -> None:
         self._set_phase("刷新批次", f"开始刷新批次 {key}")
@@ -312,7 +411,9 @@ class AutoScheduler:
                 f"（action={current.get('action')}, message={current.get('message')}）"
             )
 
-        if not self._runner.start(action, {"from_auto": True} if action == "participate_triple" else {}):
+        params = {"from_auto": True} if action == "participate_triple" else {}
+        job_id = self._runner.try_start(action, params, source="auto")
+        if job_id is None:
             raise CollisionError(f"点击「{label}」失败：已有任务正在运行")
 
         with self._lock:
@@ -321,12 +422,14 @@ class AutoScheduler:
                 "label": label,
                 "at": _now_iso(),
                 "response_ok": True,
+                "job_id": job_id,
             }
+        self._schedule_auto_snapshot(force=False)
 
         if pipeline_index is not None:
             self._set_pipeline(active=True, step_index=pipeline_index, waiting=True)
 
-        final = self._wait_until_idle(label)
+        final = self._wait_until_terminal(job_id, label)
         state = str(final.get("state") or "")
         msg = str(final.get("message") or "")
         result = final.get("result") if isinstance(final.get("result"), dict) else {}
@@ -334,12 +437,16 @@ class AutoScheduler:
             action == "participate_triple" and state == "error" and _is_triple_empty_skip(msg)
         ):
             return {"skipped": True, "message": msg, "job": final}
-        if state == "error":
-            raise RuntimeError(msg or f"「{label}」以 error 结束")
+        if state == "cancelled":
+            raise RuntimeError(msg or f"「{label}」已取消")
+        if state in {"error", "interrupted"}:
+            raise RuntimeError(msg or f"「{label}」以 {state} 结束")
+        if state != "success":
+            raise RuntimeError(msg or f"「{label}」异常结束：state={state}")
         return {"skipped": False, "message": msg, "job": final}
 
-    def _wait_until_idle(self, label: str) -> dict[str, Any]:
-        """只读轮询 JobRunner，直到任务不再 running。绝不 cancel。"""
+    def _wait_until_terminal(self, job_id: int, label: str) -> dict[str, Any]:
+        """按 job id 只读轮询至终态。绝不 cancel。"""
         deadline = time.monotonic() + JOB_POLL_TIMEOUT_SEC
         self._set_phase(f"等待结束：{label}", f"已点击「{label}」，等待抽奖端自行结束…")
         time.sleep(0.8)
@@ -347,7 +454,7 @@ class AutoScheduler:
         while not self._stop_event.is_set():
             if time.monotonic() > deadline:
                 raise RuntimeError(f"等待「{label}」超时（超过 {int(JOB_POLL_TIMEOUT_SEC)} 秒）")
-            job = self._runner.get_status().to_dict()
+            job = self._runner.resolve_job_status(job_id).to_dict()
             last = job
             state = str(job.get("state") or "")
             if state != "running":
@@ -368,6 +475,7 @@ def _probe_job(job_runner: JobRunner) -> dict[str, Any]:
         "ok": True,
         "reachable": True,
         "job_state": state,
+        "job_id": job.get("id"),
         "job_action": str(job.get("action") or ""),
         "job_message": str(job.get("message") or ""),
         "job_label": str(job.get("label") or ""),

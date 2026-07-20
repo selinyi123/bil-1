@@ -1,19 +1,23 @@
 from __future__ import annotations
 
-import json
 import time
 from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
+from sqlmodel import col, select
+
+from src.db.json_cols import dumps_json, loads_json
+from src.db.models import ParticipationActionRow
+from src.db.session import session_scope
+from src.db.uids import participation_uid
 from src.lottery_actions import ActionResult
-from src.user_data import participation_actions_path
-from src.user_data_io import atomic_write_json
 from src.user_data_lock import user_data_lock
 
 ParticipationOutcome = Literal["joined", "failed", "skipped", "dry_run"]
 CORE_ACTIONS = ("like", "follow", "favorite", "repost", "comment")
 INTERACT_REQUIRED_ACTIONS = ("like", "follow", "favorite", "repost")
 COMMENT_OPTIONAL_ERROR_CODES = {12078}
+_MAX_ENTRIES_PER_UID = 500
 
 
 @dataclass
@@ -31,35 +35,60 @@ class ParticipationActionRecord:
         return asdict(self)
 
 
-def _load_raw() -> dict:
-    path = participation_actions_path()
-    if not path.exists():
-        return {"updated_at": 0, "entries": []}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return {"updated_at": 0, "entries": []}
-    data.setdefault("entries", [])
-    return data
-
-
-def _save_raw(data: dict) -> None:
-    atomic_write_json(participation_actions_path(), data)
-
-
 def serialize_actions(actions: list[ActionResult]) -> list[dict]:
     return [{"action": item.action, "ok": item.ok, "detail": item.detail} for item in actions]
 
 
+def load_action_entries_for_uid(uid: str | None = None) -> list[dict]:
+    """供 activity_service 等读取当前用户动作日志。"""
+    key = uid if uid is not None else participation_uid()
+    with session_scope() as session:
+        rows = session.exec(
+            select(ParticipationActionRow)
+            .where(ParticipationActionRow.uid == key)
+            .order_by(col(ParticipationActionRow.recorded_at).asc(), col(ParticipationActionRow.id).asc())
+        ).all()
+        entries: list[dict] = []
+        for row in rows:
+            entries.append(
+                {
+                    "recorded_at": row.recorded_at,
+                    "dynamic_id": row.dynamic_id,
+                    "lottery_type": row.lottery_type,
+                    "status": row.status,
+                    "message": row.message,
+                    "action_text": row.action_text,
+                    "actions": loads_json(row.actions_json, default=[]),
+                    "context_snapshot": loads_json(row.context_snapshot_json, default={}),
+                }
+            )
+        return entries
+
+
 def append_action_record_unlocked(record: ParticipationActionRecord) -> None:
-    data = _load_raw()
-    entries = data.get("entries") or []
-    if not isinstance(entries, list):
-        entries = []
-    entries.append(record.to_dict())
-    data["entries"] = entries[-500:]
-    data["updated_at"] = int(time.time())
-    _save_raw(data)
+    uid = participation_uid()
+    with session_scope() as session:
+        session.add(
+            ParticipationActionRow(
+                uid=uid,
+                recorded_at=int(record.recorded_at),
+                dynamic_id=str(record.dynamic_id or ""),
+                lottery_type=str(record.lottery_type or ""),
+                status=str(record.status or ""),
+                message=str(record.message or ""),
+                action_text=str(record.action_text or ""),
+                actions_json=dumps_json(record.actions or []),
+                context_snapshot_json=dumps_json(record.context_snapshot or {}),
+            )
+        )
+        session.flush()
+        rows = session.exec(
+            select(ParticipationActionRow)
+            .where(ParticipationActionRow.uid == uid)
+            .order_by(col(ParticipationActionRow.recorded_at).desc(), col(ParticipationActionRow.id).desc())
+        ).all()
+        for stale in rows[_MAX_ENTRIES_PER_UID:]:
+            session.delete(stale)
 
 
 def append_action_record(record: ParticipationActionRecord) -> None:

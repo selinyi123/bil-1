@@ -14,7 +14,17 @@ if str(ROOT) not in sys.path:
 
 from web.auto_config import ALLOWED_CLICK_ACTIONS
 from web.auto_scheduler import AutoScheduler, CollisionError, _is_hard_failure, _next_slot, _probe_job
-from web.job_runner import JobRunner
+from web.job_runner import JobRunner, JobStatus
+
+
+def _bind_resolve(runner: MagicMock, status_factory) -> None:
+    """让 resolve_job_status 与 get_status 行为一致，供调度等待循环使用。"""
+
+    def resolve(_job_id: int) -> JobStatus:
+        value = status_factory()
+        return value if isinstance(value, JobStatus) else JobStatus(**value)
+
+    runner.resolve_job_status.side_effect = resolve
 
 
 def test_allowed_actions_are_exactly_four() -> None:
@@ -45,40 +55,37 @@ def test_collision_when_runner_already_running() -> None:
     scheduler = AutoScheduler(job_runner=runner)
     with pytest.raises(CollisionError, match="仍有任务在运行"):
         scheduler._click_and_wait("refresh_status")
-    runner.start.assert_not_called()
+    runner.try_start.assert_not_called()
     runner.cancel.assert_not_called()
 
 
-def test_collision_when_start_returns_false() -> None:
+def test_collision_when_try_start_returns_none() -> None:
     runner = MagicMock()
     runner.is_running.return_value = False
-    runner.start.return_value = False
+    runner.try_start.return_value = None
     scheduler = AutoScheduler(job_runner=runner)
     with pytest.raises(CollisionError, match="已有任务正在运行"):
         scheduler._click_and_wait("refresh_all")
     runner.cancel.assert_not_called()
 
 
-def test_wait_until_idle_never_calls_cancel() -> None:
+def test_wait_until_terminal_never_calls_cancel() -> None:
     runner = MagicMock()
     runner.is_running.return_value = False
-    runner.start.return_value = True
-
+    runner.try_start.return_value = 42
     poll_count = {"n": 0}
 
-    def get_status() -> MagicMock:
+    def status_factory() -> JobStatus:
         poll_count["n"] += 1
-        status = MagicMock()
         if poll_count["n"] < 2:
-            status.to_dict.return_value = {"state": "running", "message": "working"}
-        else:
-            status.to_dict.return_value = {"state": "success", "message": "done"}
-        return status
+            return JobStatus(id=42, state="running", action="refresh_status", message="working")
+        return JobStatus(id=42, state="success", action="refresh_status", message="done")
 
-    runner.get_status.side_effect = get_status
+    _bind_resolve(runner, status_factory)
     scheduler = AutoScheduler(job_runner=runner)
     scheduler._click_and_wait("refresh_status")
     runner.cancel.assert_not_called()
+    runner.try_start.assert_called_once_with("refresh_status", {}, source="auto")
 
 
 def test_collision_in_refresh_batch_propagates() -> None:
@@ -99,6 +106,7 @@ def test_probe_only_reads_runner_status() -> None:
     runner = MagicMock()
     status = MagicMock()
     status.to_dict.return_value = {
+        "id": None,
         "state": "idle",
         "action": "",
         "message": "",
@@ -108,8 +116,9 @@ def test_probe_only_reads_runner_status() -> None:
     result = _probe_job(runner)
     assert result["reachable"] is True
     assert result["job_state"] == "idle"
+    assert result["job_id"] is None
     runner.get_status.assert_called()
-    runner.start.assert_not_called()
+    runner.try_start.assert_not_called()
     runner.cancel.assert_not_called()
 
 
@@ -123,31 +132,81 @@ def test_soft_failure_for_empty_triple() -> None:
 def test_click_and_wait_treats_skipped_triple_as_success() -> None:
     runner = MagicMock()
     runner.is_running.return_value = False
-    runner.start.return_value = True
-    runner.get_status.return_value.to_dict.return_value = {
-        "state": "success",
-        "message": "当前没有可参与的未参加活动，已跳过",
-        "result": {"skipped": True, "items": []},
-    }
+    runner.try_start.return_value = 7
+    _bind_resolve(
+        runner,
+        lambda: JobStatus(
+            id=7,
+            state="success",
+            action="participate_triple",
+            message="当前没有可参与的未参加活动，已跳过",
+            result={"skipped": True, "items": []},
+        ),
+    )
     scheduler = AutoScheduler(job_runner=runner)
     outcome = scheduler._click_and_wait("participate_triple")
     assert outcome["skipped"] is True
-    runner.start.assert_called_once_with("participate_triple", {"from_auto": True})
+    runner.try_start.assert_called_once_with("participate_triple", {"from_auto": True}, source="auto")
     runner.cancel.assert_not_called()
 
 
 def test_click_and_wait_treats_legacy_empty_triple_error_as_skip() -> None:
     runner = MagicMock()
     runner.is_running.return_value = False
-    runner.start.return_value = True
-    runner.get_status.return_value.to_dict.return_value = {
-        "state": "error",
-        "message": "当前列表没有可参与的未参加活动",
-        "result": None,
-    }
+    runner.try_start.return_value = 8
+    _bind_resolve(
+        runner,
+        lambda: JobStatus(
+            id=8,
+            state="error",
+            action="participate_triple",
+            message="当前列表没有可参与的未参加活动",
+            result=None,
+        ),
+    )
     scheduler = AutoScheduler(job_runner=runner)
     outcome = scheduler._click_and_wait("participate_triple")
     assert outcome["skipped"] is True
+    runner.cancel.assert_not_called()
+
+
+def test_click_and_wait_cancelled_raises(isolated_home: Path) -> None:
+    _ = isolated_home
+    runner = MagicMock()
+    runner.is_running.return_value = False
+    runner.try_start.return_value = 9
+    _bind_resolve(
+        runner,
+        lambda: JobStatus(
+            id=9,
+            state="cancelled",
+            action="refresh_status",
+            message="任务已取消",
+        ),
+    )
+    scheduler = AutoScheduler(job_runner=runner)
+    with pytest.raises(RuntimeError, match="已取消"):
+        scheduler._click_and_wait("refresh_status")
+    runner.cancel.assert_not_called()
+
+
+def test_click_and_wait_interrupted_raises(isolated_home: Path) -> None:
+    _ = isolated_home
+    runner = MagicMock()
+    runner.is_running.return_value = False
+    runner.try_start.return_value = 10
+    _bind_resolve(
+        runner,
+        lambda: JobStatus(
+            id=10,
+            state="interrupted",
+            action="refresh_status",
+            message="进程退出，任务中断",
+        ),
+    )
+    scheduler = AutoScheduler(job_runner=runner)
+    with pytest.raises(RuntimeError, match="中断"):
+        scheduler._click_and_wait("refresh_status")
     runner.cancel.assert_not_called()
 
 

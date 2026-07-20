@@ -20,19 +20,19 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Build portable app
-        shell: pwsh
-        run: ./packaging/windows/build.ps1
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/frontend/package-lock.json
 
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
 
-      - name: Build installer
+      - name: Build portable + installer
         shell: pwsh
-        run: |
-          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          if (-not (Test-Path $iscc)) { throw "Inno Setup compiler not found" }
-          & $iscc packaging/windows/installer.iss
+        run: ./packaging/windows/build.ps1
 
       - name: Upload workflow artifacts
         if: github.event_name == 'workflow_dispatch'

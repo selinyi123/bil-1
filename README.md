@@ -4,15 +4,19 @@
 
 > 仅绑定本机 `127.0.0.1`，Cookie 与数据都保存在你的电脑上。
 
-**Windows 用户（无需 Python）** → [下载最新安装包](https://github.com/luovicter-collab/bilibinggo/releases/latest)
+**用户（无需 Python）** → [下载最新安装包](https://github.com/luovicter-collab/bilibinggo/releases/latest)
 
-| 版本 | 地址 |
+| 版本 | 说明 |
 |------|------|
-| 安装包（推荐） | 双击 `Binggo-Setup-win64.exe` 安装，启动后访问 **http://127.0.0.1:8181** |
-| 便携版 | 解压 `Binggo-Portable-win64.zip`，双击 `Binggo.exe` |
-| 源码开发 | `python scripts/run_dashboard.py` → **http://127.0.0.1:8787** |
+| Windows 安装包（推荐） | `Binggo-Setup-win64.exe` → 安装后访问 **http://127.0.0.1:8181** |
+| Windows 便携版 | 解压 `Binggo-Portable-win64.zip`，双击 `Binggo.exe` |
+| macOS（Apple Silicon） | 解压 `Binggo-macOS-arm64.zip`，**右键打开** `Binggo.app` |
+| 源码开发 | 先构建前端，再 `python scripts/run_dashboard.py` → **http://127.0.0.1:8787** |
 
-用户数据目录：`%APPDATA%\Binggo`（安装包）或项目内 `data/`（源码）。
+> **Windows：** 安装包未做商业签名；若 SmartScreen 拦截，请选择「仍要运行」。  
+> **macOS：** 需要 Apple Silicon（M1+），未做 Apple 公证；首次请右键 → 打开。Intel Mac 请用源码运行。
+
+用户数据目录：Windows `%APPDATA%\Binggo`；macOS `~/Library/Application Support/Binggo`；源码开发为项目根目录。
 
 ---
 
@@ -58,7 +62,7 @@
 新用户首次打开时，软件已内置：
 
 - **活动库种子**：一批未结束的活跃活动（约 400+ 条），可直接去「活动」页参与
-- **数据源检查点**（`state.json`）：记录 6 个 UP 合集当前专栏位置，避免把历史合集当成「新专栏」全量爬取
+- **数据源检查点**：记录 6 个 UP 合集当前专栏位置，避免把历史合集当成「新专栏」全量爬取（存于本地 SQLite）
 
 > **建议：少用「一键更新活动链接」，优先逐个更新数据源。**  
 > 一键更新会并行检查全部 6 个 UP 合集，请求量大，容易触发 B 站风控。日常请在 **数据源** 页，只对需要的合集点 **「更新此源」**。
@@ -99,8 +103,6 @@
 
 ### 第 6 步：日常维护
 
-养成下面几个习惯即可：
-
 | 你想做什么 | 在哪操作 |
 |------------|----------|
 | 看看有没有新抽奖 | **数据源** → 单个 UP 合集 **「更新此源」**（推荐）；或概览 **「一键更新」**（慎用） |
@@ -110,6 +112,7 @@
 | 看有没有中奖 @ 提醒 | 登录后账号区会显示 @ 未读；增加时会弹横幅，建议去 B 站 **消息中心 → @我的** 核对 |
 | 看任务是否出错 | 右下角 **「任务日志」** 坞 |
 | 按时间表自动点按钮 | 右上角 **「定时点击」** → 在卡片内 **「启动调度」**（撞车即停，不取消抽奖任务） |
+| 检查新版本 / 导出诊断 | **概览** →「检查更新」/「导出诊断包」 |
 
 ---
 
@@ -117,12 +120,12 @@
 
 ```
 侧边栏
-├── 概览      账号信息、统计数据、快捷操作、参与文案、LLM 配置
+├── 概览      账号、统计、快捷操作、参与文案、LLM、Version / 检查更新
 ├── 数据源    UP 合集状态、监控用户名单与同步
 └── 活动      活动列表、筛选、三连参与、单行参与
 ```
 
-任务运行时，页面顶部有进度条；完成后可能弹出结果卡片或 Toast 提示。
+任务运行时顶部有进度条（SSE 实时推送，断线自动回退轮询）；完成后可能弹出结果卡片或 Toast。
 
 ---
 
@@ -132,7 +135,8 @@
 
 - 安装包请确认访问 **8181**，源码开发用 **8787**
 - 若提示端口占用，先关掉其他 Binggo 实例或占用该端口的程序
-- 安装包日志：`%APPDATA%\Binggo\data\logs\binggo.log`
+- Windows 日志：`%APPDATA%\Binggo\data\logs\binggo.log`
+- macOS 日志：`~/Library/Application Support/Binggo/data/logs/binggo.log`
 
 **点了参与没反应**
 
@@ -142,12 +146,18 @@
 
 **活动列表是空的**
 
-- 先执行「一键更新活动链接」
-- 未参加且已过期的活动会自动隐藏（历史仍保留在本地）
+- 先执行「一键更新活动链接」或单源「更新此源」
+- 未参加且已过期的活动会自动隐藏（历史仍保留在本地库）
 
 **换电脑 / 重装后数据还在吗**
 
-- 安装包数据在 `%APPDATA%\Binggo`，卸载程序不会自动删除，可手动备份该文件夹
+- Windows：备份 `%APPDATA%\Binggo`（卸载不会自动删除）
+- macOS：备份 `~/Library/Application Support/Binggo`（删 `.app` 不会自动删除）
+- 核心数据在 `data/binggo.db`；凭证在 `config/cookies.txt`、`config/llm.env`
+
+**页面空白（源码）**
+
+- 需先执行 `cd web/frontend && npm ci && npm run build`，再启动后端
 
 ---
 
@@ -155,26 +165,42 @@
 
 - 6 个 UP 合集 + 监控用户动态，增量发现新活动
 - 互动 / 转发 / 预约三类抽奖一键参与，充电抽奖自动跳过
-- 三连参与、随机评论文案、临近开奖筛选
+- 三连参与、随机评论文案、临近开奖筛选、定时点击调度
 - 消息中心未读与 @ 增长提醒
-- 多账号隔离：参与记录和设置按 B 站 UID 分目录存储
+- 本地 **SQLite**（`data/binggo.db`）主存储；多账号按登录 UID 隔离参与记录与设置
+- 长任务 **SSE** 实时进度与日志（断线回退轮询）
+- 概览显示 Version / 运行模式 / 数据目录；可手动「检查更新」（仅打开 Releases，不自动安装）
+- 「导出诊断包」：脱敏文本，不含 Cookie / API Key 原文
 
 ---
 
 ## 开发者
 
+需要 **Python 3.12+**；从源码跑控制台还需 **Node.js 20+**（构建前端）。安装包用户不需要 Node。
+
 ```bash
 git clone https://github.com/luovicter-collab/bilibinggo.git
 cd bilibinggo
 pip install -r requirements.txt
+cd web/frontend && npm ci && npm run build && cd ../..
 python scripts/run_dashboard.py   # http://127.0.0.1:8787
+```
+
+前端热更新：终端 A 跑后端，终端 B 执行 `cd web/frontend && npm run dev`（见 [web/frontend/README.md](web/frontend/README.md)）。
+
+从旧 JSON 活动库迁移到 SQLite：
+
+```bash
+python scripts/import_json_to_db.py
 ```
 
 | 文档 | 说明 |
 |------|------|
+| [docs/fullstack-roadmap.md](docs/fullstack-roadmap.md) | 全栈方向 1–9 总览（已落地） |
 | [docs/cli.md](docs/cli.md) | 命令行脚本手册 |
 | [docs/pipeline-redesign.md](docs/pipeline-redesign.md) | 活动流水线设计 |
 | [packaging/windows/README.md](packaging/windows/README.md) | Windows 安装包本地构建 |
+| [packaging/macos/README.md](packaging/macos/README.md) | macOS arm64 `.app` 构建与 Gatekeeper |
 
 更新内置种子（维护者）：
 
@@ -184,21 +210,71 @@ python scripts/export_state_seed.py
 ```
 
 ```bash
+# 后端单测
 pip install -r requirements-dev.txt
 python -m pytest tests/ -q
+
+# 前端单测 + 构建
+cd web/frontend
+npm ci
+npm test
+npm run build
+
+# E2E 冒烟（隔离数据目录，端口 8791；首次需装 Chromium）
+npx playwright install chromium
+npm run test:e2e
 ```
+
+CI 见 `.github/workflows/ci.yml`（pytest / frontend / Playwright）。真 Cookie 与真实 LLM 仅本地手测，不进自动化。
 
 ---
 
-## 隐私
+## 隐私与数据目录
 
-- `config/cookies.txt`、`config/llm.env` 等凭证文件已加入 `.gitignore`
-- Cookie 与 API Key 仅存本地，不会上传到 GitHub
+| 模式 | 数据根目录 | 密钥位置 |
+|------|------------|----------|
+| 源码开发 | 仓库根目录 | `config/cookies.txt`、`config/llm.env` |
+| Windows 安装包 | `%APPDATA%\Binggo` | 同上相对路径 |
+| Windows 便携（`BINGGO_PORTABLE=1`） | `Binggo.exe` 同目录 | 同上；**勿把整个文件夹同步到公开网盘** |
+| macOS 默认 | `~/Library/Application Support/Binggo` | 同上相对路径 |
+| macOS 便携（`BINGGO_PORTABLE=1`） | `.app` 所在解压目录 | 同上 |
+| 自定义 | `BINGGO_HOME` 指向的目录 | `{BINGGO_HOME}/config/...` |
+
+数据根目录下常见布局：
+
+| 路径 | 用途 |
+|------|------|
+| `data/binggo.db` | 活动、参与、检查点、任务等主库 |
+| `data/logs/binggo.log` | JSONL 结构化日志 |
+| `config/cookies.txt`、`config/llm.env` | 登录 Cookie / LLM 凭证 |
+| `config/sources.yaml` 等 | 数据源与名单配置 |
+
+- 凭证文件已加入 `.gitignore`，仅存本机明文，不会上传到 GitHub
+- Windows 卸载 / macOS 删除 `.app` **都不会**自动删除数据目录
+- 控制台只监听本机 `127.0.0.1`（开发 `8787` / 安装包 `8181`），请勿改绑局域网地址
 - 推送代码前请确认未包含个人凭证与参与记录
 
 ---
 
 ## 更新日志
+
+### v4.1.0（2026-07-20）
+
+**全栈能力（方向 1–9）**
+
+- 本地 **SQLite**（`data/binggo.db`）作为主存储；提供 JSON → 库导入脚本
+- 任务进度 / 日志 **SSE** 实时推送（断线自动回退轮询）
+- 统一 Job 模型与任务状态持久化
+- API 契约与统一错误体；前端升级为 **Vite + TypeScript**
+- JSONL 结构化日志、脱敏诊断包、配置自检与密钥清单
+- 概览展示 Version / 运行模式 / 数据目录；手动「检查更新」（不自动安装）
+- 新增 **macOS arm64** 安装包（与 Windows Setup / Portable 并列）；版本号单一来源
+
+**安全与稳定**
+
+- 任务日志 / SSE 通道对 Cookie 等字段脱敏
+- 定时调度致命错误不再把 traceback 推给前端
+- SSE 订阅数上限，避免多标签页撑爆内存
 
 ### v4.0.2（2026-07-18）
 
@@ -211,7 +287,7 @@ python -m pytest tests/ -q
 
 **稳定性**
 
-- 修复 Windows 上三连并行写 `activities_latest.json` 时的权限冲突（进程内锁 + 原子写）
+- 修复 Windows 上三连并行写活动库时的权限冲突（进程内锁 + 原子写）
 - 数据源专栏检查点改为流水线成功后再提交，避免检查阶段提前推进进度
 - 错误提示更友好（登录过期、风控限流、LLM 未配置等常见文案）
 
@@ -278,9 +354,4 @@ MIT
 
 ## Star History
 
-<!-- star-history:start -->
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/star-history/star-history-dark.svg">
-  <img alt="Star history" src="assets/star-history/star-history-light.svg">
-</picture>
-<!-- star-history:end -->
+[![Star History Chart](https://api.star-history.com/svg?repos=luovicter-collab/bilibinggo&type=Date)](https://star-history.com/#luovicter-collab/bilibinggo&Date)

@@ -40,6 +40,14 @@ env/
 htmlcov/
 .tox/
 
+# 前端构建产物与依赖
+web/frontend/node_modules/
+web/static/dist/
+web/frontend/playwright-report/
+web/frontend/test-results/
+web/frontend/blob-report/
+web/frontend/playwright/.cache/
+
 # 临时文件
 *.tmp
 *.bak

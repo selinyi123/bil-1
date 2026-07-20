@@ -1,10 +1,13 @@
 ; Binggo Windows 安装程序（需先运行 packaging/windows/build.ps1）
+; 正式构建必须通过 ISCC /DAppVersion=x.y.z 注入版本（SSOT: src/app_paths.__version__）
 
 #define AppName "Binggo"
 #define AppPublisher "bilibili_binggo"
 #define AppURL "https://github.com/luovicter-collab/bilibinggo"
 #define AppExeName "Binggo.exe"
-#define AppVersion "4.0.2"
+#ifndef AppVersion
+  #define AppVersion "0.0.0-dev"
+#endif
 
 [Setup]
 AppId={{A4B8F2E1-6C3D-4E9A-9B12-7D5E8F0A1C2B}
@@ -28,6 +31,8 @@ PrivilegesRequired=lowest
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
+; 简体中文：若本机 Inno 已安装 ChineseSimplified.isl，可取消下一行注释
+; Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加选项:"; Flags: unchecked

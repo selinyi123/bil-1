@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
+import time
 from typing import Literal
 
-from src.user_data import get_active_uid, user_dir
+from src.db.models import UserSettingsRow
+from src.db.session import session_scope
+from src.db.uids import settings_uid
 
 DEFAULT_PARTICIPATE_TEXT = "好运连连！"
 DEFAULT_PARTICIPATE_FALLBACK_TEXT = "好运连连！"
@@ -12,33 +13,36 @@ MAX_PARTICIPATE_TEXT_LEN = 233
 ParticipateTextMode = Literal["custom", "random_comment"]
 DEFAULT_PARTICIPATE_TEXT_MODE: ParticipateTextMode = "custom"
 VALID_PARTICIPATE_TEXT_MODES = frozenset({"custom", "random_comment"})
-from src.app_paths import GLOBAL_SETTINGS_PATH
-
-
-def _settings_path() -> Path:
-    uid = get_active_uid()
-    if uid:
-        return user_dir(uid) / "settings.json"
-    return GLOBAL_SETTINGS_PATH
 
 
 def _load_raw() -> dict:
-    path = _settings_path()
-    if not path.exists():
-        return {}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    uid = settings_uid()
+    with session_scope() as session:
+        row = session.get(UserSettingsRow, uid)
+        if row is None:
+            return {}
+        return {
+            "participate_text": row.participate_text,
+            "participate_fallback_text": row.participate_fallback_text,
+            "participate_text_mode": row.participate_text_mode,
+        }
 
 
 def _save_raw(data: dict) -> None:
-    path = _settings_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(".json.tmp")
-    tmp_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp_path.replace(path)
+    uid = settings_uid()
+    now = int(time.time())
+    with session_scope() as session:
+        row = session.get(UserSettingsRow, uid)
+        if row is None:
+            row = UserSettingsRow(uid=uid, updated_at=now)
+            session.add(row)
+        if "participate_text" in data:
+            row.participate_text = data.get("participate_text")
+        if "participate_fallback_text" in data:
+            row.participate_fallback_text = data.get("participate_fallback_text")
+        if "participate_text_mode" in data:
+            row.participate_text_mode = data.get("participate_text_mode")
+        row.updated_at = now
 
 
 def normalize_participate_text(text: str) -> str:

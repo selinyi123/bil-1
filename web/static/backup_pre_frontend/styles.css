@@ -4755,6 +4755,10 @@ body.modal-open {
   padding-right: 12px;
 }
 
+.confirm-actions .btn[hidden] {
+  display: none !important;
+}
+
 .confirm-panel-wide {
   width: min(94vw, 480px);
 }

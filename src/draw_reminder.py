@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -135,26 +134,55 @@ def compute_draw_reminders(
 
 
 def draw_reminder_path(uid: int) -> Path:
+    """路径常量保留供导入脚本引用（运行时不再读写）。"""
     return user_dir(uid) / "draw_reminder.json"
 
 
 def load_draw_reminder_snapshot(uid: int) -> dict[str, Any] | None:
-    path = draw_reminder_path(uid)
-    if not path.exists():
-        return None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return None
-    return data if isinstance(data, dict) else None
+    from src.db.json_cols import loads_json
+    from src.db.models import DrawReminderSnapshotRow
+    from src.db.session import session_scope
+
+    with session_scope() as session:
+        row = session.get(DrawReminderSnapshotRow, int(uid))
+        if row is None:
+            return None
+        drawing_soon = loads_json(row.drawing_soon_json, default=[])
+        return {
+            "drawing_soon_count": int(row.drawing_soon_count or 0),
+            "drawing_soon": drawing_soon if isinstance(drawing_soon, list) else [],
+            "updated_at": int(row.updated_at or 0),
+            "at_notify_url": row.at_notify_url or BILIBILI_AT_NOTIFY_URL,
+        }
 
 
 def save_draw_reminder_snapshot(uid: int, snapshot: dict[str, Any]) -> dict[str, Any]:
-    path = draw_reminder_path(uid)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    from src.db.json_cols import dumps_json
+    from src.db.models import DrawReminderSnapshotRow
+    from src.db.session import session_scope
+
     payload = dict(snapshot)
     payload["updated_at"] = int(payload.get("updated_at") or time.time())
-    tmp_path = path.with_suffix(".json.tmp")
-    tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp_path.replace(path)
+    drawing_soon = payload.get("drawing_soon") or []
+    if not isinstance(drawing_soon, list):
+        drawing_soon = []
+    count = int(payload.get("drawing_soon_count") or len(drawing_soon))
+    at_url = str(payload.get("at_notify_url") or BILIBILI_AT_NOTIFY_URL)
+    with session_scope() as session:
+        row = session.get(DrawReminderSnapshotRow, int(uid))
+        if row is None:
+            session.add(
+                DrawReminderSnapshotRow(
+                    uid=int(uid),
+                    drawing_soon_count=count,
+                    drawing_soon_json=dumps_json(drawing_soon),
+                    at_notify_url=at_url,
+                    updated_at=int(payload["updated_at"]),
+                )
+            )
+        else:
+            row.drawing_soon_count = count
+            row.drawing_soon_json = dumps_json(drawing_soon)
+            row.at_notify_url = at_url
+            row.updated_at = int(payload["updated_at"])
     return payload

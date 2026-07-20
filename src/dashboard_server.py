@@ -11,6 +11,7 @@ from src.app_paths import is_frozen
 DASHBOARD_HOST = "127.0.0.1"
 DEV_DASHBOARD_PORT = 8787
 PACKAGED_DASHBOARD_PORT = 8181
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
 
 def get_dashboard_port() -> int:
@@ -20,6 +21,13 @@ def get_dashboard_port() -> int:
 
 def get_dashboard_url() -> str:
     return f"http://{DASHBOARD_HOST}:{get_dashboard_port()}"
+
+
+def assert_loopback_host(host: str = DASHBOARD_HOST) -> None:
+    if host not in _LOOPBACK_HOSTS:
+        raise RuntimeError(
+            f"拒绝绑定非 loopback 地址: {host!r}（仅允许 {sorted(_LOOPBACK_HOSTS)}）"
+        )
 
 
 # 模块导入时按当前运行形态解析（开发进程与打包进程各自固定）
@@ -38,6 +46,7 @@ def _ensure_stdio() -> None:
 def run_dashboard_server(*, log_level: str = "info") -> None:
     import uvicorn
 
+    assert_loopback_host(DASHBOARD_HOST)
     _ensure_stdio()
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())

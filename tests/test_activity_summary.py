@@ -56,7 +56,9 @@ def test_get_summary_counts_are_consistent(tmp_path, monkeypatch) -> None:
     assert draw == {"active": 1, "ended": 1}
 
 
-def test_get_summary_loads_seeded_activities(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_summary_loads_seeded_activities(
+    isolated_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     seed_activities = [
         {
             "dynamic_id": "1001",
@@ -69,27 +71,21 @@ def test_get_summary_loads_seeded_activities(tmp_path: Path, monkeypatch: pytest
             "repost_fetched": True,
         }
     ]
-    seed_path = tmp_path / "config" / "activities_seed.json"
-    seed_path.parent.mkdir(parents=True)
+    seed_path = isolated_home / "config" / "activities_seed.json"
+    seed_path.parent.mkdir(parents=True, exist_ok=True)
     seed_path.write_text(
         json.dumps({"seed_version": 1, "activities": seed_activities}, ensure_ascii=False),
         encoding="utf-8",
     )
 
-    data_dir = tmp_path / "data"
-    monkeypatch.setattr("src.state_store.DATA_DIR", data_dir)
-    monkeypatch.setattr("src.activity_store.DATA_DIR", data_dir)
-    monkeypatch.setattr("src.activity_store.ACTIVITIES_OUTPUT_PATH", data_dir / "output" / "activities_latest.json")
-    monkeypatch.setattr("web.activity_service.DATA_DIR", data_dir)
-    monkeypatch.setattr("src.activity_seed.CONFIG_DIR", tmp_path / "config")
+    monkeypatch.setattr("src.activity_seed.CONFIG_DIR", isolated_home / "config")
     monkeypatch.setattr("src.activity_seed.USER_SEED_PATH", seed_path)
     monkeypatch.setattr("src.activity_seed.BUNDLED_SEED_PATH", seed_path)
-    monkeypatch.setattr("src.app_paths.user_home", lambda: tmp_path)
     monkeypatch.setattr("web.activity_service.load_participations", lambda: {})
 
-    from src.app_paths import ensure_user_dirs
+    from src.activity_store import seed_activities_if_empty
 
-    ensure_user_dirs()
+    assert seed_activities_if_empty() is True
     summary = get_summary()
     assert summary["total_count"] == 1
     assert summary["counts"]["active"] == 1

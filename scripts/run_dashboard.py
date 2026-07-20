@@ -29,6 +29,19 @@ def main() -> int:
     log_path = setup_logging()
     print(f"日志文件: {log_path}")
     print(f"控制台地址: {DASHBOARD_URL}")
+    try:
+        from src.config_health import log_config_health
+
+        log_config_health(force=True)
+    except Exception as exc:
+        print(f"配置自检跳过: {exc}", file=sys.stderr)
+    dist_index = ROOT / "web" / "static" / "dist" / "index.html"
+    if not dist_index.exists():
+        print(
+            "未找到 web/static/dist。开发请另开: cd web/frontend && npm run dev\n"
+            "生产请先: cd web/frontend && npm ci && npm run build",
+            file=sys.stderr,
+        )
     run_dashboard_server()
     return 0
 

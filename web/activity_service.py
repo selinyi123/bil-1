@@ -1,19 +1,17 @@
 from __future__ import annotations
 
-import json
-from functools import lru_cache
-from pathlib import Path
 from typing import Any
 
 from src.activity_status import resolve_activity_status
-from src.activity_store import ACTIVITIES_OUTPUT_PATH, load_payload
+from src.activity_store import load_payload
+from src.db.snapshots import load_ds_check_dict, load_watch_sync_dict
 from src.draw_reminder import matches_draw_window_filter
 from src.lottery_classifier import PARTICIPATABLE_TYPES, is_charging_lottery_activity
 from src.lottery_time import format_timestamp, is_activity_past_end, lottery_time_text
+from src.participation_log import load_action_entries_for_uid
 from src.participation_store import ParticipationRecord, load_participations
-from src.sources.common import is_valid_dynamic_id, load_previous_output
+from src.sources.common import is_valid_dynamic_id
 from src.state_store import DATA_DIR, get_last_pipeline_persisted
-from src.user_data import participation_actions_path
 
 from src.watch_sync import OUTPUT_PATH as WATCH_OUTPUT_PATH
 
@@ -46,19 +44,10 @@ SOURCE_SPACE_URLS = {
 }
 
 
-@lru_cache(maxsize=4)
-def _cached_json(path_str: str, mtime_ns: int) -> dict:
-    _ = mtime_ns
-    return load_previous_output(Path(path_str)) or {}
-
-
-def _load_json(path: Path) -> dict:
-    if not path.exists():
-        return {}
-    try:
-        return _cached_json(str(path), path.stat().st_mtime_ns)
-    except OSError:
-        return {}
+def _load_source_snapshot(source_id: str) -> dict:
+    if source_id == "WATCH":
+        return load_watch_sync_dict() or {}
+    return load_ds_check_dict(source_id) or {}
 
 
 def _activity_title(item: dict) -> str:
@@ -66,15 +55,8 @@ def _activity_title(item: dict) -> str:
 
 
 def _load_participation_actions() -> dict[str, dict]:
-    path = participation_actions_path()
-    if not path.exists():
-        return {}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return {}
     latest: dict[str, dict] = {}
-    for entry in payload.get("entries") or []:
+    for entry in load_action_entries_for_uid():
         if not isinstance(entry, dict):
             continue
         dynamic_id = str(entry.get("dynamic_id") or "")
@@ -138,7 +120,8 @@ def _should_list_activity(item: dict, activity_status: str, can_participate: boo
 
 
 def invalidate_activity_cache() -> None:
-    _cached_json.cache_clear()
+    """兼容旧调用点；活动数据已走 DB，无需文件 mtime 缓存。"""
+    return None
 
 
 def _sort_key(item: dict, *, sort: str, order: str) -> tuple:
@@ -230,10 +213,10 @@ def get_summary() -> dict[str, Any]:
             draw_counts["active"] += 1
 
     sources: list[dict[str, Any]] = []
-    for source_id, path in DS_OUTPUTS.items():
+    for source_id, _path in DS_OUTPUTS.items():
         if source_id == "WATCH":
             continue
-        data = _load_json(path)
+        data = _load_source_snapshot(source_id)
         checked_at = data.get("checked_at") or data.get("synced_at")
         title = str(data.get("title") or "")
         sources.append(

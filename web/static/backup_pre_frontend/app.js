@@ -9,6 +9,7 @@ const state = {
   autoPollTimer: null,
   autoCountdownTimer: null,
   autoServerSkewMs: 0,
+  autoLogs: [],
   qrcodeDismissed: false,
   lastQrcodeRefresh: 0,
   account: null,
@@ -23,7 +24,17 @@ const state = {
   lastJobAttempt: null,
   onboardingCelebrating: false,
   statValues: {},
+  currentJob: null,
+  eventSource: null,
+  sseHealthy: false,
+  sseLastActive: 0,
+  sseWatchdog: null,
+  sseReconnectTimer: null,
+  lastFinishedJobKey: "",
 };
+
+const SSE_WATCHDOG_MS = 45000;
+const SSE_RECONNECT_MS = 3000;
 
 const jobMessage = document.getElementById("job-message");
 const jobLog = document.getElementById("job-log");
@@ -763,13 +774,9 @@ function openAppConfirm({
     appConfirmYes.textContent = confirmLabel;
     appConfirmYes.classList.toggle("btn-danger", Boolean(danger));
     if (appConfirmSecondary) {
-      if (secondaryLabel) {
-        appConfirmSecondary.hidden = false;
-        appConfirmSecondary.textContent = secondaryLabel;
-      } else {
-        appConfirmSecondary.hidden = true;
-        appConfirmSecondary.textContent = "";
-      }
+      const showSecondary = Boolean(secondaryLabel);
+      appConfirmSecondary.toggleAttribute("hidden", !showSecondary);
+      appConfirmSecondary.textContent = showSecondary ? secondaryLabel : "";
     }
 
     appConfirmModal.hidden = false;
@@ -1076,13 +1083,29 @@ async function fetchJSON(url, options = {}) {
     if (!response.ok) {
       const text = await response.text();
       let message = text || response.statusText;
+      let code = "";
+      let detail = null;
       try {
         const payload = JSON.parse(text);
-        if (payload?.detail) message = String(payload.detail);
+        const errObj = payload?.error;
+        if (errObj && typeof errObj === "object") {
+          if (errObj.message) message = String(errObj.message);
+          code = String(errObj.code || "");
+          detail = errObj.detail ?? null;
+        } else if (typeof payload?.detail === "string") {
+          message = payload.detail;
+        } else if (Array.isArray(payload?.detail)) {
+          message = "请求参数无效";
+          detail = payload.detail;
+        }
       } catch {
         // 非 JSON 响应，保留原始文本
       }
-      throw new Error(message);
+      const error = new Error(message);
+      error.code = code;
+      error.httpStatus = response.status;
+      error.detail = detail;
+      throw error;
     }
     return response.json();
   } catch (error) {
@@ -1586,10 +1609,21 @@ function renderAutoDock(status) {
   }
 
   if (running || state.autoDockOpen) {
-    ensureAutoPolling();
-    ensureAutoCountdown();
-  } else {
+    if (state.sseHealthy) {
+      ensureAutoCountdown();
+      // SSE 健康时停 2s 轮询，倒计时仍本地跑
+      if (state.autoPollTimer) {
+        window.clearInterval(state.autoPollTimer);
+        state.autoPollTimer = null;
+      }
+    } else {
+      ensureAutoPolling();
+      ensureAutoCountdown();
+    }
+  } else if (!state.sseHealthy) {
     stopAutoPolling();
+  } else {
+    ensureAutoCountdown();
   }
 }
 
@@ -1612,8 +1646,13 @@ function ensureAutoCountdown() {
 }
 
 function ensureAutoPolling() {
+  if (state.sseHealthy && state.eventSource) {
+    ensureAutoCountdown();
+    return;
+  }
   if (!state.autoPollTimer) {
     state.autoPollTimer = window.setInterval(() => {
+      if (state.sseHealthy && state.eventSource) return;
       fetchAutoStatus().catch(() => {});
     }, 2000);
   }
@@ -1645,7 +1684,13 @@ async function startAutoScheduler() {
 }
 
 async function stopAutoScheduler() {
-  const ok = window.confirm("停止调度只会停下定时点击监视器，不会取消正在运行的抽奖任务。确定停止？");
+  const ok = await openAppConfirm({
+    eyebrow: "定时点击",
+    title: "确定停止调度？",
+    desc: "停止调度只会停下定时点击监视器，不会取消正在运行的抽奖任务。",
+    confirmLabel: "停止调度",
+    cancelLabel: "继续运行",
+  });
   if (!ok) return;
   await fetchJSON("/api/auto/stop", { method: "POST" });
   await fetchAutoStatus();
@@ -3727,6 +3772,7 @@ async function startJob(action, params = {}) {
           loadQrcodeImage(refreshedAt);
         }
         renderQrcodeLoginState(current);
+        startRealtime();
         startPolling();
         return;
       }
@@ -3748,12 +3794,16 @@ async function startJob(action, params = {}) {
     });
   } catch (error) {
     const message = sanitizeUserText(error.message || error);
-    if (message.includes("请先扫码登录")) {
+    const code = String(error.code || "");
+    if (code === "AUTH_REQUIRED" || message.includes("请先扫码登录")) {
       showToast("请先扫码登录", "info", "完成登录与 LLM 配置后才能使用项目功能");
-    } else if (message.includes("连接测试") || message.includes("测试")) {
+    } else if (
+      code === "LLM_NOT_READY" ||
+      message.includes("连接测试") ||
+      message.includes("配置并通过连接测试") ||
+      /未配置\s*LLM|配置 LLM/i.test(message)
+    ) {
       showToast("请先测试 LLM 连接", "info", "保存配置后点击「测试连接」，通过后才能使用项目功能");
-    } else if (message.includes("配置 LLM")) {
-      showToast("请先配置 LLM", "info", "在概览页填写并保存 LLM 配置");
     } else {
       showToast(message, "error");
     }
@@ -3764,7 +3814,10 @@ async function startJob(action, params = {}) {
     state.lastQrcodeRefresh = 0;
     openQrcodeModalFresh();
   }
-  updateJobUI(await fetchJSON("/api/jobs/current"));
+  const current = await fetchJSON("/api/jobs/current");
+  state.currentJob = current;
+  updateJobUI(current);
+  startRealtime();
   startPolling();
 }
 
@@ -3804,6 +3857,8 @@ async function handleJobCompletion(job) {
       const detail = formatToastDetail(job);
       showToast(sanitizeUserText(job.message) || "任务完成", "success", detail);
     }
+  } else if (job.state === "cancelled") {
+    showToast(sanitizeUserText(job.message) || "任务已取消", "info");
   } else if (job.state === "error") {
     if (job.action === "login" && !state.qrcodeDismissed) {
       renderQrcodeLoginState({
@@ -3908,11 +3963,303 @@ function stopJobPolling() {
   }
 }
 
+function markSseActive() {
+  state.sseLastActive = Date.now();
+}
+
+function stopSseWatchdog() {
+  if (state.sseWatchdog) {
+    window.clearInterval(state.sseWatchdog);
+    state.sseWatchdog = null;
+  }
+}
+
+function startSseWatchdog() {
+  stopSseWatchdog();
+  state.sseWatchdog = window.setInterval(() => {
+    if (!state.sseHealthy) return;
+    if (Date.now() - state.sseLastActive > SSE_WATCHDOG_MS) {
+      console.warn("SSE heartbeat timeout, fallback to polling");
+      fallbackToPolling("heartbeat-timeout");
+    }
+  }, 5000);
+}
+
+function closeEventSource() {
+  if (state.eventSource) {
+    try {
+      state.eventSource.close();
+    } catch {
+      /* ignore */
+    }
+    state.eventSource = null;
+  }
+  stopSseWatchdog();
+  state.sseHealthy = false;
+}
+
+function fallbackToPolling(reason) {
+  closeEventSource();
+  // 浏览器不支持 EventSource 时不要循环重连
+  if (reason !== "no-eventsource") {
+    if (state.sseReconnectTimer) {
+      window.clearTimeout(state.sseReconnectTimer);
+    }
+    state.sseReconnectTimer = window.setTimeout(() => {
+      state.sseReconnectTimer = null;
+      startRealtime();
+    }, SSE_RECONNECT_MS);
+  }
+  const job = state.currentJob;
+  if (job?.state === "running") startPolling();
+  if (state.autoDockOpen || state.autoScheduler?.state === "running") {
+    ensureAutoPolling();
+  }
+}
+
+function applyRunningJobView(job) {
+  state.currentJob = job;
+  updateJobUI(job);
+  if (job.state === "running" && job.action === "login" && !state.qrcodeDismissed) {
+    ensureQrcodeModalVisible();
+    renderQrcodeLoginState(job);
+    const refreshedAt = Number(job.result?.qrcode_refreshed_at) || 0;
+    if (refreshedAt && refreshedAt !== state.lastQrcodeRefresh) {
+      state.lastQrcodeRefresh = refreshedAt;
+      loadQrcodeImage(refreshedAt);
+    }
+  }
+}
+
+async function finishJobOnce(job) {
+  const key = `${job.id || ""}:${job.action || ""}:${job.state || ""}:${job.finished_at || ""}`;
+  if (key && key === state.lastFinishedJobKey) return;
+  state.lastFinishedJobKey = key;
+  state.currentJob = job;
+  updateJobUI(job);
+
+  if (job.action === "login" && (job.state === "cancelled" || job.state === "idle")) {
+    stopJobPolling();
+    setButtonsDisabled(false);
+    hideQrcodeModal(false);
+    if (job.state === "cancelled") {
+      showToast(sanitizeUserText(job.message) || "已取消扫码登录", "info");
+    }
+    return;
+  }
+  stopJobPolling();
+  try {
+    await handleJobCompletion(job);
+  } catch (error) {
+    console.error("finishJobOnce failed", error);
+  }
+}
+
+function mergeJobProgress(payload) {
+  const base = state.currentJob || {};
+  return {
+    ...base,
+    id: payload.id ?? base.id,
+    state: "running",
+    action: base.action || "",
+    label: base.label || "",
+    source: base.source || "ui",
+    progress_step: payload.step ?? base.progress_step ?? 0,
+    progress_total: payload.total ?? base.progress_total ?? 0,
+    message: payload.message || base.message || "",
+    progress_message: payload.message || base.progress_message || "",
+    log: base.log || "",
+    result: { ...(base.result || {}), ...(payload.result || {}) },
+  };
+}
+
+function appendJobLogChunk(chunk) {
+  const base = state.currentJob || { state: "running", log: "" };
+  const current = String(base.log || "").trim();
+  const next = current ? `${current}\n${chunk}` : chunk;
+  state.currentJob = { ...base, log: next, state: base.state || "running" };
+  updateJobUI(state.currentJob);
+}
+
+function autoLogKey(row) {
+  return `${row?.ts || ""}|${row?.level || ""}|${row?.message || ""}`;
+}
+
+function mergeAutoLogs(existing, incoming) {
+  const map = new Map();
+  for (const row of existing || []) {
+    if (!row) continue;
+    map.set(autoLogKey(row), row);
+  }
+  for (const row of incoming || []) {
+    if (!row) continue;
+    map.set(autoLogKey(row), row);
+  }
+  return Array.from(map.values()).slice(-80);
+}
+
+function handleSseMessage(eventName, payload) {
+  markSseActive();
+  if (eventName === "heartbeat") return;
+
+  if (eventName === "job.snapshot" || eventName === "job.created") {
+    const job = {
+      ...(state.currentJob || {}),
+      ...payload,
+      state: payload.state || (eventName === "job.created" ? "running" : payload.state),
+    };
+    if (eventName === "job.created") {
+      // 新任务不得沿用上一任务的 log/result/进度
+      job.log = "";
+      job.result = payload.result && typeof payload.result === "object" ? payload.result : {};
+      job.progress_step = payload.progress_step ?? 0;
+      job.progress_total = payload.progress_total ?? 0;
+      job.finished_at = null;
+      job.message = payload.message || "任务已启动";
+      state.lastFinishedJobKey = "";
+    }
+    if (job.state === "running") {
+      applyRunningJobView(job);
+    } else {
+      state.currentJob = job;
+      updateJobUI(job);
+    }
+    return;
+  }
+
+  if (eventName === "job.progress") {
+    applyRunningJobView(mergeJobProgress(payload));
+    return;
+  }
+
+  if (eventName === "job.log") {
+    if (payload?.chunk) appendJobLogChunk(String(payload.chunk));
+    return;
+  }
+
+  if (eventName === "job.terminal") {
+    const job = {
+      ...(state.currentJob || {}),
+      ...payload,
+      state: payload.state,
+      id: payload.id ?? state.currentJob?.id,
+    };
+    void finishJobOnce(job);
+    return;
+  }
+
+  if (eventName === "auto.snapshot") {
+    if (Array.isArray(payload.logs)) {
+      state.autoLogs = mergeAutoLogs(state.autoLogs, payload.logs);
+    }
+    renderAutoDock({ ...payload, logs: state.autoLogs });
+    return;
+  }
+
+  if (eventName === "auto.log") {
+    const row = {
+      ts: payload.log_ts || "",
+      level: payload.level || "info",
+      message: payload.message || "",
+    };
+    state.autoLogs = mergeAutoLogs(state.autoLogs, [row]);
+    if (state.autoScheduler) {
+      renderAutoDock({ ...state.autoScheduler, logs: state.autoLogs });
+    }
+  }
+}
+
+function startRealtime() {
+  if (typeof EventSource === "undefined") {
+    fallbackToPolling("no-eventsource");
+    return;
+  }
+  if (state.eventSource && state.sseHealthy) return;
+  // 已有连接正在建立时不要重复创建
+  if (state.eventSource && state.eventSource.readyState === EventSource.CONNECTING) return;
+
+  closeEventSource();
+  try {
+    const es = new EventSource("/api/events");
+    state.eventSource = es;
+    const bind = (name) => {
+      es.addEventListener(name, (ev) => {
+        try {
+          const payload = JSON.parse(ev.data || "{}");
+          state.sseHealthy = true;
+          handleSseMessage(name, payload);
+          // SSE 恢复后停掉 Job REST 轮询；Auto 倒计时保留
+          if (state.polling) stopJobPolling();
+          if (state.autoPollTimer) {
+            window.clearInterval(state.autoPollTimer);
+            state.autoPollTimer = null;
+          }
+        } catch (error) {
+          console.error("SSE parse failed", name, error);
+        }
+      });
+    };
+    [
+      "heartbeat",
+      "job.snapshot",
+      "job.created",
+      "job.progress",
+      "job.log",
+      "job.terminal",
+      "auto.snapshot",
+      "auto.log",
+    ].forEach(bind);
+    es.onopen = () => {
+      state.sseHealthy = true;
+      markSseActive();
+      startSseWatchdog();
+      stopJobPolling();
+      // 保留倒计时，仅停 REST 轮询
+      if (state.autoPollTimer) {
+        window.clearInterval(state.autoPollTimer);
+        state.autoPollTimer = null;
+      }
+      ensureAutoCountdown();
+    };
+    es.onerror = () => {
+      if (state.sseHealthy) {
+        fallbackToPolling("eventsource-error");
+        return;
+      }
+      // 尚未建连成功：关闭后稍后重试，并立刻用轮询兜底
+      closeEventSource();
+      const job = state.currentJob;
+      if (job?.state === "running") startPolling();
+      if (state.autoDockOpen || state.autoScheduler?.state === "running") {
+        ensureAutoPolling();
+      }
+      if (!state.sseReconnectTimer) {
+        state.sseReconnectTimer = window.setTimeout(() => {
+          state.sseReconnectTimer = null;
+          startRealtime();
+        }, SSE_RECONNECT_MS);
+      }
+    };
+    markSseActive();
+    startSseWatchdog();
+  } catch (error) {
+    console.error(error);
+    fallbackToPolling("eventsource-throw");
+  }
+}
+
 function startPolling() {
+  // H2：SSE 健康时不双通道
+  if (state.sseHealthy && state.eventSource) return;
   if (state.polling) return;
   const poll = async () => {
+    if (state.sseHealthy && state.eventSource) {
+      stopJobPolling();
+      return;
+    }
     try {
       const job = await fetchJSON("/api/jobs/current");
+      state.currentJob = job;
       updateJobUI(job);
       if (job.state === "running") {
         if (job.action === "login" && !state.qrcodeDismissed) {
@@ -3927,15 +4274,8 @@ function startPolling() {
         state.polling = window.setTimeout(poll, resolveJobPollIntervalMs(job.action));
         return;
       }
-      if (job.state === "idle" && job.action === "login") {
-        stopJobPolling();
-        setButtonsDisabled(false);
-        hideQrcodeModal(false);
-        updateJobUI(job);
-        return;
-      }
       stopJobPolling();
-      await handleJobCompletion(job);
+      await finishJobOnce(job);
     } catch (error) {
       console.error(error);
       state.polling = window.setTimeout(poll, 1500);
@@ -4066,9 +4406,11 @@ async function init() {
   await syncProjectState();
   try {
     const job = await loadSummary();
-    fetchAutoStatus().catch(() => {});
+    if (job) state.currentJob = job;
+    await fetchAutoStatus().catch(() => {});
     loadWatchUsers().catch(() => {});
     await loadActivities();
+    startRealtime();
     if (job?.state === "running") startPolling();
   } catch (error) {
     showToast(sanitizeUserText(error.message || error) || "数据加载失败", "error");

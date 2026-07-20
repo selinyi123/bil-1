@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from src.db.models import MessageWatchRow
+from src.db.session import session_scope
 from src.user_data import user_dir
 
 BILIBILI_AT_NOTIFY_URL = "https://message.bilibili.com/#/notify/at"
@@ -28,28 +29,38 @@ class AtUnreadAlert:
 
 
 def message_watch_path(uid: int) -> Path:
+    """路径常量保留供导入脚本引用（运行时不再读写）。"""
     return user_dir(uid) / "message_watch.json"
 
 
 def _load_watch(uid: int) -> dict[str, Any]:
-    path = message_watch_path(uid)
-    if not path.exists():
-        return {}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    with session_scope() as session:
+        row = session.get(MessageWatchRow, int(uid))
+        if row is None:
+            return {}
+        out: dict[str, Any] = {"updated_at": int(row.updated_at or 0)}
+        if row.last_seen_unread_at is not None:
+            out["last_seen_unread_at"] = int(row.last_seen_unread_at)
+        return out
 
 
 def _save_watch(uid: int, data: dict[str, Any]) -> None:
-    path = message_watch_path(uid)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload = dict(data)
-    payload["updated_at"] = int(time.time())
-    tmp_path = path.with_suffix(".json.tmp")
-    tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp_path.replace(path)
+    now = int(time.time())
+    with session_scope() as session:
+        row = session.get(MessageWatchRow, int(uid))
+        last_seen = data.get("last_seen_unread_at")
+        last_seen_i = int(last_seen) if last_seen is not None else None
+        if row is None:
+            session.add(
+                MessageWatchRow(
+                    uid=int(uid),
+                    last_seen_unread_at=last_seen_i,
+                    updated_at=now,
+                )
+            )
+        else:
+            row.last_seen_unread_at = last_seen_i
+            row.updated_at = now
 
 
 def get_last_seen_at_unread(uid: int) -> int | None:

@@ -8,7 +8,9 @@ root = Path(SPECPATH).resolve().parents[1]
 icon_path = Path(SPECPATH).resolve().parent / "binggo.ico"
 
 datas = [
-    (str(root / "web" / "static"), "web/static"),
+    # 生产前端：仅 dist + favicon（勿打包 frontend/node_modules 或 backup）
+    (str(root / "web" / "static" / "dist"), "web/static/dist"),
+    (str(root / "web" / "static" / "favicon.svg"), "web/static"),
     (str(root / "config" / "cookies.txt.example"), "config"),
     (str(root / "config" / "llm.env.example"), "config"),
     (str(root / "config" / "sources.yaml"), "config"),

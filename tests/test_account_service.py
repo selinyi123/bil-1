@@ -33,10 +33,8 @@ def test_api_code_handles_non_numeric() -> None:
 
 
 def test_get_account_profile_without_cookie_is_instant(tmp_path, monkeypatch) -> None:
-    import web.account_service as account_service
-
     cookie_path = tmp_path / "cookies.txt"
-    monkeypatch.setattr(account_service, "COOKIE_PATH", cookie_path)
+    monkeypatch.setattr("src.app_paths.cookie_file", lambda: cookie_path)
 
     profile = get_account_profile()
     assert profile["logged_in"] is False

@@ -22,19 +22,21 @@ def test_refresh_source_rejects_unknown_id() -> None:
 def test_refresh_source_api_rejects_invalid_id() -> None:
     client = TestClient(app)
     with patch("web.app.get_account_profile", return_value={"logged_in": True}), patch(
-        "web.app.is_llm_ready", return_value=True
-    ), patch("web.app.runner.start", return_value=True) as start_mock:
+        "web.api_errors.is_llm_ready", return_value=True
+    ), patch("web.app.runner.try_start", return_value=1) as start_mock:
         resp = client.post("/api/jobs", json={"action": "refresh_source", "params": {"source_id": "DS-0"}})
     assert resp.status_code == 400
-    assert "无效" in resp.json()["detail"]
+    data = resp.json()
+    assert data["error"]["code"] == "VALIDATION_ERROR"
+    assert "无效" in data["detail"]
     start_mock.assert_not_called()
 
 
 def test_refresh_source_api_accepts_valid_id() -> None:
     client = TestClient(app)
     with patch("web.app.get_account_profile", return_value={"logged_in": True}), patch(
-        "web.app.is_llm_ready", return_value=True
-    ), patch("web.app.runner.start", return_value=True) as start_mock:
+        "web.api_errors.is_llm_ready", return_value=True
+    ), patch("web.app.runner.try_start", return_value=1) as start_mock:
         resp = client.post("/api/jobs", json={"action": "refresh_source", "params": {"source_id": "DS-3"}})
     assert resp.status_code == 200
-    start_mock.assert_called_once_with("refresh_source", {"source_id": "DS-3"})
+    start_mock.assert_called_once_with("refresh_source", {"source_id": "DS-3"}, source="ui")

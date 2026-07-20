@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import time
 from dataclasses import asdict, dataclass
 from typing import Callable
@@ -136,7 +135,8 @@ def sync_watch_forwards(
 
 
 def save_watch_result(result: WatchSyncResult) -> WatchSyncResult:
-    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    from src.db.snapshots import save_watch_sync_dict
+
     payload = {
         "source_id": result.source_id,
         "synced_at": result.synced_at,
@@ -150,7 +150,5 @@ def save_watch_result(result: WatchSyncResult) -> WatchSyncResult:
         "users_failed": result.users_failed,
         "user_results": result.user_results,
     }
-    tmp_path = OUTPUT_PATH.with_suffix(".json.tmp")
-    tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp_path.replace(OUTPUT_PATH)
+    save_watch_sync_dict(payload)
     return result

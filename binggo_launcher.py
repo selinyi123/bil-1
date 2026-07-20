@@ -1,4 +1,4 @@
-"""Binggo Windows 启动器：启动本地控制台并打开浏览器。"""
+"""Binggo 启动器：启动本地控制台并打开浏览器。"""
 
 from __future__ import annotations
 
@@ -19,6 +19,9 @@ SERVE_FLAG = "--serve"
 STARTUP_TIMEOUT_SEC = 45.0
 CREATE_NO_WINDOW = 0x08000000
 
+# 非 Windows 文件锁句柄，进程存活期间保持打开
+_LOCK_FH = None
+
 
 def _show_error(message: str) -> None:
     print(message, file=sys.stderr)
@@ -31,6 +34,24 @@ def _show_error(message: str) -> None:
                 message,
                 "Binggo 启动失败",
                 0x10,
+            )
+        except Exception:
+            pass
+        return
+    if sys.platform == "darwin":
+        # 经 argv 传文案，避免路径/引号破坏 AppleScript
+        try:
+            script = (
+                "on run argv\n"
+                '  display dialog (item 1 of argv) with title "Binggo 启动失败" '
+                'buttons {"好"} default button 1 with icon stop\n'
+                "end run"
+            )
+            subprocess.run(
+                ["osascript", "-e", script, message[:1200]],
+                check=False,
+                capture_output=True,
+                timeout=30,
             )
         except Exception:
             pass
@@ -60,7 +81,7 @@ def _port_available(host: str, port: int) -> bool:
     return True
 
 
-def _acquire_single_instance() -> bool:
+def _acquire_windows_mutex() -> bool:
     if sys.platform != "win32":
         return True
     try:
@@ -75,6 +96,46 @@ def _acquire_single_instance() -> bool:
         return True
     except Exception:
         return True
+
+
+def _acquire_file_lock() -> bool:
+    """非 Windows：fcntl 文件锁，避免双开竞态。失败则打开浏览器并退出。"""
+    global _LOCK_FH
+    if sys.platform == "win32":
+        return True
+    try:
+        import errno
+        import fcntl
+
+        from src.app_paths import data_dir, ensure_user_dirs
+
+        ensure_user_dirs()
+        lock_path = data_dir() / ".instance.lock"
+        fh = open(lock_path, "a+", encoding="utf-8")
+        try:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            fh.close()
+            # 仅「已被占用」视为单实例冲突；其它锁错误不阻断启动
+            busy = isinstance(exc, BlockingIOError) or getattr(exc, "errno", None) in {
+                errno.EAGAIN,
+                errno.EWOULDBLOCK,
+                errno.EACCES,
+            }
+            if busy:
+                webbrowser.open(DASHBOARD_URL)
+                return False
+            return True
+        _LOCK_FH = fh
+        return True
+    except Exception:
+        return True
+
+
+def _acquire_single_instance() -> bool:
+    if not _acquire_windows_mutex():
+        return False
+    return _acquire_file_lock()
 
 
 def _wait_for_server(timeout_sec: float = STARTUP_TIMEOUT_SEC) -> bool:
@@ -94,6 +155,36 @@ def _spawn_server_process() -> subprocess.Popen[bytes]:
     if sys.platform == "win32":
         kwargs["creationflags"] = CREATE_NO_WINDOW
     return subprocess.Popen(args, **kwargs)
+
+
+def _stop_process(proc: subprocess.Popen[bytes]) -> int | None:
+    exit_code = proc.poll()
+    if exit_code is not None:
+        return exit_code
+    try:
+        proc.terminate()
+        return proc.wait(timeout=5)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        try:
+            return proc.wait(timeout=2)
+        except Exception:
+            return proc.poll()
+
+
+def _startup_failure_message(*, log_path: Path, data_root: Path, exit_code: int | None) -> str:
+    code_text = str(exit_code) if exit_code is not None else "仍在运行"
+    return (
+        "控制台服务启动超时。\n\n"
+        f"请查看日志：{log_path}\n"
+        f"数据目录：{data_root}\n"
+        f"服务进程退出码：{code_text}\n\n"
+        f"可尝试关闭占用 {DASHBOARD_PORT} 端口的程序后重试。\n"
+        "若控制台曾能打开，可在概览导出诊断包。"
+    )
 
 
 def run_server_mode() -> int:
@@ -117,8 +208,8 @@ def run_server_mode() -> int:
 
 
 def main() -> int:
-    from src.app_paths import DATA_DIR, ensure_user_dirs, runtime_label
     from src.app_logging import setup_logging
+    from src.app_paths import ensure_user_dirs, runtime_label, user_home
 
     if not _acquire_single_instance():
         return 0
@@ -131,21 +222,22 @@ def main() -> int:
         return 0
 
     ensure_user_dirs()
+    home = user_home()
     log_path = setup_logging(console=False)
     print(f"Binggo 运行模式: {runtime_label()}")
-    print(f"数据目录: {DATA_DIR}")
+    print(f"数据目录: {home}")
     print(f"日志文件: {log_path}")
     print(f"控制台: {DASHBOARD_URL}")
 
     proc = _spawn_server_process()
     if not _wait_for_server():
-        exit_code = proc.poll()
-        proc.terminate()
+        exit_code = _stop_process(proc)
         _show_error(
-            "控制台服务启动超时。\n\n"
-            f"请查看日志：{log_path}\n"
-            f"服务进程退出码：{exit_code if exit_code is not None else '仍在运行'}\n"
-            "可尝试关闭占用 8181 端口的程序后重试。"
+            _startup_failure_message(
+                log_path=Path(log_path),
+                data_root=home,
+                exit_code=exit_code,
+            )
         )
         return 1
 
@@ -155,7 +247,7 @@ def main() -> int:
         while proc.poll() is None:
             time.sleep(0.5)
     except KeyboardInterrupt:
-        proc.terminate()
+        _stop_process(proc)
     return 0
 
 

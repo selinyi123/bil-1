@@ -121,14 +121,17 @@ def cookies_to_header(cookies: dict[str, str]) -> str:
 
 
 def save_cookies(cookie_str: str) -> Path:
-    content = cookie_str.strip()
-    if not content:
-        raise BilibiliLoginError("Cookie 内容为空，无法保存")
-    COOKIE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = COOKIE_PATH.with_suffix(".txt.tmp")
-    tmp_path.write_text(content, encoding="utf-8")
-    tmp_path.replace(COOKIE_PATH)
-    return COOKIE_PATH
+    from src import app_paths
+    from src.config_validate import validate_cookie_string
+    from src.secure_files import write_text_secret
+
+    try:
+        content = validate_cookie_string(cookie_str)
+    except ValueError as exc:
+        raise BilibiliLoginError(str(exc)) from exc
+    path = app_paths.cookie_file()
+    write_text_secret(path, content)
+    return path
 
 
 def _request_json(

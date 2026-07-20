@@ -1,18 +1,24 @@
 from __future__ import annotations
 
-import json
 import time
 from pathlib import Path
 from typing import Any
 
 from src.activity_status import DrawStatus, resolve_activity_status
-from src.activity_store import activity_file_lock
+from src.activity_store import (
+    activity_count,
+    activity_exists,
+    activity_file_lock,
+    append_activities,
+    load_activities,
+    replace_all_activities,
+    update_activity,
+)
 from src.draw_reminder import classify_participated_draw
 from src.fetch_activity_info import ENRICHED_OUTPUT_PATH
 from src.lottery_classifier import PARTICIPATABLE_TYPES, is_charging_lottery_activity
 from src.lottery_time import infer_and_persist_lottery_time, lottery_time_unix
 from src.participation_store import ParticipationRecord, load_participations
-from src.user_data_io import atomic_write_json
 
 DrawTag = str  # "" | "即将开奖"
 LOCAL_STATUSES = frozenset({"已参加", "未参加"})
@@ -98,10 +104,6 @@ def _apply_classification(
     return True, changed, ended_newly, soon_newly
 
 
-def _save_payload(target: Path, payload: dict[str, Any]) -> None:
-    atomic_write_json(target, payload)
-
-
 def _empty_result(*, total: int = 0) -> dict[str, Any]:
     return {
         "skipped": True,
@@ -121,13 +123,11 @@ def persist_activity_record(
     now: int | None = None,
 ) -> dict:
     """参与前检查通过后，写回单条活动状态。"""
-    target = path or ENRICHED_OUTPUT_PATH
+    _ = path  # 兼容旧调用签名；活动库已迁至 SQLite
     with activity_file_lock():
-        if not target.exists():
+        if activity_count() == 0:
             raise RuntimeError("未找到活动库，请先执行一键更新")
 
-        payload = json.loads(target.read_text(encoding="utf-8"))
-        activities = [row for row in (payload.get("activities") or []) if isinstance(row, dict)]
         dynamic_id = str(item.get("dynamic_id") or "")
         current = int(now if now is not None else time.time())
 
@@ -135,30 +135,21 @@ def persist_activity_record(
         if not was_handled:
             raise RuntimeError("该活动不参与状态管理")
 
-        replaced = False
-        for index, row in enumerate(activities):
-            if str(row.get("dynamic_id") or "") == dynamic_id:
-                activities[index] = item
-                replaced = True
-                break
-        if not replaced:
-            activities.append(item)
-
-        payload["activities"] = activities
-        payload["status_refreshed_at"] = current
-        _save_payload(target, payload)
+        if activity_exists(dynamic_id):
+            update_activity(dynamic_id, item)
+        else:
+            append_activities([item])
         return item
 
 
 def refresh_local_activity_statuses(*, path: Path | None = None) -> dict[str, Any]:
     """刷新全库未结束活动：按开奖时间标记已结束 / 即将开奖。"""
-    target = path or ENRICHED_OUTPUT_PATH
+    _ = path
     with activity_file_lock():
-        if not target.exists():
+        activities = load_activities()
+        if not activities:
             return _empty_result()
 
-        payload = json.loads(target.read_text(encoding="utf-8"))
-        activities = [item for item in (payload.get("activities") or []) if isinstance(item, dict)]
         participations = load_participations()
         now = int(time.time())
 
@@ -188,9 +179,7 @@ def refresh_local_activity_statuses(*, path: Path | None = None) -> dict[str, An
             if soon_newly:
                 soon_marked += 1
 
-        payload["activities"] = activities
-        payload["status_refreshed_at"] = now
-        _save_payload(target, payload)
+        replace_all_activities(activities)
 
         return {
             "skipped": scanned == 0,
@@ -204,13 +193,12 @@ def refresh_local_activity_statuses(*, path: Path | None = None) -> dict[str, An
 
 def backfill_missing_lottery_times(*, path: Path | None = None) -> dict[str, Any]:
     """为本地缺失开奖时间的活动补全推断时间（参奖后半年）。"""
-    target = path or ENRICHED_OUTPUT_PATH
+    _ = path
     with activity_file_lock():
-        if not target.exists():
+        activities = load_activities()
+        if not activities:
             return {"updated": 0, "total": 0}
 
-        payload = json.loads(target.read_text(encoding="utf-8"))
-        activities = [item for item in (payload.get("activities") or []) if isinstance(item, dict)]
         participations = load_participations()
         updated = 0
 
@@ -223,7 +211,6 @@ def backfill_missing_lottery_times(*, path: Path | None = None) -> dict[str, Any
                 updated += 1
 
         if updated:
-            payload["activities"] = activities
-            _save_payload(target, payload)
+            replace_all_activities(activities)
 
         return {"updated": updated, "total": len(activities)}

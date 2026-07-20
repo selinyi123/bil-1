@@ -1,7 +1,7 @@
 {
   "seed_version": 1,
   "exported_at": 1784211307,
-  "source": "D:\\Code_list\\Code_Python\\bilibili_binggo\\data\\state.json",
+  "source": "bundled",
   "sources": {
     "DS-1": {
       "container_url": "https://www.bilibili.com/video/BV1Z6j76dEKC",

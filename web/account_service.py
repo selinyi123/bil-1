@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from typing import Any
 
 from src.bilibili_auth import get_login_uid
 from src.bilibili_client import BilibiliClient
-from src.bilibili_login import COOKIE_PATH
 from src.message_api import get_unread_summary
 from src.message_watch import BILIBILI_AT_NOTIFY_URL, acknowledge_at_unread, evaluate_at_unread_alert
 from web.user_messages import friendly_network_error
@@ -14,7 +11,6 @@ from web.user_messages import friendly_network_error
 NAV_URL = "https://api.bilibili.com/x/web-interface/nav"
 NAV_STAT_URL = "https://api.bilibili.com/x/web-interface/nav/stat"
 ACCOUNT_CLIENT_TIMEOUT = 8.0
-from src.app_paths import ACCOUNT_CACHE_PATH
 
 
 def _api_code(payload: dict[str, Any]) -> int:
@@ -55,16 +51,32 @@ def _default_at_alert(current: int = 0) -> dict[str, Any]:
 
 
 def _load_account_cache() -> dict[str, Any]:
-    if not ACCOUNT_CACHE_PATH.exists():
-        return {}
+    from src.db.json_cols import loads_json
+    from src.db.models import AccountProfileCacheRow
+    from src.db.session import session_scope
+
     try:
-        payload = json.loads(ACCOUNT_CACHE_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        with session_scope() as session:
+            row = session.get(AccountProfileCacheRow, 1)
+            if row is None:
+                return {}
+            raw = loads_json(row.raw_json, default={})
+            if isinstance(raw, dict) and raw:
+                return raw
+            return {
+                key: getattr(row, key)
+                for key in ("uname", "face", "mid", "following", "dynamic_count")
+                if getattr(row, key) is not None
+            }
+    except Exception:
         return {}
-    return payload if isinstance(payload, dict) else {}
 
 
 def _save_account_cache(profile: dict[str, Any]) -> None:
+    from src.db.json_cols import dumps_json
+    from src.db.models import AccountProfileCacheRow
+    from src.db.session import session_scope
+
     payload = {
         key: profile.get(key)
         for key in ("uname", "face", "mid", "following", "dynamic_count")
@@ -73,9 +85,43 @@ def _save_account_cache(profile: dict[str, Any]) -> None:
     if not payload:
         return
     try:
-        ACCOUNT_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        ACCOUNT_CACHE_PATH.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-    except OSError:
+        import time
+
+        with session_scope() as session:
+            row = session.get(AccountProfileCacheRow, 1)
+            now = int(time.time())
+            if row is None:
+                session.add(
+                    AccountProfileCacheRow(
+                        id=1,
+                        uname=payload.get("uname"),
+                        face=payload.get("face"),
+                        mid=int(payload["mid"]) if payload.get("mid") is not None else None,
+                        following=int(payload["following"])
+                        if payload.get("following") is not None
+                        else None,
+                        dynamic_count=int(payload["dynamic_count"])
+                        if payload.get("dynamic_count") is not None
+                        else None,
+                        updated_at=now,
+                        raw_json=dumps_json(payload),
+                    )
+                )
+            else:
+                row.uname = payload.get("uname")
+                row.face = payload.get("face")
+                row.mid = int(payload["mid"]) if payload.get("mid") is not None else None
+                row.following = (
+                    int(payload["following"]) if payload.get("following") is not None else None
+                )
+                row.dynamic_count = (
+                    int(payload["dynamic_count"])
+                    if payload.get("dynamic_count") is not None
+                    else None
+                )
+                row.updated_at = now
+                row.raw_json = dumps_json(payload)
+    except Exception:
         pass
 
 
@@ -94,21 +140,31 @@ def _profile_from_network_error(exc: RuntimeError) -> dict[str, Any]:
 
 
 def clear_login_cookie() -> None:
-    COOKIE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    if COOKIE_PATH.exists():
+    from src import app_paths
+    from src.secure_files import harden_file_permissions
+
+    path = app_paths.cookie_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
         try:
-            COOKIE_PATH.unlink()
+            path.unlink()
+            return
         except OSError:
-            COOKIE_PATH.write_text("", encoding="utf-8")
+            path.write_text("", encoding="utf-8")
+            harden_file_permissions(path)
     else:
-        COOKIE_PATH.write_text("", encoding="utf-8")
+        path.write_text("", encoding="utf-8")
+        harden_file_permissions(path)
 
 
 def has_login_cookie() -> bool:
-    if not COOKIE_PATH.exists():
+    from src import app_paths
+
+    path = app_paths.cookie_file()
+    if not path.exists():
         return False
     try:
-        text = COOKIE_PATH.read_text(encoding="utf-8").strip()
+        text = path.read_text(encoding="utf-8").strip()
     except OSError:
         return False
     return bool(text) and "SESSDATA" in text

@@ -87,6 +87,24 @@ def is_valid_dynamic_id(dynamic_id: str) -> bool:
 
 
 def load_previous_output(path: Path) -> dict | None:
+    """优先从 DB 快照读取；文件仅作导入/兼容回退。"""
+    from src.db.snapshots import FILENAME_TO_SOURCE, load_ds_check_dict, load_watch_sync_dict
+
+    name = Path(path).name
+    if name in {"activities_latest.json", "enriched_latest.json"}:
+        from src.activity_store import load_payload
+
+        payload = load_payload()
+        if not payload.get("activities") and not int(payload.get("updated_at") or 0):
+            return None
+        return payload
+
+    source_id = FILENAME_TO_SOURCE.get(name)
+    if source_id == "WATCH":
+        return load_watch_sync_dict()
+    if source_id:
+        return load_ds_check_dict(source_id)
+
     if not path.exists():
         return None
     try:
@@ -99,13 +117,9 @@ def save_result(path: Path, result: CheckResult) -> Path | None:
     if not result.updated:
         return None
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(".json.tmp")
-    tmp_path.write_text(
-        json.dumps(result.to_dict(), ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    tmp_path.replace(path)
+    from src.db.snapshots import save_ds_check_dict
+
+    save_ds_check_dict(result.to_dict())
     return path
 
 
