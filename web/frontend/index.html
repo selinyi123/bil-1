@@ -398,9 +398,29 @@
             <article class="panel project-showcase">
               <div class="project-showcase-grid">
                 <div class="project-showcase-main">
-                  <p class="eyebrow">Open Source</p>
-                  <h2 class="project-showcase-title">bilibinggo</h2>
-                  <p class="project-showcase-desc">聚合 B 站抽奖 UP 合集，增量发现活动、本地管理参与状态，Web 控制台一键参与互动 / 转发 / 预约抽奖。</p>
+                  <div class="project-showcase-intro">
+                    <p class="eyebrow">Open Source</p>
+                    <h2 class="project-showcase-title">bilibinggo</h2>
+                    <p class="project-showcase-desc">聚合 B 站抽奖 UP 合集，增量发现活动、本地管理参与状态，Web 控制台一键参与互动 / 转发 / 预约抽奖。</p>
+                  </div>
+                  <ul class="project-highlights" aria-label="项目能力">
+                    <li class="project-highlight">
+                      <span class="project-highlight-title">本地 SQLite</span>
+                      <span class="project-highlight-text">活动、参与与任务落盘，数据只在你的电脑上</span>
+                    </li>
+                    <li class="project-highlight">
+                      <span class="project-highlight-title">实时进度</span>
+                      <span class="project-highlight-text">SSE 推送任务日志，断线自动回退轮询</span>
+                    </li>
+                    <li class="project-highlight">
+                      <span class="project-highlight-title">本机私有</span>
+                      <span class="project-highlight-text">仅绑定 127.0.0.1，Cookie 与密钥不上传</span>
+                    </li>
+                    <li class="project-highlight">
+                      <span class="project-highlight-title">跨平台包</span>
+                      <span class="project-highlight-text">Windows 安装 / 便携，macOS Apple Silicon</span>
+                    </li>
+                  </ul>
                   <div class="project-showcase-actions">
                     <a class="btn btn-primary btn-pill project-btn" href="https://github.com/luovicter-collab/bilibinggo" target="_blank" rel="noopener">访问 GitHub 仓库</a>
                     <a class="btn btn-secondary btn-pill project-btn" href="https://github.com/luovicter-collab" target="_blank" rel="noopener">作者 victor</a>
@@ -408,29 +428,33 @@
                   </div>
                 </div>
                 <div class="project-showcase-side">
-                  <div class="project-info-card">
-                    <span class="project-info-label">Repository</span>
-                    <span class="project-info-value">luovicter-collab / bilibinggo</span>
-                  </div>
-                  <div class="project-info-card">
-                    <span class="project-info-label">Author</span>
-                    <span class="project-info-value">victor</span>
-                  </div>
-                  <div class="project-info-card">
-                    <span class="project-info-label">License</span>
-                    <span class="project-info-value">MIT</span>
-                  </div>
-                  <div class="project-info-card">
-                    <span class="project-info-label">Version</span>
-                    <span class="project-info-value" id="runtime-version">—</span>
-                  </div>
-                  <div class="project-info-card">
-                    <span class="project-info-label">Runtime</span>
-                    <span class="project-info-value" id="runtime-label">—</span>
-                  </div>
-                  <div class="project-info-card">
-                    <span class="project-info-label">数据目录</span>
-                    <span class="project-info-value" id="runtime-data-dir" title="">—</span>
+                  <div class="project-meta">
+                    <div class="project-meta-row">
+                      <span class="project-info-label">Repository</span>
+                      <span class="project-info-value">luovicter-collab / bilibinggo</span>
+                    </div>
+                    <div class="project-meta-pairs">
+                      <div class="project-meta-item">
+                        <span class="project-info-label">Author</span>
+                        <span class="project-info-value">victor</span>
+                      </div>
+                      <div class="project-meta-item">
+                        <span class="project-info-label">License</span>
+                        <span class="project-info-value">MIT</span>
+                      </div>
+                      <div class="project-meta-item">
+                        <span class="project-info-label">Version</span>
+                        <span class="project-info-value" id="runtime-version">—</span>
+                      </div>
+                      <div class="project-meta-item">
+                        <span class="project-info-label">Runtime</span>
+                        <span class="project-info-value" id="runtime-label">—</span>
+                      </div>
+                    </div>
+                    <div class="project-meta-row project-meta-row--path">
+                      <span class="project-info-label">数据目录</span>
+                      <span class="project-info-value project-meta-path" id="runtime-data-dir" title="">—</span>
+                    </div>
                   </div>
                   <div class="project-showcase-side-actions">
                     <button type="button" class="btn btn-secondary btn-pill btn-compact" id="check-updates">检查更新</button>

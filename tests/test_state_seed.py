@@ -59,11 +59,11 @@ def test_seed_state_if_missing_writes_payload(
     assert seed_state_if_missing() is False
 
 
-def test_bundled_state_seed_has_all_sources() -> None:
+def test_no_bundled_state_seed_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
     root = Path(__file__).resolve().parents[1]
-    seed_path = root / "config" / "state_seed.json"
-    assert seed_path.is_file()
-    payload = json.loads(seed_path.read_text(encoding="utf-8"))
-    sources = payload.get("sources") or {}
-    assert len(sources) == 6
-    assert read_seed_state()["sources"]
+    missing = root / "config" / "_missing_state_seed.json"
+    monkeypatch.setattr("src.state_seed.USER_STATE_SEED_PATH", missing)
+    monkeypatch.setattr("src.state_seed.BUNDLED_STATE_SEED_PATH", missing)
+    assert not missing.is_file()
+    assert read_seed_state() == {}
+    assert seed_state_if_missing() is False

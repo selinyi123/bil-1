@@ -91,10 +91,11 @@ def test_seed_activities_if_empty_writes_payload(
     assert seed_activities_if_empty() is False
 
 
-def test_bundled_seed_file_exists() -> None:
+def test_no_bundled_activity_seed_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
     root = Path(__file__).resolve().parents[1]
-    seed_path = root / "config" / "activities_seed.json"
-    assert seed_path.is_file()
-    payload = json.loads(seed_path.read_text(encoding="utf-8"))
-    assert isinstance(payload.get("activities"), list)
-    assert read_seed_activities()
+    missing = root / "config" / "_missing_activities_seed.json"
+    monkeypatch.setattr("src.activity_seed.USER_SEED_PATH", missing)
+    monkeypatch.setattr("src.activity_seed.BUNDLED_SEED_PATH", missing)
+    assert not missing.is_file()
+    assert read_seed_activities() == []
+    assert seed_activities_if_empty() is False

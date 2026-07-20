@@ -80,4 +80,4 @@ python packaging/macos/build.py
 - 入口：`binggo_launcher.py` → PyInstaller → `Binggo.app`
 - DMG：`hdiutil` 打包（含 Applications 符号链接）
 - 控制台：`127.0.0.1:8181`，无终端窗口（日志进文件）
-- 密钥不打进包（仅 `*.example` + seeds + `sources.yaml`）
+- 密钥与预填种子不打进包（仅 *.example + sources.yaml；活动由用户自行「更新此源」拉取）

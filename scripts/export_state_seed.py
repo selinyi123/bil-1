@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""从本地 data/state.json 导出 state_seed.json，供新用户首次启动使用。"""
+"""从本地 state 导出可选 state_seed.json（默认不随发行版分发；仅维护者本地调试用）。"""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ DEFAULT_OUTPUT = ROOT / "config" / "state_seed.json"
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="导出 state_seed.json 供新用户首次启动使用")
+    parser = argparse.ArgumentParser(description="导出可选 state_seed.json（不随发行版分发）")
     parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE, help="本地 state.json 路径")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT, help="输出种子文件路径")
     args = parser.parse_args()

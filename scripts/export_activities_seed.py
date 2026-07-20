@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""从本地 activities_latest.json 导出内置种子（仅未结束活动，清除个人参与状态）。"""
+"""从本地活动库导出可选种子 JSON（默认不随发行版分发；仅维护者本地调试用）。"""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ DEFAULT_OUTPUT = ROOT / "config" / "activities_seed.json"
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="导出 activities_seed.json 供新用户首次启动使用")
+    parser = argparse.ArgumentParser(description="导出可选 activities_seed.json（不随发行版分发）")
     parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE, help="本地活动库路径")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT, help="输出种子文件路径")
     parser.add_argument("--include-ended", action="store_true", help="包含已结束活动（默认仅导出未结束）")

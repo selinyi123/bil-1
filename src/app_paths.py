@@ -7,7 +7,7 @@ import shutil
 import sys
 from pathlib import Path
 
-__version__ = "4.1.0"
+__version__ = "5.0.0"
 
 
 def is_frozen() -> bool:
@@ -103,13 +103,14 @@ _BOOTSTRAPPED = False
 
 
 def _bootstrap_user_data() -> None:
-    """首次安装时写入内置活动库与数据源检查点。"""
+    """首次安装引导：无内置种子时保持空库（由用户自行更新数据源）。"""
     global _BOOTSTRAPPED
     if _BOOTSTRAPPED:
         return
     from src.activity_store import seed_activities_if_empty
     from src.state_store import seed_state_if_missing
 
+    # 发行版不再打包 activities_seed / state_seed；有本地可选种子时才灌入
     seed_state_if_missing()
     seed_activities_if_empty()
     _BOOTSTRAPPED = True
