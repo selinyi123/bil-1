@@ -51,7 +51,8 @@ v1 不做 Developer ID + Notarization。若提示「无法验证开发者」：�
 需要 **Apple Silicon Mac**（或 CI `macos-14`）、Python 3.12+、Node 20+：
 
 ```bash
-bash packaging/macos/build.sh
+python packaging/macos/build.py
+# 兼容：bash packaging/macos/build.sh （转调上面的 Python 脚本）
 ```
 
 产物：

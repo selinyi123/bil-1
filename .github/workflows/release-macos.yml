@@ -28,7 +28,7 @@ jobs:
           cache-dependency-path: web/frontend/package-lock.json
 
       - name: Build macOS arm64 zip + dmg
-        run: bash packaging/macos/build.sh
+        run: python packaging/macos/build.py
 
       - name: Upload workflow artifacts
         if: github.event_name == 'workflow_dispatch'
