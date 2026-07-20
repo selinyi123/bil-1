@@ -33,10 +33,12 @@ def test_dev_mode_user_home_is_project_root(monkeypatch):
 def test_frozen_installed_user_home(monkeypatch):
     monkeypatch.delenv("BINGGO_HOME", raising=False)
     monkeypatch.delenv("BINGGO_PORTABLE", raising=False)
-    monkeypatch.setenv("APPDATA", r"C:\Users\Demo\AppData\Roaming")
+    appdata = r"C:\Users\Demo\AppData\Roaming"
+    monkeypatch.setenv("APPDATA", appdata)
     monkeypatch.setattr("src.app_paths.is_frozen", lambda: True)
     monkeypatch.setattr(sys, "platform", "win32")
-    assert user_home() == Path(r"C:\Users\Demo\AppData\Roaming\Binggo")
+    # 两侧用同一构造，避免 Linux CI 上反斜杠 Path 字面量比较踩坑
+    assert user_home() == Path(appdata) / "Binggo"
 
 
 def test_frozen_portable_user_home(monkeypatch, tmp_path):
