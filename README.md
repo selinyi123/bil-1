@@ -253,6 +253,19 @@ python scripts/import_json_to_db.py
 
 ---
 
+## Star History
+
+仓库内自托管图表（由 Actions 自动更新），不依赖 star-history.com，无需填写 Token：
+
+<!-- star-history:start -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/star-history/star-history-dark.svg">
+  <img alt="Star History Chart" src="assets/star-history/star-history-light.svg">
+</picture>
+<!-- star-history:end -->
+
+---
+
 ## License
 
 MIT
