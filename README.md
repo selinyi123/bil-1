@@ -1,8 +1,8 @@
-# Binggo
+# Binggo · B 站抽奖助手
 
-**本机 B 站抽奖助手** — 从 UP 合集与监控用户动态里发现活动，在网页控制台一键参与、追踪状态。
+**不用一个个找活动，也不用一个个点参加。**
 
-Cookie、LLM 密钥与活动库全部保存在你的电脑上；控制台只监听 `127.0.0.1`，**不会上传到任何服务器**。
+本机运行的 B 站抽奖管理工具：自动从 UP 合集与监控用户动态发现活动，在网页控制台一键 / 三连参与，可选定时调度。Cookie 与数据只保存在你的电脑上，控制台仅监听 `127.0.0.1`。
 
 [![Release](https://img.shields.io/github/v/release/luovicter-collab/bilibinggo?style=flat-square)](https://github.com/luovicter-collab/bilibinggo/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/luovicter-collab/bilibinggo/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/luovicter-collab/bilibinggo/actions/workflows/ci.yml)
@@ -10,9 +10,21 @@ Cookie、LLM 密钥与活动库全部保存在你的电脑上；控制台只监�
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12+-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 
-<p align="center">
-  <img src="assets/screenshots/overview.png" alt="Binggo 概览页：账号状态、活动统计与快捷操作" width="900">
-</p>
+---
+
+## 下载
+
+👉 **[最新 Release（推荐）](https://github.com/luovicter-collab/bilibinggo/releases/latest)**
+
+| 平台 | 文件 | 说明 |
+|------|------|------|
+| Windows | `Binggo-Setup-win64.exe` | 安装包（推荐） |
+| Windows | `Binggo-Portable-win64.zip` | 便携版 |
+| macOS | `Binggo-macOS-arm64.dmg` | Apple Silicon（拖到「应用程序」） |
+| macOS | `Binggo-macOS-arm64.zip` | 便携 zip |
+
+安装包启动后打开 **http://127.0.0.1:8181**；源码开发见下方 [开发](#开发)。
+
 <p align="center">
   <img src="assets/screenshots/activities.png" alt="Binggo 活动页：筛选、三连参与与活动列表" width="900">
 </p>
@@ -23,64 +35,32 @@ Cookie、LLM 密钥与活动库全部保存在你的电脑上；控制台只监�
 
 | | |
 |---|---|
-| **完全本机** | 登录态与数据不出电脑；适合在意隐私的日常使用 |
-| **双通道发现** | 内置抽奖合集 + 监控用户转发，少漏活动 |
-| **一键参与** | 互动 / 转发 / 预约；支持「三连参与」并行冲前几条 |
-| **开箱可装** | Windows Setup / 便携包 + macOS Apple Silicon DMG |
-
----
-
-## 安装
-
-从 [Releases](https://github.com/luovicter-collab/bilibinggo/releases/latest) 下载：
-
-| 包 | 说明 |
-|----|------|
-| `Binggo-Setup-win64.exe` | Windows 安装包（推荐） |
-| `Binggo-Portable-win64.zip` | Windows 便携版 |
-| `Binggo-macOS-arm64.dmg` | macOS Apple Silicon（推荐：拖到「应用程序」） |
-| `Binggo-macOS-arm64.zip` | macOS 便携 zip |
-
-启动后打开控制台：
-
-| 运行方式 | 地址 |
-|----------|------|
-| **安装包** | http://127.0.0.1:8181 |
-| **源码**（见下） | http://127.0.0.1:8787 |
-
-> **Windows：** 未做商业签名；若 SmartScreen 拦截，选择「仍要运行」。  
-> **macOS：** 未做 Apple 公证；首次请右键 → 打开。Intel Mac 请用下方源码方式运行。
-
-### 从源码运行
-
-需要 **Python 3.12+** 与 **Node.js 20+**（构建前端）。
-
-```bash
-git clone https://github.com/luovicter-collab/bilibinggo.git
-cd bilibinggo
-pip install -r requirements.txt
-cd web/frontend && npm ci && npm run build && cd ../..
-python scripts/run_dashboard.py   # http://127.0.0.1:8787
-```
+| **自动发现** | 多个 UP 合集 + 监控用户转发，不用自己到处翻 |
+| **一键参加** | 互动 / 转发 / 预约；「三连参与」一次清多条未参加 |
+| **可定时** | 控制台内调度器，按时间表自动更新与参与 |
+| **数据本机** | 登录态、活动库、参与记录不出电脑 |
 
 ---
 
 ## 五分钟上手
 
-发行版**不预填**活动或检查点，首次打开活动列表为空，属于正常情况。
+新安装后活动列表为空是正常的，按下面三步即可开始：
 
 | 步骤 | 在哪里 | 做什么 |
 |------|--------|--------|
 | 1 | 侧栏底部 | **扫码登录**（哔哩哔哩 App） |
-| 2 | 概览 → LLM 配置 | 填 API Key / 模型 → **测试连接** → **保存**（玩转发抽奖时需要） |
-| 3 | 数据源 → UP 合集 | 对需要的合集点 **「更新此源」**（优先单源；少用「一键更新」） |
-| 4 | 活动 | 筛选未参加 → 单条参与，或顶部 **「三连参与」** |
+| 2 | 数据源 → UP 合集 | 对需要的合集点 **「更新此源」**（日常优先单源；少用「一键更新」） |
+| 3 | 活动 | 筛选「未参加」→ 单条 **参与**，或顶部 **「三连参与」** |
 
-可选：在数据源添加常转发抽奖的用户 MID，再点 **「更新监控用户动态」**，补合集漏抓的活动。
+**玩转发抽奖？** 在概览 → **LLM 配置** 填 API Key 与模型，测试通过后保存（互动 / 预约不需要）。
 
-运行中任务看右下角 **任务日志**；顶部会出现进度条与结果摘要。
+**想补漏？** 在数据源添加常转发抽奖的用户 MID，点 **「更新监控用户动态」**。
 
-更细的页面说明见 [控制台指南](docs/console.md)。
+运行中看右下角 **任务日志**；更细的页面说明见 [控制台指南](docs/console.md)。
+
+<p align="center">
+  <img src="assets/screenshots/overview.png" alt="Binggo 概览页：账号状态、活动统计与快捷操作" width="720">
+</p>
 
 ---
 
@@ -88,18 +68,46 @@ python scripts/run_dashboard.py   # http://127.0.0.1:8787
 
 | 能力 | 说明 |
 |------|------|
-| 双通道发现 | 多个 UP 合集 + 监控用户转发动态 |
-| 一键参与 | 互动 / 转发 / 预约；充电抽奖自动跳过；支持三连 |
-| 本地 SQLite | 活动、参与、检查点与任务落在本机数据库 |
-| 实时进度 | SSE 推送任务进度与日志；断线回退轮询 |
-| 定时点击 | 控制台内调度器；撞车即停，不取消正在跑的抽奖任务 |
-| 参与文案 | 自定义或随机借用评论（不足时用兜底） |
-| 结构化日志 | JSONL + 概览「导出诊断包」（脱敏，无 Cookie / API Key） |
-| 检查更新 | 概览手动检查 GitHub Releases（不自动下载安装） |
-| 跨平台分发 | Windows Setup / Portable + macOS arm64 |
+| 双通道发现 | UP 合集增量同步 + 监控用户转发动态 |
+| 一键参与 | 互动 / 转发 / 预约；充电抽奖自动跳过 |
+| 三连参与 | 按当前筛选自动选取最多 3 个未参加活动 |
+| 定时点击 | 内置调度器；撞车即停，不取消正在跑的抽奖任务 |
+| 参与文案 | 自定义，或随机借用评论区文案 |
+| 状态追踪 | 未参加 / 已参加 / 已结束；临近开奖筛选 |
+| @ 提醒 | 登录后显示 @ 未读，增长时横幅提醒 |
+| 检查更新 | 概览手动检查 GitHub Releases |
+| 跨平台 | Windows Setup / Portable + macOS Apple Silicon |
 
-设计与演进见 [docs/fullstack-roadmap.md](docs/fullstack-roadmap.md)。  
-可选本地 [MCP / Skill](mcp/README.md) 扩展（不打入安装包）。
+---
+
+## 常见问题
+
+**Cookie 会上传吗？**  
+不会。凭证保存在本机 `config/cookies.txt`，控制台只绑定 `127.0.0.1`。
+
+**为什么活动列表是空的？**  
+v5 起发行版不内置活动种子。扫码登录后，在数据源对 UP 合集点 **「更新此源」** 即可拉取。
+
+**一定要配 LLM 吗？**  
+只有 **转发抽奖** 需要（解析奖品与开奖时间）。互动 / 预约可直接参与。
+
+**Windows SmartScreen / macOS 打不开？**  
+安装包未做商业签名 / Apple 公证。Windows 选「仍要运行」；macOS 首次请 **右键 → 打开**。Intel Mac 请用源码运行。
+
+**能保证中奖吗？**  
+不能。Binggo 是抽奖辅助工具，帮你省去找活动和重复点击的时间。
+
+---
+
+## 安装说明
+
+> **Windows：** 未做商业签名；若 SmartScreen 拦截，选择「仍要运行」。  
+> **macOS：** 未做 Apple 公证；首次请右键 → 打开。Intel Mac 请用下方源码方式运行。
+
+| 运行方式 | 控制台地址 |
+|----------|------------|
+| 安装包 / 便携版 | http://127.0.0.1:8181 |
+| 源码开发 | http://127.0.0.1:8787 |
 
 ---
 
@@ -116,27 +124,48 @@ python scripts/run_dashboard.py   # http://127.0.0.1:8787
 
 常见文件：`data/binggo.db`、`data/logs/binggo.log`、`config/cookies.txt`、`config/llm.env`、`config/sources.yaml`。
 
-卸载 Windows 程序或删除 `.app` **不会**自动删除数据目录。凭证已在 `.gitignore` 中，请勿提交。
+卸载程序或删除 `.app` **不会**自动删除数据目录。凭证已在 `.gitignore` 中，请勿提交。
 
 ---
 
 ## 开发
 
+### 从源码运行
+
+需要 **Python 3.12+** 与 **Node.js 20+**（构建前端）。
+
 ```bash
-# 后端测试
+git clone https://github.com/luovicter-collab/bilibinggo.git
+cd bilibinggo
+pip install -r requirements.txt
+cd web/frontend && npm ci && npm run build && cd ../..
+python scripts/run_dashboard.py   # http://127.0.0.1:8787
+```
+
+### 测试
+
+```bash
+# 后端
 pip install -r requirements-dev.txt
 python -m pytest tests/ -q
 
 # 前端
 cd web/frontend
-npm ci
-npm test
-npm run build
+npm ci && npm test && npm run build
 
 # E2E（隔离数据目录，端口 8791）
 npx playwright install chromium
 npm run test:e2e
 ```
+
+### 技术栈与扩展
+
+| 能力 | 说明 |
+|------|------|
+| 本地 SQLite | 活动、参与、检查点与任务 |
+| 实时进度 | SSE 推送；断线回退轮询 |
+| 结构化日志 | JSONL + 概览「导出诊断包」（脱敏） |
+| MCP / Skill | 可选本地扩展，见 [mcp/README.md](mcp/README.md)（不打入安装包） |
 
 | 文档 | 说明 |
 |------|------|
@@ -146,9 +175,8 @@ npm run test:e2e
 | [packaging/windows/README.md](packaging/windows/README.md) | Windows 打包 |
 | [packaging/macos/README.md](packaging/macos/README.md) | macOS 打包与 Gatekeeper |
 | [web/frontend/README.md](web/frontend/README.md) | 前端开发 |
-| [mcp/README.md](mcp/README.md) | 本地 MCP 扩展 |
 
-可选：本地调试用种子导出（**不随发行版分发**）：
+本地调试用种子导出（**不随发行版分发**）：
 
 ```bash
 python scripts/export_activities_seed.py
@@ -177,8 +205,6 @@ python scripts/export_state_seed.py
 ---
 
 ## Star History
-
-仓库内自托管图表（由 Actions 自动更新），不依赖 star-history.com：
 
 <!-- star-history:start -->
 <picture>
