@@ -439,6 +439,7 @@ LLM 相关加深若另开，应挂在方向 1/3/4 的服务边界上，而不是
 | 2026-07-20 | 8 配置与安全 | 全部按建议拍板；P1–P3 已落地 | [08](./plans/08-config-security.md) / [impl](./plans/08-config-security-impl.md) |
 | 2026-07-20 | 9 分发与安装 | 按建议 + macOS arm64；P1–P4 已落地 | [09](./plans/09-distribution.md) / [impl](./plans/09-distribution-impl.md) |
 | 2026-07-20 | v5.0.0 | 去掉预填活动 / state 种子；专业 README；公开 Win+Mac 包 | Release `v5.0.0` |
+| 2026-07-21 | v5.0.1 | 转发开奖时间修复；安装包仍无活动/state 种子 | Release `v5.0.1` |
 | 2026-07-21 | 10 MCP + Skill | MCP/`mcp/skills` 落地；本机 Skill v0.2；路线图 1–10 **全部结束** | [10-mcp.md](./plans/10-mcp.md) / [impl](./plans/10-mcp-impl.md) / `mcp/` |
 
 ---

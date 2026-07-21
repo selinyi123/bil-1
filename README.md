@@ -225,6 +225,12 @@ python scripts/import_json_to_db.py
 
 ## Changelog
 
+### v5.0.1（2026-07-21）
+
+- 修复转发抽奖开奖时间：按北京日历串解析 `lottery_time`  
+- 发行包仍**不**内置活动库 / 数据源 state 种子（与 v5.0.0 相同；新安装需自行「更新此源」）  
+- 可选本地 MCP / Skill 扩展随源码提供，不打入安装包  
+
 ### v5.0.0（2026-07-20）
 
 **Breaking**
