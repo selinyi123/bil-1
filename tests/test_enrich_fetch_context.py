@@ -125,12 +125,11 @@ def test_enrich_forward_uses_content_retry_and_reuses_detail(monkeypatch) -> Non
         return "转发抽奖正文足够长用于详情解析与缓存复用测试"
 
     parsed = {
-        "parser_version": 4,
+        "parser_version": 7,
         "is_lottery": True,
         "prize_description": "礼包",
         "winner_count": 3,
-        "lottery_time_unix": 9999999999,
-        "lottery_time_text": "7月20日",
+        "lottery_time": "2026-07-20 00:00",
         "confidence": "high",
     }
 
@@ -199,12 +198,11 @@ def test_enrich_forward_reuses_classify_detail_without_refetch(monkeypatch) -> N
         pass
 
     parsed = {
-        "parser_version": 6,
+        "parser_version": 7,
         "is_lottery": True,
         "prize_description": "礼包",
         "winner_count": 3,
-        "lottery_time_unix": 9999999999,
-        "lottery_time_text": "7月20日",
+        "lottery_time": "2026-07-20 00:00",
         "confidence": "high",
     }
 

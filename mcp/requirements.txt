@@ -1,0 +1,3 @@
+# Binggo MCP — private local extension (does not modify the main app)
+mcp>=1.28.0
+httpx>=0.27.0

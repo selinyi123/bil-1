@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import asdict, dataclass, replace
+from datetime import datetime
 from typing import Literal
 
 from src.activity_status import ActivityStatus, StatusSource, resolve_activity_status
@@ -18,7 +19,14 @@ from src.lottery_api import (
     is_upower_dynamic,
 )
 from src.lottery_classifier import LotteryType, UPOWER_BUSINESS_TYPE
-from src.lottery_time import default_lottery_time_from_now, format_timestamp, migrate_lottery_time_fields
+from src.lottery_time import (
+    BEIJING_TZ,
+    LOTTERY_TIME_DISPLAY_FMT,
+    default_lottery_time_from_now,
+    format_timestamp,
+    is_standard_lottery_time_display,
+    migrate_lottery_time_fields,
+)
 from src.participation_store import ParticipationRecord
 from src.sources.common import opus_link
 
@@ -50,23 +58,21 @@ def is_enrich_detail_skip_error(exc: BaseException) -> bool:
 
 
 def _lottery_time_from_llm_parse(parsed: dict) -> tuple[int, dict[str, int | bool | str]]:
-    """开奖时间仅采用 LLM 输出的 unix；缺失时用 +180 天占位，不做本地文本解析。"""
+    """转发抽奖：只接受 LLM 的 YYYY-MM-DD HH:mm（北京时间），再转为 Unix 入库。"""
     conditions: dict[str, int | bool | str] = {}
-    lottery_time_text = str(parsed.get("lottery_time_text") or "").strip()
-    if lottery_time_text:
-        conditions["lottery_time_text"] = lottery_time_text
-
-    raw_unix = parsed.get("lottery_time_unix")
-    if raw_unix is not None:
-        try:
-            return int(raw_unix), conditions
-        except (TypeError, ValueError):
-            pass
+    display = str(parsed.get("lottery_time") or "").strip()
+    if is_standard_lottery_time_display(display):
+        conditions["lottery_time_text"] = display
+        unix = int(
+            datetime.strptime(display, LOTTERY_TIME_DISPLAY_FMT)
+            .replace(tzinfo=BEIJING_TZ)
+            .timestamp()
+        )
+        return unix, conditions
 
     inferred = default_lottery_time_from_now()
     conditions["lottery_time_inferred"] = True
-    if not lottery_time_text:
-        conditions["lottery_time_text"] = format_timestamp(inferred)
+    conditions["lottery_time_text"] = format_timestamp(inferred)
     return inferred, conditions
 
 
@@ -323,7 +329,7 @@ def enrich_forward_activity(
     if not parsed.get("is_lottery"):
         raise EnrichSkippedError(dynamic_id)
 
-    lottery_time_unix, conditions = _lottery_time_from_llm_parse(parsed)
+    lottery_ts, conditions = _lottery_time_from_llm_parse(parsed)
     draw_status: DrawStatus = "active"
 
     prize_description = str(parsed.get("prize_description") or "").strip()
@@ -347,7 +353,7 @@ def enrich_forward_activity(
         business_id=dynamic_id,
         business_type=0,
         draw_status=draw_status,
-        lottery_time=int(lottery_time_unix),
+        lottery_time=int(lottery_ts),
         prizes=prizes,
         participants=0,
         conditions=conditions,

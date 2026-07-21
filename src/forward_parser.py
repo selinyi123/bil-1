@@ -12,8 +12,10 @@ from src.forward_parse_cache import get_cached_parse, put_cached_parse
 from src.llm_client import chat_json
 from src.sources.common import opus_link
 
-PARSER_VERSION = 6
+PARSER_VERSION = 7
 CLASSIFY_PARSER_VERSION = 3
+LOTTERY_TIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$")
+_WEEKDAY_CN = "一二三四五六日"
 # 仅用于从 HTML 抓取正文，不参与奖品/时间/条件/人数四类字段解析
 INITIAL_STATE_RE = re.compile(r"window\.__INITIAL_STATE__\s*=\s*(\{.*?\})\s*;", re.S)
 MIN_CONTENT_LEN = 12
@@ -46,12 +48,12 @@ PARSE_SYSTEM_PROMPT = """## 角色
 1. 判断是否为转发抽奖活动（is_lottery）
 2. 若 is_lottery=true，仅提取以下四类信息：
    - 奖品内容 → prize_description
-   - 开奖时间 → lottery_time_text + lottery_time_unix
+   - 开奖时间 → lottery_time（北京时间日历串）
    - 参与条件 → need_follow / need_repost / need_comment
    - 抽取人数（中奖名额总数）→ winner_count
 
 ## 输入格式（由用户消息提供）
-- 参考时间：Unix 秒级时间戳 + 北京时间，用于推算相对日期（如「今晚」「本周五」）
+- 参考时间：当前北京时间（含星期），用于推算相对日期（如「今晚」「下周五」「本周日」）
 - 动态 ID：仅作上下文，不得用于编造信息
 - 正文：待解析的纯文本
 
@@ -64,8 +66,7 @@ PARSE_SYSTEM_PROMPT = """## 角色
   "is_lottery": boolean,
   "prize_description": string,
   "winner_count": integer,
-  "lottery_time_text": string,
-  "lottery_time_unix": integer | null,
+  "lottery_time": string | null,
   "need_follow": boolean,
   "need_repost": boolean,
   "need_comment": boolean,
@@ -86,13 +87,16 @@ PARSE_SYSTEM_PROMPT = """## 角色
   - 参与条件、话题标签、`@` 用户名、口号 slogan，均不得当作奖品。
 - 正文未写明奖品 → 空字符串 `""`。
 
-### lottery_time_text / lottery_time_unix
-- lottery_time_text：保留正文中的开奖时间原文片段；无法确定 → ""。
-- lottery_time_unix：根据正文与参考时间推算 Unix 秒（北京时间 UTC+8）。
-  - 正文写出明确日期/时间时，**必须**输出对应的 `lottery_time_unix`，仅日期无具体时刻时按当日 00:00（北京时间）推算。
-  - **开奖时间可以早于参考时间**（已开奖/已过期）：仍按正文真实日期填写 unix，**禁止**因已过去而填 null 或改写成未来时间。
-  - 正文完全未提及开奖时间、或仅有「见图」等无法推算的表述 → `lottery_time_unix=null`。
-- 本阶段不判断是否已结束、是否仍可参与；只忠实提取正文时间。
+### lottery_time
+- 类型：`string | null`。若有可确定的开奖时间，必须输出**北京时间**日历串，格式**严格**为 `YYYY-MM-DD HH:mm`（例：`2026-07-20 20:00`）。
+- **禁止**输出 Unix 时间戳、中文原文、其它日期格式（如 `7月20日`、`2026/07/20`）。
+- 推算规则（相对参考时间的北京日历）：
+  - 「今晚 8 点 / 晚 8 点」等 → 参考日（或正文所指日）的 `20:00`（按正文钟点填写）。
+  - 「下周五」「本周日」等 → 先定具体公历日，再填时刻；正文未写时刻 → 当日 `00:00`。
+  - 正文仅有日期（如 `7月24日`、`7.24`）→ 该日 `00:00`；年份默认参考时间所在年，若该月日已明显早于参考日很久且更像跨年活动，按语义取合理年份（通常同年或次年）。
+  - **开奖时间可以早于参考时间**（已开奖）：仍填真实日历串，禁止因已过去而改成未来或填 null。
+  - 正文完全未提及开奖时间、或仅有「见图」「详情看图」等无法推算 → `lottery_time=null`。
+- 本阶段不判断是否已结束、是否仍可参与；只忠实提取/推算时间。
 
 ### need_follow / need_repost / need_comment
 - 正文明确要求某条件 → true；未提及 → false。
@@ -120,61 +124,69 @@ PARSE_SYSTEM_PROMPT = """## 角色
 3. **排除**：纯广告、日常、招聘、直播预告、带货、万粉庆祝口号、无抽奖规则的粉丝寒暄 → `is_lottery=false`。
 
 ### is_lottery=false 时
-- prize_description=""，winner_count=0，lottery_time_text=""，lottery_time_unix=null
+- prize_description=""，winner_count=0，lottery_time=null
 - need_follow/need_repost/need_comment 均为 false，confidence="low"
 
 ## 禁止事项
 - 禁止编造正文不存在的奖品、时间、规则或人数
 - 禁止输出 winners、participated、activity_status、中奖名单、中奖用户、是否已参加等字段
-- 禁止输出 Schema 之外的键
+- 禁止输出 Schema 之外的键（尤其禁止 lottery_time_unix、lottery_time_text）
 
 ## 示例
 
 ### 示例 A
 正文：「转发+关注@某UP 奖品：机械键盘×2 7月20日晚8点开奖」
-参考时间：2026-07-12 12:00:00 +0800
+参考时间：2026-07-12 12:00:00（星期日，UTC+8）
 输出：
-{"is_lottery":true,"prize_description":"机械键盘×2","winner_count":2,"lottery_time_text":"7月20日晚8点","lottery_time_unix":1784548800,"need_follow":true,"need_repost":true,"need_comment":false,"confidence":"high"}
+{"is_lottery":true,"prize_description":"机械键盘×2","winner_count":2,"lottery_time":"2026-07-20 20:00","need_follow":true,"need_repost":true,"need_comment":false,"confidence":"high"}
 
 ### 示例 B
 正文：「关注并转发，抽 5 位送月卡，开奖时间见图」
 输出：
-{"is_lottery":true,"prize_description":"月卡","winner_count":5,"lottery_time_text":"","lottery_time_unix":null,"need_follow":true,"need_repost":true,"need_comment":false,"confidence":"medium"}
+{"is_lottery":true,"prize_description":"月卡","winner_count":5,"lottery_time":null,"need_follow":true,"need_repost":true,"need_comment":false,"confidence":"medium"}
 
 ### 示例 C
 正文：「本周粉丝福利，详情见图」
 输出：
-{"is_lottery":false,"prize_description":"","winner_count":0,"lottery_time_text":"","lottery_time_unix":null,"need_follow":false,"need_repost":false,"need_comment":false,"confidence":"low"}
+{"is_lottery":false,"prize_description":"","winner_count":0,"lottery_time":null,"need_follow":false,"need_repost":false,"need_comment":false,"confidence":"low"}
 
 ### 示例 D
 正文：「新品轴体，即将上市。关注@某品牌，评论+转发，plq随机揪一位粉丝」
 输出：
-{"is_lottery":true,"prize_description":"新品轴体","winner_count":1,"lottery_time_text":"","lottery_time_unix":null,"need_follow":true,"need_repost":true,"need_comment":true,"confidence":"medium"}
+{"is_lottery":true,"prize_description":"新品轴体","winner_count":1,"lottery_time":null,"need_follow":true,"need_repost":true,"need_comment":true,"confidence":"medium"}
 
 ### 示例 E
 正文：「关注并转发，随机揪一位幸运儿，福利见图」
 输出：
-{"is_lottery":false,"prize_description":"","winner_count":0,"lottery_time_text":"","lottery_time_unix":null,"need_follow":true,"need_repost":true,"need_comment":false,"confidence":"low"}
+{"is_lottery":false,"prize_description":"","winner_count":0,"lottery_time":null,"need_follow":true,"need_repost":true,"need_comment":false,"confidence":"low"}
 
 ### 示例 F
 正文：「正是七月，本条🤏7位幸运鹅吃新品哦~ #万粉万粉万万粉#」
 输出：
-{"is_lottery":false,"prize_description":"","winner_count":0,"lottery_time_text":"","lottery_time_unix":null,"need_follow":false,"need_repost":false,"need_comment":false,"confidence":"low"}
+{"is_lottery":false,"prize_description":"","winner_count":0,"lottery_time":null,"need_follow":false,"need_repost":false,"need_comment":false,"confidence":"low"}
 
-### 示例 G（已过期开奖日仍须填 unix）
+### 示例 G（已过期开奖日仍须填日历串）
 正文：「关注并转发并评论即可参与；开奖日期：2026年7月8日」
-参考时间：2026-07-16 12:00:00 +0800
+参考时间：2026-07-16 12:00:00（星期四，UTC+8）
 输出：
-{"is_lottery":true,"prize_description":"鼠标","winner_count":0,"lottery_time_text":"2026年7月8日","lottery_time_unix":1783440000,"need_follow":true,"need_repost":true,"need_comment":true,"confidence":"medium"}
+{"is_lottery":true,"prize_description":"鼠标","winner_count":0,"lottery_time":"2026-07-08 00:00","need_follow":true,"need_repost":true,"need_comment":true,"confidence":"medium"}
+
+### 示例 H（相对日期）
+正文：「关注转发，下周五晚8点开奖，抽 3 人送周边」
+参考时间：2026-07-16 12:00:00（星期四，UTC+8）
+输出：
+{"is_lottery":true,"prize_description":"周边","winner_count":3,"lottery_time":"2026-07-24 20:00","need_follow":true,"need_repost":true,"need_comment":false,"confidence":"high"}
 """
 
 
 def _build_user_prompt(*, dynamic_id: str, content_text: str, reference_ts: int) -> str:
     ref_dt = datetime.fromtimestamp(reference_ts, tz=CN_TZ)
+    weekday = _WEEKDAY_CN[ref_dt.weekday()]
     return (
-        f"## 参考时间\n"
-        f"- Unix 时间戳（秒）: {reference_ts}\n"
-        f"- 北京时间: {ref_dt.strftime('%Y-%m-%d %H:%M:%S %z')}\n\n"
+        f"## 参考时间（北京时间 UTC+8）\n"
+        f"- {ref_dt.strftime('%Y-%m-%d %H:%M:%S')}（星期{weekday}）\n"
+        f"- 推算「今晚 / 本周 / 下周」等相对开奖时间时，必须以该时刻为基准。\n"
+        f"- 输出 lottery_time 时只允许 `YYYY-MM-DD HH:mm` 或 null。\n\n"
         f"## 动态 ID\n{dynamic_id}\n\n"
         f"## 正文\n{content_text}"
     )
@@ -630,16 +642,16 @@ def classify_forward_lottery(dynamic_id: str, content_text: str) -> dict[str, An
     return parsed
 
 
-def _coerce_lottery_time_unix(value: Any) -> int | None:
-    if value is None or value == "":
+def _coerce_lottery_time(value: Any) -> str | None:
+    """仅接受严格的 YYYY-MM-DD HH:mm；其它一律视为未识别。"""
+    if value is None:
         return None
-    try:
-        ts = int(value)
-    except (TypeError, ValueError):
+    text = str(value).strip()
+    if not text or text.lower() in {"null", "none"}:
         return None
-    if ts <= 0:
-        return None
-    return ts
+    if LOTTERY_TIME_RE.fullmatch(text):
+        return text
+    return None
 
 
 def _normalize_parsed(raw: dict[str, Any]) -> dict[str, Any]:
@@ -658,8 +670,7 @@ def _normalize_parsed(raw: dict[str, Any]) -> dict[str, Any]:
         "is_lottery": bool(raw.get("is_lottery", False)),
         "prize_description": str(raw.get("prize_description") or "").strip(),
         "winner_count": winner_count,
-        "lottery_time_text": str(raw.get("lottery_time_text") or "").strip(),
-        "lottery_time_unix": _coerce_lottery_time_unix(raw.get("lottery_time_unix")),
+        "lottery_time": _coerce_lottery_time(raw.get("lottery_time")),
         "need_follow": bool(raw.get("need_follow")),
         "need_repost": bool(raw.get("need_repost")),
         "need_comment": bool(raw.get("need_comment")),
@@ -673,8 +684,7 @@ def _empty_parse(*, error: str | None = None) -> dict[str, Any]:
         "is_lottery": False,
         "prize_description": "",
         "winner_count": 0,
-        "lottery_time_text": "",
-        "lottery_time_unix": None,
+        "lottery_time": None,
         "need_follow": False,
         "need_repost": False,
         "need_comment": False,

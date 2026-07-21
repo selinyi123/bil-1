@@ -1,14 +1,14 @@
 # Binggo 全栈深化路线图（讨论稿）
 
-> 状态：方向 1–9 **已落地**；方向 10（Skill / MCP）待讨论  
+> 状态：**方向 1–10 全部已落地**；本路线图范围内的全栈优化 **已结束**  
 > 目的：把「真实需求 → 技术选型 → 边界」记清楚，避免为简历硬堆栈  
-> 更新：2026-07-20
+> 更新：2026-07-21（收官）
 
-本文记录十个全栈方向，供后续逐个评审后再开工。原则：
+本文记录十个全栈方向（历史讨论与落地索引）。原则：
 
 1. **场景先于技术**：写不清「现在卡在哪」的方向，不进入实现。
 2. **本地单机优先**：不过度引入 Kafka / K8s 等与产品形态不符的组件。
-3. **不另开仓库**：能力长在本项目内；LLM 只作为业务模块，不做「对话点按钮」式 Agent。
+3. **不另开仓库**：能力长在本项目内；LLM 只作为业务模块，不做产品内「对话点按钮」式 Agent（方向 10 为**可选本机扩展**）。
 4. **可写进简历**：每项都能对应可验证的 GitHub 改动与面试话术。
 
 ---
@@ -17,18 +17,18 @@
 
 | # | 方向 | 一句话目标 | 建议优先级 | 状态 |
 |---|------|------------|------------|------|
-| 1 | 数据层 | JSON 文件 → 本地数据库 | P0 | 已完成（`binggo.db` + `scripts/import_json_to_db.py`；见 plans/01） |
-| 2 | 实时进度 | 轮询 → 推送 | P0 | 已落地（见 [plans/02-realtime-progress-impl.md](./plans/02-realtime-progress-impl.md)） |
-| 3 | 后端任务模型 | 进程内线程 → 清晰任务抽象 | P0 | 已落地（见 [plans/03-backend-task-model-impl.md](./plans/03-backend-task-model-impl.md)） |
-| 4 | API 层 | 脚本式接口 → 稳定后端契约 | P1 | 已落地（见 [plans/04-api-contract-impl.md](./plans/04-api-contract-impl.md)） |
-| 5 | 前端工程化 | 单文件脚本 → 可维护前端 | P1 | 已落地（见 [plans/05-frontend-engineering.md](./plans/05-frontend-engineering.md) / [impl](./plans/05-frontend-engineering-impl.md)） |
-| 6 | 测试与质量 | 单测为主 → 关键路径自动化 | P1 | 已落地（见 [plans/06-testing-quality.md](./plans/06-testing-quality.md) / [impl](./plans/06-testing-quality-impl.md)） |
-| 7 | 可观测性 | 日志文件 → 结构化可查 | P1 | 已落地（见 [plans/07-observability.md](./plans/07-observability.md) / [impl](./plans/07-observability-impl.md)） |
-| 8 | 配置与安全 | 本地密钥与配置治理 | P1～P2 | 已落地（见 [plans/08-config-security.md](./plans/08-config-security.md) / [impl](./plans/08-config-security-impl.md)） |
-| 9 | 分发与安装 | 打包 / 发布 / 升级体验（含 macOS） | P2 | 已落地（见 [plans/09-distribution.md](./plans/09-distribution.md) / [impl](./plans/09-distribution-impl.md)） |
-| 10 | 拓展：Skill / MCP | 把能力暴露给外部 Agent | P2～探索 | 待讨论 |
+| 1 | 数据层 | JSON 文件 → 本地数据库 | P0 | **已完成** |
+| 2 | 实时进度 | 轮询 → 推送 | P0 | **已完成** |
+| 3 | 后端任务模型 | 进程内线程 → 清晰任务抽象 | P0 | **已完成** |
+| 4 | API 层 | 脚本式接口 → 稳定后端契约 | P1 | **已完成** |
+| 5 | 前端工程化 | 单文件脚本 → 可维护前端 | P1 | **已完成** |
+| 6 | 测试与质量 | 单测为主 → 关键路径自动化 | P1 | **已完成** |
+| 7 | 可观测性 | 日志文件 → 结构化可查 | P1 | **已完成** |
+| 8 | 配置与安全 | 本地密钥与配置治理 | P1～P2 | **已完成** |
+| 9 | 分发与安装 | 打包 / 发布 / 升级体验（含 macOS） | P2 | **已完成** |
+| 10 | 拓展：MCP + Skill | 本机 Agent 经 MCP 操作控制台；Skill 编排 | P2 | **已完成**（扩展目录 `mcp/` + `mcp/skills/`，不改主工程业务逻辑） |
 
-建议暑期主线顺序：**1 → 3 → 2**（数据与任务底座先稳，再推送），其余按讨论结果穿插。
+暑期主线 **1 → 3 → 2 → … → 10** 已全部走完。下文各节保留为历史设计与文档索引，**不再作为待办清单**。
 
 ---
 
@@ -375,7 +375,7 @@
 - [x] 版本号单一来源如何继续保持？→ 见同文档议题 A（建议 A1）
 
 拍板稿：[plans/09-distribution.md](./plans/09-distribution.md)  
-落地规范：[plans/09-distribution-impl.md](./plans/09-distribution-impl.md)（**待编码**；含 macOS arm64）
+落地规范：[plans/09-distribution-impl.md](./plans/09-distribution-impl.md)（**已落地**；含 macOS arm64）
 
 ### 简历可写点（草案）
 
@@ -383,39 +383,31 @@
 
 ---
 
-## 10. 拓展：写成 Skill、MCP
+## 10. 拓展：MCP + Skill（已完成）
 
 ### 真实需求 / 痛点
 
-- 控制台能力（刷新某源、查未参加、参与等）若能以标准协议暴露，可被 Cursor 等外部 Agent 复用。
+- 控制台能力若能以标准协议暴露，可被本机任意 Agent 复用。
 - 这是「拓展集成」，不是替代本机 UI；**不**等于在产品内做对话点按钮。
 
-### 目标形态
+### 已落地形态
 
-- 将稳定 action 封装为 **MCP tools**（或 Agent Skill 说明 + 调用约定）。
-- 工具输入输出与方向 4 的 API 契约对齐；危险操作强制确认或 deny-by-default。
-- 文档说明：仅本机、需用户已登录、权限边界。
+- 独立扩展目录 **`mcp/`**：stdio MCP → 固定 `http://127.0.0.1:8787`；全 tool 串行；Job 等到终态；登录交二维码图；**不修改** `src/` / `web/` 业务逻辑。
+- **`mcp/skills/binggo-mcp`**：Agent Skills 开放格式 + 多 Agent adapters；本机私人编排；远端/手机用网页（如 Tailscale），不进 Skill。
+- 文档：[10-mcp.md](./plans/10-mcp.md) · [10-mcp-impl.md](./plans/10-mcp-impl.md) · [`mcp/README.md`](../mcp/README.md) · [`mcp/skills/README.md`](../mcp/skills/README.md)
 
-### 候选技术
+### 非目标（仍成立）
 
-- MCP Python SDK / 标准 IO 或本地 HTTP  
-- Cursor Skill（`SKILL.md`）描述何时调用哪些工具  
-- 复用现有 `web/actions.py` 能力，避免两套业务逻辑
-
-### 非目标
-
-- 公网 MCP；让模型绕过安全确认直接三连；用 MCP 取代 Web UI。
+- 公网 MCP；用 MCP 取代 Web UI；回传 Cookie 明文；Skill 承担组网。
 
 ### 讨论清单
 
-- [ ] 首批暴露哪些 tools？哪些永久不暴露？
-- [ ] 与方向 4 是否要求「先有稳定 API 再包 MCP」？
-- [ ] Skill 文档与 MCP server 是否同仓维护？
-- [ ] 本地鉴权：如何防止任意本机进程滥用？
+- [x] 首批 tools / 永久不暴露 → [10-mcp.md](./plans/10-mcp.md)
+- [x] 先稳定 API 再包 MCP → 是
+- [x] Skill 本机私人 + adapters；不含远端
+- [x] A1/B1/8787/D2/E1 + F1/G2/H1 → 已实现
 
-### 简历可写点（草案）
-
-> 将抽奖控制台能力以 MCP/Skill 形式暴露为可编排工具，供外部 Agent 在明确权限下调用。
+> 方向 10 与路线图 1–9 一并 **收官**。
 
 ---
 
@@ -426,24 +418,28 @@
 - 转发抽奖正文 → 结构化字段（已有，可加深校验与 Eval）
 - 不在本路线图内单独立项「对话式操作面板」
 
-LLM 相关加深若启动，应挂在方向 1/3/4 的服务边界上（抽取作为后端模块），而不是方向 10 的聊天产品化。
+LLM 相关加深若另开，应挂在方向 1/3/4 的服务边界上，而不是把产品改成聊天控制台。
 
 ---
 
-## 后续工作方式
+## 路线图收官说明
 
-1. **逐项讨论**：每次只拍板 1 个方向的范围、非目标、验收标准。  
-2. **再写实现方案**：可另开短文（如 `docs/plans/01-sqlite.md`）或直接开 PR。  
-3. **验收**：功能可用 + 测试/文档/版本说明同步；简历 bullet 用事实改写草案。  
-4. **状态更新**：把上表「状态」改为：讨论中 / 方案已定 / 实现中 / 已完成。
+**本文件所列十个方向均已完成。** 后续若有新需求，应另开议题/计划，不必再沿用「待讨论方向」流程。
 
-### 讨论记录（预留）
+历史工作方式（已完成阶段）：
+
+1. 逐项讨论拍板范围与非目标  
+2. 写 `docs/plans/*` 实现规范  
+3. 编码 + 验收 + 更新本表状态  
+
+### 讨论记录
 
 | 日期 | 方向 | 结论 | 备注 |
 |------|------|------|------|
 | 2026-07-20 | 8 配置与安全 | 全部按建议拍板；P1–P3 已落地 | [08](./plans/08-config-security.md) / [impl](./plans/08-config-security-impl.md) |
 | 2026-07-20 | 9 分发与安装 | 按建议 + macOS arm64；P1–P4 已落地 | [09](./plans/09-distribution.md) / [impl](./plans/09-distribution-impl.md) |
 | 2026-07-20 | v5.0.0 | 去掉预填活动 / state 种子；专业 README；公开 Win+Mac 包 | Release `v5.0.0` |
+| 2026-07-21 | 10 MCP + Skill | MCP/`mcp/skills` 落地；本机 Skill v0.2；路线图 1–10 **全部结束** | [10-mcp.md](./plans/10-mcp.md) / [impl](./plans/10-mcp-impl.md) / `mcp/` |
 
 ---
 
@@ -454,3 +450,4 @@ LLM 相关加深若启动，应挂在方向 1/3/4 的服务边界上（抽取作
 - [活动流水线设计](./pipeline-redesign.md)
 - [CLI 手册](./cli.md)
 - [实现计划（历史）](./implementation-plan.md)
+- [MCP 扩展](../mcp/README.md) · [Skill](../mcp/skills/README.md)
