@@ -8,8 +8,9 @@ config/watch_users_candidates.json
 # 运行时数据（活动缓存、参与记录、登录二维码等）
 data/
 
-# 本地备忘（个人 git 命令等）
+# 本地备忘（个人 git 命令、启动/Tailscale 私记等）
 git.txt
+init.txt
 
 # 本地文档（不上传 GitHub）
 docs/data-source-analysis.md
