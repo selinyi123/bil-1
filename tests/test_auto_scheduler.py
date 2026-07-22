@@ -4,7 +4,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock
-from zoneinfo import ZoneInfo
+from datetime import timedelta, timezone
 
 import pytest
 
@@ -211,7 +211,7 @@ def test_click_and_wait_interrupted_raises(isolated_home: Path) -> None:
 
 
 def test_next_slot_before_refresh() -> None:
-    now = datetime(2026, 7, 17, 2, 56, tzinfo=ZoneInfo("Asia/Shanghai"))
+    now = datetime(2026, 7, 17, 2, 56, tzinfo=timezone(timedelta(hours=8)))
     slot = _next_slot(now)
     assert slot["kind"] == "refresh"
     assert slot["hour"] == 3
@@ -221,7 +221,7 @@ def test_next_slot_before_refresh() -> None:
 
 
 def test_next_slot_triple_minute() -> None:
-    now = datetime(2026, 7, 17, 2, 50, tzinfo=ZoneInfo("Asia/Shanghai"))
+    now = datetime(2026, 7, 17, 2, 50, tzinfo=timezone(timedelta(hours=8)))
     slot = _next_slot(now)
     assert slot["kind"] == "triple"
     assert slot["minute"] == 55

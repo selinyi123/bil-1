@@ -189,6 +189,10 @@ python scripts/export_state_seed.py
 
 ## 更新记录
 
+### v5.0.2（2026-07-22）
+
+- 修复 Windows / macOS 安装包启动失败：定时调度器不再依赖系统 `tzdata` 解析 `Asia/Shanghai`
+
 ### v5.0.1（2026-07-21）
 
 - 修复转发抽奖开奖时间：按北京日历串解析 `lottery_time`

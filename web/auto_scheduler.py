@@ -6,9 +6,8 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
-from zoneinfo import ZoneInfo
 
 from src.app_logging import get_logger
 from web.auto_config import (
@@ -24,7 +23,8 @@ from web.job_runner import JobRunner, runner
 from web.user_messages import friendly_error
 
 logger = get_logger("auto")
-CN_TZ = ZoneInfo("Asia/Shanghai")
+# 固定 UTC+8，与 lottery_time / forward_parser 一致；避免 Windows 打包缺 tzdata 时启动失败
+CN_TZ = timezone(timedelta(hours=8))
 SchedulerState = Literal["idle", "running", "stopped", "fatal"]
 STATE_LABELS = {
     "idle": "尚未启动",
