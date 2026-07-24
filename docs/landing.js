@@ -390,9 +390,9 @@
           y: Math.random() * h,
           vx: 0.6 + Math.random() * 2.2,
           vy: (Math.random() - 0.5) * 0.9,
-          r: 1.2 + Math.random() * 3.2,
-          life: 0.55 + Math.random() * 0.65,
-          a: 0.45 + Math.random() * 0.5,
+          r: 1.6 + Math.random() * 4.2,
+          life: 0.65 + Math.random() * 0.75,
+          a: 0.55 + Math.random() * 0.45,
           warm: Math.random(),
           spark: Math.random() > 0.82,
         });
@@ -401,9 +401,9 @@
 
     const drawWash = (fx) => {
       const wash = ctx.createLinearGradient(0, 0, fx, 0);
-      wash.addColorStop(0, `rgba(212,132,98,${0.28 * gAlpha})`);
-      wash.addColorStop(0.55, `rgba(233,160,124,${0.16 * gAlpha})`);
-      wash.addColorStop(1, `rgba(255,210,175,${0.32 * gAlpha})`);
+      wash.addColorStop(0, `rgba(212,132,98,${0.42 * gAlpha})`);
+      wash.addColorStop(0.55, `rgba(233,160,124,${0.26 * gAlpha})`);
+      wash.addColorStop(1, `rgba(255,210,175,${0.48 * gAlpha})`);
       ctx.fillStyle = wash;
       ctx.fillRect(0, 0, fx, h);
 
@@ -447,7 +447,7 @@
       canvas.style.opacity = String(gAlpha);
 
       if (phase === "fadeIn" || phase === "travel") {
-        spawn(fx, Math.max(3, Math.round(6 + progress * 14)));
+        spawn(fx, Math.max(5, Math.round(10 + progress * 18)));
       }
       if (pool.length > 220) pool.splice(0, pool.length - 220);
 
