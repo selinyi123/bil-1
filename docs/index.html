@@ -48,43 +48,43 @@
   </div>
 
   <main id="top">
-    <!-- HERO -->
+    <!-- HERO: copy on top, full-width landscape showcase -->
     <section class="hero">
       <div class="hero-orb" aria-hidden="true"></div>
-      <div class="hero-grid">
-        <div class="hero-copy">
-          <p class="pill" data-in>本机运行 · 开源免费 · Win / Mac</p>
-          <h1 data-in>
-            <span class="word">Binggo</span>
+      <div class="hero-copy">
+        <p class="pill" data-in>本机运行 · 开源免费 · Win / Mac</p>
+        <h1 data-in>
+          <span class="word">Binggo</span>
+          <span class="zh">
             <span class="line"><i>不用一个个找</i></span>
             <span class="line accent"><i>也不用一个个点</i></span>
-          </h1>
-          <p class="lead" data-in>自动发现抽奖活动，一键 / 三连参与，定时调度。<br>Cookie 与数据只留在你的电脑上。</p>
-          <div class="hero-cta" data-in>
-            <a class="btn btn-fill btn-lg" data-magnet href="https://github.com/luovicter-collab/bilibinggo/releases/latest" target="_blank" rel="noopener">
-              免费下载安装包 <em>↓</em>
-            </a>
-            <a class="btn btn-line btn-lg" data-magnet href="#tour">看六个真实界面</a>
+          </span>
+        </h1>
+        <p class="lead" data-in>自动发现抽奖活动，一键 / 三连参与，定时调度。Cookie 与数据只留在你的电脑上。</p>
+        <div class="hero-cta" data-in>
+          <a class="btn btn-fill btn-lg" data-magnet href="https://github.com/luovicter-collab/bilibinggo/releases/latest" target="_blank" rel="noopener">
+            免费下载安装包 <em>↓</em>
+          </a>
+          <a class="btn btn-line btn-lg" data-magnet href="#tour">看六个真实界面</a>
+        </div>
+      </div>
+
+      <div class="hero-stage" data-in>
+        <div class="hero-frame" id="hero-frame">
+          <div class="hero-rail" id="hero-rail">
+            <figure class="hero-slide is-wide"><img src="./images/overview.png" alt="概览页" width="2552" height="1308" decoding="async" fetchpriority="high"></figure>
+            <figure class="hero-slide is-wide"><img src="./images/activities.png" alt="活动页" width="2552" height="1308" decoding="async"></figure>
+            <figure class="hero-slide is-wide"><img src="./images/sources.png" alt="数据源" width="2552" height="1308" decoding="async"></figure>
+            <figure class="hero-slide is-wide"><img src="./images/sources-watch.png" alt="监控名单" width="2552" height="1308" decoding="async"></figure>
+            <figure class="hero-slide is-tall"><img src="./images/scheduler.png" alt="定时监视器" width="395" height="714" decoding="async"></figure>
+            <figure class="hero-slide is-wide"><img src="./images/night.png" alt="夜间模式" width="2552" height="1308" decoding="async"></figure>
           </div>
         </div>
-
-        <div class="hero-stage" data-in>
-          <div class="hero-frame" id="hero-frame">
-            <div class="hero-rail" id="hero-rail">
-              <img src="./images/activities.png" alt="活动页" data-hi="1">
-              <img src="./images/overview.png" alt="概览页" data-hi="0">
-              <img src="./images/sources.png" alt="数据源" data-hi="2">
-              <img src="./images/sources-watch.png" alt="监控名单" data-hi="3">
-              <img src="./images/scheduler.png" alt="定时监视器" data-hi="4">
-              <img src="./images/night.png" alt="夜间模式" data-hi="5">
-            </div>
-          </div>
-          <div class="hero-bar">
-            <button type="button" class="icon-btn" id="hero-prev" aria-label="上一张">←</button>
-            <div class="hero-dots" id="hero-dots" role="tablist"></div>
-            <button type="button" class="icon-btn" id="hero-next" aria-label="下一张">→</button>
-          </div>
-          <p class="hero-cap" id="hero-cap">活动页 · 筛选 / 参与 / 三连</p>
+        <div class="hero-bar">
+          <button type="button" class="icon-btn" id="hero-prev" aria-label="上一张">←</button>
+          <div class="hero-dots" id="hero-dots" role="tablist"></div>
+          <button type="button" class="icon-btn" id="hero-next" aria-label="下一张">→</button>
+          <p class="hero-cap" id="hero-cap">概览页 · 统计 / 快捷操作</p>
         </div>
       </div>
 
@@ -103,9 +103,9 @@
       </div>
     </div>
 
-    <!-- TOUR: image first -->
+    <!-- TOUR: full-width sharp screenshot on top -->
     <section class="tour" id="tour">
-      <div class="wrap">
+      <div class="wrap wrap-wide">
         <header class="sec-head" data-in>
           <p class="eyebrow">Interactive Tour</p>
           <h2>六个界面，把抽奖流程看清楚</h2>
@@ -123,31 +123,31 @@
           </div>
           <div class="tour-meter"><i id="tour-meter"></i></div>
 
-          <div class="tour-view">
-            <figure class="shot" id="tour-shot">
-              <div class="shot-chrome"><span></span><span></span><span></span><em id="tour-url">本地控制台 · 概览</em></div>
-              <div class="shot-body">
-                <img id="tour-img" src="./images/overview.png" alt="概览页" width="1400" height="900">
-                <div class="hots" id="tour-hots"></div>
-              </div>
-              <div class="shot-tip" id="tour-tip" hidden></div>
-            </figure>
+          <figure class="shot" id="tour-shot">
+            <div class="shot-chrome"><span></span><span></span><span></span><em id="tour-url">本地控制台 · 概览</em></div>
+            <div class="shot-body" id="shot-body">
+              <img id="tour-img" src="./images/overview.png" alt="概览页" width="2552" height="1308" decoding="async">
+              <div class="hots" id="tour-hots"></div>
+            </div>
+            <div class="shot-tip" id="tour-tip" hidden></div>
+          </figure>
 
-            <aside class="tour-side">
+          <div class="tour-foot">
+            <div class="tour-side">
               <p class="tour-n" id="tour-n">01 / 06</p>
               <h3 id="tour-title">概览页</h3>
               <p id="tour-desc">打开软件第一站：登录态、LLM、活动统计与快捷操作一眼看清。</p>
-              <ul id="tour-points">
-                <li>账号卡片：关注 / 动态 / 私信 / @</li>
-                <li>六宫格统计实时汇总</li>
-                <li>参与文案可自定义或随机</li>
-              </ul>
-              <div class="tour-acts">
-                <button type="button" class="btn btn-ghost-dark" id="tour-prev">←</button>
-                <button type="button" class="btn btn-fill" id="tour-next">下一张 →</button>
-                <button type="button" class="btn btn-ghost-dark" id="tour-play" aria-pressed="true">⏸</button>
-              </div>
-            </aside>
+            </div>
+            <ul id="tour-points">
+              <li>账号卡片：关注 / 动态 / 私信 / @</li>
+              <li>六宫格统计实时汇总</li>
+              <li>参与文案可自定义或随机</li>
+            </ul>
+            <div class="tour-acts">
+              <button type="button" class="btn btn-ghost-dark" id="tour-prev">←</button>
+              <button type="button" class="btn btn-fill" id="tour-next">下一张 →</button>
+              <button type="button" class="btn btn-ghost-dark" id="tour-play" aria-pressed="true">⏸</button>
+            </div>
           </div>
         </div>
       </div>

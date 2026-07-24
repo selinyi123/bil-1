@@ -4,13 +4,14 @@
   if (touch) document.body.classList.add("touch");
 
   const CAPS = [
-    "活动页 · 筛选 / 参与 / 三连",
     "概览页 · 统计 / 快捷操作",
+    "活动页 · 筛选 / 参与 / 三连",
     "数据源 · UP 合集更新",
     "监控名单 · 转发补漏",
     "定时监视器 · 到点自动点",
     "夜间模式 · 护眼长刷",
   ];
+  const TALL = new Set([4]); /* scheduler is portrait */
 
   const TOURS = [
     {
@@ -240,17 +241,20 @@
       void img.offsetWidth;
       img.src = t.img;
       img.alt = t.title;
+      img.width = TALL.has(tourI) ? 395 : 2552;
+      img.height = TALL.has(tourI) ? 714 : 1308;
       img.style.animation = "";
     }
-    renderHots(t.hotspots);
+    const body = document.getElementById("shot-body");
+    body?.classList.toggle("is-tall", TALL.has(tourI));
+    renderHots(TALL.has(tourI) ? [] : t.hotspots);
     tabs.forEach((tab, idx) => tab.classList.toggle("is-on", idx === tourI));
     if (themeBtn) {
       if (tourI === 5) themeBtn.setAttribute("data-mode", "night");
       else if (tourI === 0) themeBtn.removeAttribute("data-mode");
     }
     if (!soft) autoT0 = performance.now();
-    const heroMap = [1, 0, 2, 3, 4, 5];
-    paintHero(heroMap[tourI]);
+    paintHero(tourI);
   };
 
   tabs.forEach((tab) => tab.addEventListener("click", () => renderTour(Number(tab.dataset.tour))));
