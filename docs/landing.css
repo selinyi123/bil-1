@@ -88,11 +88,11 @@ body.touch .cursor, body.touch .glow { display: none; }
   box-shadow: 0 24px 70px rgba(0,0,0,.5);
 }
 .site-nav.is-traveling .nav-shell {
-  border-bottom-color: rgba(212,132,98,.14);
-  transition: background .55s var(--ease), border-color .72s var(--ease), box-shadow .55s;
+  background: rgba(6,5,4,.94);
+  border-bottom-color: rgba(212,132,98,.2);
 }
 
-/* 导航滚动进度 — 细线光刃 + 微尘粒子 */
+/* 导航滚动进度 — 细线光刃 + 方向性粒子（不影响顶栏底色对比度） */
 .nav-travel {
   position: absolute; inset: 0; z-index: 1;
   pointer-events: none;
@@ -105,48 +105,38 @@ body.touch .cursor, body.touch .glow { display: none; }
   pointer-events: none;
 }
 
-.nav-travel::before {
-  content: "";
-  position: absolute; inset: 0;
-  background: linear-gradient(
-    90deg,
-    rgba(212,132,98,.07) 0%,
-    rgba(233,160,124,.045) calc(var(--travel-p, 0) * 100% - 1.5%),
-    transparent calc(var(--travel-p, 0) * 100% + 0.5%)
-  );
-  -webkit-mask-image: linear-gradient(180deg, transparent 0%, #000 28%, #000 72%, transparent 100%);
-  mask-image: linear-gradient(180deg, transparent 0%, #000 28%, #000 72%, transparent 100%);
-}
-
 .nav-travel::after {
   content: "";
   position: absolute;
-  top: 14%; bottom: 14%;
-  left: calc(var(--travel-p, 0) * 100%);
-  width: 1px;
+  top: 12%; bottom: 12%;
+  left: calc(var(--travel-beam, 0) * 100%);
+  width: 1.5px;
   transform: translateX(-50%);
   background: linear-gradient(
     180deg,
     transparent 0%,
-    rgba(233,160,124,.42) 22%,
-    rgba(244,239,231,.72) 50%,
-    rgba(233,160,124,.42) 78%,
+    rgba(233,160,124,.72) 20%,
+    rgba(244,239,231,.95) 50%,
+    rgba(233,160,124,.72) 80%,
     transparent 100%
   );
   box-shadow:
-    0 0 18px rgba(233,160,124,.18),
-    -20px 0 40px rgba(212,132,98,.08);
-  opacity: .88;
+    0 0 22px rgba(233,160,124,.42),
+    calc(var(--travel-dir, 1) * -28px) 0 52px rgba(212,132,98,.22);
 }
 
 .nav-travel-rail {
   position: absolute;
-  left: 0; bottom: 0;
-  height: 1px;
-  width: calc(var(--travel-p, 0) * 100%);
-  background: linear-gradient(90deg, rgba(212,132,98,.28), rgba(233,160,124,.62));
-  box-shadow: 0 0 10px rgba(233,160,124,.22);
-  border-radius: 0 1px 1px 0;
+  bottom: 0;
+  left: calc(var(--travel-left, 0) * 100%);
+  height: 2px;
+  width: calc(var(--travel-width, 0) * 100%);
+  background: linear-gradient(90deg, rgba(212,132,98,.5), rgba(233,160,124,.88));
+  box-shadow: 0 0 14px rgba(233,160,124,.38);
+  border-radius: 1px;
+}
+.site-nav[data-travel-dir="-1"] .nav-travel-rail {
+  background: linear-gradient(270deg, rgba(212,132,98,.5), rgba(233,160,124,.88));
 }
 
 .nav-inner {

@@ -350,19 +350,22 @@
     });
   }
 
-  /* ---------- Nav travel: beam + dust particles ---------- */
+  /* ---------- Nav travel: directional beam + particles ---------- */
   const navTravelDust = document.getElementById("nav-travel-dust");
   const navShell = document.getElementById("nav-shell");
   const navTravelCtl = (() => {
-    const FADE_IN = 380;
-    const FADE_OUT = 560;
+    const FADE_OUT = 720;
+    const ALPHA_IN_END = 0.14;
     const canvas = navTravelDust;
     const ctx = canvas?.getContext("2d", { alpha: true });
     let raf = null;
     let phase = "idle";
     let fadeT0 = 0;
     let alpha = 0;
-    let progress = 0;
+    let journeyP = 0;
+    let sourceP = 0;
+    let destP = 1;
+    let direction = 1;
     let onDone = null;
     let last = 0;
     let w = 0;
@@ -383,42 +386,66 @@
       ctx?.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
 
+    const beamP = () => sourceP + (destP - sourceP) * journeyP;
+
     const setAlpha = (a) => {
       navShell?.style.setProperty("--travel-alpha", String(a));
     };
 
+    const syncBeamCss = () => {
+      const beam = beamP();
+      const left = Math.min(sourceP, beam);
+      const width = Math.abs(beam - sourceP);
+      navShell?.style.setProperty("--travel-beam", String(beam));
+      navShell?.style.setProperty("--travel-left", String(left));
+      navShell?.style.setProperty("--travel-width", String(width));
+      navShell?.style.setProperty("--travel-dir", String(direction));
+    };
+
     const spawnDust = (fx) => {
-      const bandTop = h * 0.28;
-      const bandH = h * 0.44;
-      const count = 1 + Math.floor(Math.random() * 2);
+      const bandTop = h * 0.22;
+      const bandH = h * 0.56;
+      const count = 2 + Math.floor(Math.random() * 3);
       for (let i = 0; i < count; i++) {
+        const behind = (4 + Math.random() * 22) * -direction;
         dust.push({
-          x: fx + (Math.random() - 0.5) * 10,
+          x: fx + behind + (Math.random() - 0.5) * 8,
           y: bandTop + Math.random() * bandH,
-          vx: 0.12 + Math.random() * 0.38,
-          vy: (Math.random() - 0.5) * 0.18,
-          life: 0.35 + Math.random() * 0.45,
-          size: 0.55 + Math.random() * 1.1,
-          warm: Math.random() > 0.35,
+          vx: direction * (0.9 + Math.random() * 2.4),
+          vy: (Math.random() - 0.5) * 0.35,
+          life: 0.5 + Math.random() * 0.55,
+          size: 1.4 + Math.random() * 2.6,
+          warm: Math.random() > 0.25,
         });
       }
     };
 
     const drawBeamSparks = (fx) => {
-      const top = h * 0.14;
-      const beamH = h * 0.72;
+      const top = h * 0.1;
+      const beamH = h * 0.8;
       const lg = ctx.createLinearGradient(fx, top, fx, top + beamH);
-      lg.addColorStop(0, "rgba(233,160,124,0)");
-      lg.addColorStop(0.5, `rgba(244,239,231,${0.28 * alpha})`);
-      lg.addColorStop(1, "rgba(233,160,124,0)");
+      lg.addColorStop(0, "rgba(212,132,98,0)");
+      lg.addColorStop(0.5, `rgba(244,239,231,${0.55 * alpha})`);
+      lg.addColorStop(1, "rgba(212,132,98,0)");
       ctx.fillStyle = lg;
-      ctx.fillRect(fx - 0.5, top, 1, beamH);
+      ctx.fillRect(fx - 0.75, top, 1.5, beamH);
 
-      if (Math.random() < 0.35) {
+      for (let i = 0; i < 4; i++) {
         const py = top + Math.random() * beamH;
-        ctx.fillStyle = `rgba(244,239,231,${alpha * 0.42})`;
-        ctx.fillRect(fx + (Math.random() - 0.5) * 2, py, 1, 1);
+        const px = fx + (Math.random() - 0.5) * 3 - direction * Math.random() * 4;
+        const g = ctx.createRadialGradient(px, py, 0, px, py, 2.2);
+        g.addColorStop(0, `rgba(244,239,231,${alpha * 0.85})`);
+        g.addColorStop(1, "rgba(233,160,124,0)");
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(px, py, 2.2, 0, Math.PI * 2);
+        ctx.fill();
       }
+    };
+
+    const updateAlpha = () => {
+      if (phase === "out") return;
+      alpha = journeyP < ALPHA_IN_END ? smooth(journeyP / ALPHA_IN_END) : 1;
     };
 
     const tick = (now) => {
@@ -426,14 +453,7 @@
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
 
-      if (phase === "in") {
-        const t = Math.min(1, (now - fadeT0) / FADE_IN);
-        alpha = smooth(t);
-        if (t >= 1) {
-          alpha = 1;
-          phase = "active";
-        }
-      } else if (phase === "out") {
+      if (phase === "out") {
         const t = Math.min(1, (now - fadeT0) / FADE_OUT);
         alpha = 1 - smooth(t);
         if (t >= 1) {
@@ -447,62 +467,79 @@
           onDone = null;
           return;
         }
+      } else {
+        updateAlpha();
       }
 
       setAlpha(alpha);
-      const fx = Math.max(14, w * progress);
+      syncBeamCss();
+      const fx = Math.max(8, Math.min(w - 8, beamP() * w));
 
-      if ((phase === "in" || phase === "active") && alpha > 0.08 && Math.random() < 0.62) {
-        spawnDust(fx);
+      if (phase === "active" && alpha > 0.12) {
+        if (Math.random() < 0.78) spawnDust(fx);
       }
-      if (dust.length > 56) dust.splice(0, dust.length - 56);
+      if (dust.length > 72) dust.splice(0, dust.length - 72);
 
       ctx.clearRect(0, 0, w, h);
-      if (alpha > 0.04) drawBeamSparks(fx);
+      if (alpha > 0.05) drawBeamSparks(fx);
 
+      const tail = direction > 0 ? fx + 10 : fx - 10;
       dust = dust.filter((p) => {
-        p.x += p.vx * dt * 52;
-        p.y += p.vy * dt * 52;
-        p.life -= dt * 1.15;
-        if (p.life <= 0 || p.x > fx + 8) return false;
-        const a = p.life * alpha * 0.58;
-        if (a < 0.02) return false;
-        const rgb = p.warm ? "233,160,124" : "244,239,231";
-        ctx.fillStyle = `rgba(${rgb},${a})`;
-        ctx.fillRect(p.x - p.size * 0.5, p.y - p.size * 0.5, p.size, p.size);
-        if (p.size > 1 && Math.random() > 0.7) {
-          ctx.fillStyle = `rgba(244,239,231,${a * 0.35})`;
-          ctx.fillRect(p.x - p.size, p.y, p.size * 2.2, 0.5);
-        }
-        return p.x > -4 && p.y > 0 && p.y < h;
+        p.x += p.vx * dt * 62;
+        p.y += p.vy * dt * 62;
+        p.life -= dt * 0.95;
+        if (p.life <= 0) return false;
+        if (direction > 0 && p.x > tail) return false;
+        if (direction < 0 && p.x < tail) return false;
+        const a = p.life * alpha * 0.88;
+        if (a < 0.03) return false;
+        const core = p.warm ? "233,160,124" : "244,239,231";
+        const rad = p.size * 1.8;
+        const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rad);
+        g.addColorStop(0, `rgba(${core},${Math.min(1, a)})`);
+        g.addColorStop(0.45, `rgba(212,132,98,${a * 0.65})`);
+        g.addColorStop(1, "rgba(182,95,63,0)");
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, rad, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = `rgba(244,239,231,${a * 0.9})`;
+        ctx.fillRect(p.x - 0.6, p.y - 0.6, 1.2, 1.2);
+        return p.y > 2 && p.y < h - 2;
       });
 
       raf = requestAnimationFrame(tick);
     };
 
     return {
-      start() {
+      start({ from = 0, to = 1 } = {}) {
         if (!canvas || !ctx) return;
         if (raf) cancelAnimationFrame(raf);
         onDone = null;
         resize();
-        phase = "in";
-        fadeT0 = performance.now();
-        last = fadeT0;
+        sourceP = from;
+        destP = to;
+        direction = to >= from ? 1 : -1;
+        journeyP = 0;
+        phase = "active";
         alpha = 0;
-        progress = 0;
         dust = [];
+        last = performance.now();
         setAlpha(0);
+        syncBeamCss();
         raf = requestAnimationFrame(tick);
       },
       setProgress(p) {
-        progress = Math.max(0, Math.min(1, p));
+        journeyP = Math.max(0, Math.min(1, p));
+        updateAlpha();
       },
       end(cb) {
         if (phase === "idle") {
           cb?.();
           return;
         }
+        journeyP = 1;
+        syncBeamCss();
         onDone = cb || null;
         phase = "out";
         fadeT0 = performance.now();
@@ -511,6 +548,13 @@
       resize,
     };
   })();
+
+  const getLinkProgress = (link) => {
+    if (!link || !navShell) return 0;
+    const shellW = navShell.offsetWidth;
+    if (shellW < 1) return 0;
+    return (link.offsetLeft + link.offsetWidth * 0.5) / shellW;
+  };
 
   /* ---------- Premium nav + cinematic scroll ---------- */
   const nav = document.getElementById("nav");
@@ -561,20 +605,42 @@
     el.querySelectorAll("[data-in]").forEach((n) => n.classList.add("show"));
   };
 
-  const setTravelUi = (easedProgress) => {
-    const p = Math.max(0, Math.min(1, easedProgress));
-    navShell?.style.setProperty("--travel-p", String(p));
-    navTravelCtl.setProgress(p);
+  const getCurrentNavLink = () => {
+    const active = navLinks?.querySelector("a.is-active");
+    if (active) return active;
+    const mark = getNavOffset() + innerHeight * 0.28;
+    let currentId = "";
+    for (const { id, el } of navSections) {
+      if (el.getBoundingClientRect().top <= mark) currentId = id;
+    }
+    return currentId ? navLinks?.querySelector(`a[href="#${currentId}"]`) : null;
   };
 
-  const beginTravel = (label, targetEl) => {
+  const setTravelUi = (easedProgress) => {
+    navTravelCtl.setProgress(easedProgress);
+  };
+
+  const clearTravelUi = () => {
+    nav?.removeAttribute("data-travel-dir");
+    navShell?.style.removeProperty("--travel-beam");
+    navShell?.style.removeProperty("--travel-left");
+    navShell?.style.removeProperty("--travel-width");
+    navShell?.style.removeProperty("--travel-dir");
+    navShell?.style.removeProperty("--travel-alpha");
+  };
+
+  const beginTravel = (label, targetEl, sourceLink, destLink) => {
     scrollingNav = true;
     travelTarget = targetEl || null;
     nav?.classList.add("is-traveling");
     navLinks?.querySelectorAll("a").forEach((a) => a.classList.remove("is-heading"));
-    travelLink = targetEl?.id ? navLinks?.querySelector(`a[href="#${targetEl.id}"]`) : null;
+    travelLink = destLink || (targetEl?.id ? navLinks?.querySelector(`a[href="#${targetEl.id}"]`) : null);
     travelLink?.classList.add("is-heading");
-    navTravelCtl.start();
+    const to = getLinkProgress(destLink);
+    const from = sourceLink ? getLinkProgress(sourceLink) : to > 0.5 ? 0.04 : 0.96;
+    const dir = to >= from ? "1" : "-1";
+    nav?.setAttribute("data-travel-dir", dir);
+    navTravelCtl.start({ from, to });
     setTravelUi(0);
   };
 
@@ -587,16 +653,16 @@
     }
     navTravelCtl.end(() => {
       scrollingNav = false;
+      if (travelLink) moveIndicator(travelLink);
       nav?.classList.remove("is-traveling");
-      navShell?.style.removeProperty("--travel-p");
-      navShell?.style.removeProperty("--travel-alpha");
+      clearTravelUi();
       travelLink?.classList.remove("is-heading");
       travelLink = null;
       updateSpy();
     });
   };
 
-  const scrollToY = (targetY, { label, targetEl, onDone, forceSmooth = false } = {}) => {
+  const scrollToY = (targetY, { label, targetEl, onDone, forceSmooth = false, sourceLink, destLink } = {}) => {
     const y = Math.max(0, Math.min(targetY, maxScrollY()));
     const finish = () => {
       if (targetEl) revealSection(targetEl);
@@ -615,7 +681,7 @@
       return;
     }
     if (scrollAnim) cancelAnimationFrame(scrollAnim);
-    beginTravel(label, targetEl);
+    beginTravel(label, targetEl, sourceLink, destLink);
     const start = scrollY;
     const delta = y - start;
     const duration = Math.min(3200, Math.max(1600, Math.abs(delta) * 1.05));
@@ -643,11 +709,13 @@
     const label = meta.label || sectionLabels[id] || el.getAttribute("data-label") || id;
     const targetY = Math.max(0, Math.min(el.getBoundingClientRect().top + scrollY - getNavOffset(), maxScrollY()));
     const link = id ? navLinks?.querySelector(`a[href="#${id}"]`) : null;
-    if (link) moveIndicator(link);
+    const sourceLink = getCurrentNavLink();
     scrollToY(targetY, {
       label,
       targetEl: el.id ? el : null,
       forceSmooth: true,
+      sourceLink,
+      destLink: link,
       onDone: meta.onDone,
     });
   };
