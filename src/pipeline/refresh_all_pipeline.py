@@ -225,7 +225,7 @@ def run_refresh_all_pipeline(
             skipped_count=0,
             enriched_count=0,
             persisted_count=0,
-            message="6 个数据源容器均未变更，流水线结束",
+            message="所有数据源容器均未变更，流水线结束",
         )
 
     raw_links = _collect_updated_links(ds_results)

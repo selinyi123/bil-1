@@ -17,6 +17,21 @@ def test_build_chat_payload_disables_deepseek_thinking() -> None:
     assert payload["thinking"] == {"type": "disabled"}
 
 
+def test_build_chat_payload_disables_autodl_deepseek_v4_flash() -> None:
+    config = LlmConfig(
+        api_key="k",
+        base_url="https://www.autodl.art/api/v1",
+        model_name="DeepSeek-V4-Flash",
+    )
+    payload = _build_chat_payload(
+        config,
+        messages=[{"role": "user", "content": "ping"}],
+        max_tokens=64,
+    )
+    assert payload["thinking"] == {"type": "disabled"}
+    assert payload["max_tokens"] == 64
+
+
 def test_build_chat_payload_skips_thinking_for_other_providers() -> None:
     config = LlmConfig(
         api_key="k",

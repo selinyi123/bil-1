@@ -1,4 +1,5 @@
 from web.actions import (
+    DS_HANDLERS,
     REFRESH_ALL_TOTAL,
     _format_subprogress_message,
     _pipeline_substep_index,
@@ -22,5 +23,5 @@ def test_pipeline_substep_index_from_message() -> None:
     assert _pipeline_substep_index("正在写入活动库…") == 3
 
 
-def test_refresh_all_total_is_nine() -> None:
-    assert REFRESH_ALL_TOTAL == 9
+def test_refresh_all_total_matches_handlers() -> None:
+    assert REFRESH_ALL_TOTAL == len(DS_HANDLERS) + 3

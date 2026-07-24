@@ -6,7 +6,7 @@ import { state } from "../state";
 import { fetchJSON } from "../api/client";
 import { isLlmConfigured, requireSetup, scrollToLlmSettings, syncProjectState } from "../account/index";
 import { buildActivityFilterJobParams, loadActivities, loadSummary, renderTripleParticipateBar } from "../activities/index";
-import { ACTION_LABELS, COMMENT_OPTIONAL_PATTERNS, FORWARD_REQUIRED_ACTIONS, INTERACT_REQUIRED_ACTIONS, JOB_RESULT_AUTO_DISMISS_MS, JOB_RESULT_EXIT_MS, PARTICIPATE_ACTIVE_KEYWORDS, PARTICIPATE_DONE_KEYWORDS, PARTICIPATE_FAIL_KEYWORDS, PARTICIPATE_PENDING_KEYWORDS, PARTICIPATE_STEP_LABELS, REFRESH_ALL_DS_COUNT, REFRESH_ALL_PIPELINE, REFRESH_ALL_PIPELINE_SUBSTEPS, REFRESH_WATCH_PIPELINE, SYNC_TOAST_ACTIONS, jobLog, jobMessage, jobResultActions, jobResultBanner, jobResultBody, jobResultEyebrow, jobResultHint, jobResultIcon, jobResultProgress, jobResultSummary, jobResultTitle, logDock, logDockBadge, logDockPanel, logDockToggle, progressBanner, progressChip, progressDetail, progressFill, progressFillGlow, progressLabel, progressPercent, progressPercentSuffix, progressRing, progressSteps, progressTrack, qrcodeClose, qrcodeFrame, qrcodeImg, qrcodeModal, qrcodeOverlay, qrcodeOverlayIcon, qrcodeOverlayText, qrcodeStatus, qrcodeTitle, sidebarLoginBtn } from "../dom";
+import { ACTION_LABELS, COMMENT_OPTIONAL_PATTERNS, FORWARD_REQUIRED_ACTIONS, INTERACT_REQUIRED_ACTIONS, JOB_RESULT_AUTO_DISMISS_MS, JOB_RESULT_EXIT_MS, PARTICIPATE_ACTIVE_KEYWORDS, PARTICIPATE_DONE_KEYWORDS, PARTICIPATE_FAIL_KEYWORDS, PARTICIPATE_PENDING_KEYWORDS, PARTICIPATE_STEP_LABELS, REFRESH_ALL_DS_COUNT, REFRESH_ALL_PIPELINE, REFRESH_ALL_PIPELINE_SUBSTEPS, REFRESH_WATCH_PIPELINE, RESERVE_REQUIRED_ACTIONS, RESERVE_STEP_LABELS, SYNC_TOAST_ACTIONS, jobLog, jobMessage, jobResultActions, jobResultBanner, jobResultBody, jobResultEyebrow, jobResultHint, jobResultIcon, jobResultProgress, jobResultSummary, jobResultTitle, logDock, logDockBadge, logDockPanel, logDockToggle, progressBanner, progressChip, progressDetail, progressFill, progressFillGlow, progressLabel, progressPercent, progressPercentSuffix, progressRing, progressSteps, progressTrack, qrcodeClose, qrcodeFrame, qrcodeImg, qrcodeModal, qrcodeOverlay, qrcodeOverlayIcon, qrcodeOverlayText, qrcodeStatus, qrcodeTitle, sidebarLoginBtn } from "../dom";
 import { startRealtime } from "../realtime/sse";
 import { confirmRefreshAll } from "../shell/confirm";
 import { switchSection } from "../shell/nav";
@@ -451,7 +451,17 @@ export function toggleLogDock(forceOpen) {
 }
 
 export function participateStepLabelsForType(lotteryType) {
-  return lotteryType === "预约抽奖" ? ["预约"] : [...PARTICIPATE_STEP_LABELS];
+  return lotteryType === "预约抽奖" ? [...RESERVE_STEP_LABELS] : [...PARTICIPATE_STEP_LABELS];
+}
+
+export function participateProgressLabels(total) {
+  const count = Number(total) || 0;
+  if (count === 1) return ["预约"];
+  if (count === 2) return [...RESERVE_STEP_LABELS];
+  if (count > 0 && count <= PARTICIPATE_STEP_LABELS.length) {
+    return PARTICIPATE_STEP_LABELS.slice(0, count);
+  }
+  return [...PARTICIPATE_STEP_LABELS];
 }
 
 export function findTripleTargetForLane(lane, job) {
@@ -472,7 +482,7 @@ export function findTripleTargetForLane(lane, job) {
   );
 }
 
-export function participateActiveStepIndex(status, labelCount) {
+export function participateActiveStepIndex(status, labelCount, labels = PARTICIPATE_STEP_LABELS) {
   const text = String(status || "");
   if (PARTICIPATE_DONE_KEYWORDS.some((keyword) => text.includes(keyword))) {
     return labelCount;
@@ -485,11 +495,10 @@ export function participateActiveStepIndex(status, labelCount) {
   if (PARTICIPATE_PENDING_KEYWORDS.some((keyword) => text.includes(keyword)) || text.includes("检查")) {
     return -1;
   }
-  const reserveIndex = text.includes("预约") ? 0 : -1;
-  for (let index = 0; index < PARTICIPATE_STEP_LABELS.length; index += 1) {
-    if (text.includes(PARTICIPATE_STEP_LABELS[index])) return Math.min(index, labelCount - 1);
+  for (let index = 0; index < labels.length; index += 1) {
+    if (text.includes(labels[index])) return Math.min(index, labelCount - 1);
   }
-  return reserveIndex;
+  return -1;
 }
 
 export function buildPipelineStepsHtml(labels, activeIndex, options = {}) {
@@ -563,8 +572,7 @@ export function commentFailureOptional(action) {
 export function participationSucceeded(actions, lotteryType) {
   const actionMap = new Map((actions || []).map((item) => [item?.action, item]));
   if (lotteryType === "预约抽奖") {
-    const reserve = actionMap.get("reserve");
-    return reserve?.ok === true;
+    return RESERVE_REQUIRED_ACTIONS.every((name) => actionMap.get(name)?.ok === true);
   }
   if (lotteryType === "互动抽奖") {
     if (!INTERACT_REQUIRED_ACTIONS.every((name) => actionMap.get(name)?.ok === true)) return false;
@@ -822,7 +830,7 @@ export function renderTripleParticipateProgress(job) {
           const labels = participateStepLabelsForType(lotteryType);
           const laneState = classifyLaneStatus(lane.status);
           const failed = laneState === "failed";
-          const activeIndex = participateActiveStepIndex(lane.status, labels.length);
+          const activeIndex = participateActiveStepIndex(lane.status, labels.length, labels);
           const title = truncateText(target?.activity_title || lane.idPart, 36);
           return `
             <section class="triple-progress-lane is-${laneState}">
@@ -864,7 +872,7 @@ export function renderParticipateSteps(job) {
   }
   const total = Number(job.progress_total) || PARTICIPATE_STEP_LABELS.length;
   const current = Number(job.progress_step) || 0;
-  const labels = total === 1 ? ["预约"] : PARTICIPATE_STEP_LABELS.slice(0, total);
+  const labels = participateProgressLabels(total);
   const activeIndex = Math.max(0, Math.min(labels.length - 1, current > 0 ? current - 1 : 0));
   renderPipelineSteps(labels, activeIndex);
 }

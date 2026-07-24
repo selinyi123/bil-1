@@ -27,6 +27,7 @@ from src.sources import (
     ds4_junming,
     ds5_hudong,
     ds6_nuomi,
+    ds7_dajinli,
 )
 from src.sources.common import CheckResult, commit_source_checkpoint, is_valid_dynamic_id
 from src.state_store import set_last_pipeline_persisted, set_watch_last_synced_at
@@ -177,6 +178,7 @@ DS_HANDLERS: list[tuple[str, Callable[..., Any], Callable[[Any], Any]]] = [
     ("DS-4", ds4_junming.check_update, ds4_junming.save_result),
     ("DS-5", ds5_hudong.check_update, ds5_hudong.save_result),
     ("DS-6", ds6_nuomi.check_update, ds6_nuomi.save_result),
+    ("DS-7", ds7_dajinli.check_update, ds7_dajinli.save_result),
 ]
 DS_HANDLER_BY_ID: dict[str, tuple[Callable[..., Any], Callable[[Any], Any]]] = {
     source_id: (check_update, save_result)
@@ -452,11 +454,11 @@ def run_action(
                 message="均无新专栏，已跳过整个流水线",
                 log_append=skip_line,
             )
-            logger.info("一键更新：6 个数据源均无新专栏，跳过流水线")
+            logger.info("一键更新：%s 个数据源均无新专栏，跳过流水线", len(DS_HANDLERS))
             set_last_pipeline_persisted(action="refresh_all", persisted_count=0)
             return {
                 "ok": True,
-                "message": "检查完成：6 个数据源均无新专栏，已跳过整个流水线",
+                "message": f"检查完成：{len(DS_HANDLERS)} 个数据源均无新专栏，已跳过整个流水线",
                 "result": {
                     "sources": ds_results,
                     "sources_updated": 0,

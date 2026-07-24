@@ -4,7 +4,7 @@
 
 import { state } from "../state";
 import { ACTION_LABELS, PARTICIPATE_STEP_LABELS } from "../dom";
-import { calcJobProgressPercent, parseTripleProgressLanes, summarizeTripleProgressLanes } from "../jobs/index";
+import { calcJobProgressPercent, parseTripleProgressLanes, participateProgressLabels, summarizeTripleProgressLanes } from "../jobs/index";
 import { escapeHtml, sanitizeUserText } from "../utils/text";
 
 export function lotteryTypeTone(type) {
@@ -136,7 +136,7 @@ export function formatProgressDetail(job) {
     if (message && !message.includes("|")) return message;
     const step = Number(job.progress_step) || 0;
     const total = Number(job.progress_total) || PARTICIPATE_STEP_LABELS.length;
-    const labels = total === 1 ? ["预约"] : PARTICIPATE_STEP_LABELS.slice(0, total);
+    const labels = participateProgressLabels(total);
     if (step > 0 && step <= labels.length) return `当前步骤：${labels[step - 1]}`;
     return "准备开始参与…";
   }

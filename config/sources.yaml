@@ -39,3 +39,10 @@ DS-6:
   mid: 492426375
   kind: opus_post
   space_url: https://space.bilibili.com/492426375/upload/opus
+
+DS-7:
+  id: DS-7
+  name: 大锦鲤
+  mid: 226257459
+  kind: opus_post
+  space_url: https://space.bilibili.com/226257459/upload/opus

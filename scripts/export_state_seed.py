@@ -33,7 +33,7 @@ def main() -> int:
     raw = json.loads(args.source.read_text(encoding="utf-8"))
     cleaned = sanitize_seed_state(raw)
     if not cleaned.get("sources"):
-        print("导出失败：未找到有效的 DS-1～DS-6 检查点", file=sys.stderr)
+        print("导出失败：未找到有效的 DS-1～DS-7 检查点", file=sys.stderr)
         return 1
 
     seed = {

@@ -18,6 +18,7 @@ FILENAME_TO_SOURCE: dict[str, str] = {
     "ds4_latest.json": "DS-4",
     "ds5_latest.json": "DS-5",
     "ds6_latest.json": "DS-6",
+    "ds7_latest.json": "DS-7",
     "watch_latest.json": "WATCH",
 }
 

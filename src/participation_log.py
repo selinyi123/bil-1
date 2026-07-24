@@ -16,6 +16,7 @@ from src.user_data_lock import user_data_lock
 ParticipationOutcome = Literal["joined", "failed", "skipped", "dry_run"]
 CORE_ACTIONS = ("like", "follow", "favorite", "repost", "comment")
 INTERACT_REQUIRED_ACTIONS = ("like", "follow", "favorite", "repost")
+RESERVE_REQUIRED_ACTIONS = ("follow", "reserve")
 COMMENT_OPTIONAL_ERROR_CODES = {12078}
 _MAX_ENTRIES_PER_UID = 500
 
@@ -111,8 +112,11 @@ def _comment_failure_optional(action: ActionResult) -> bool:
 def participation_succeeded(actions: list[ActionResult], *, lottery_type: str) -> bool:
     action_map = {item.action: item for item in actions}
     if lottery_type == "预约抽奖":
-        reserve = action_map.get("reserve")
-        return bool(reserve and reserve.ok)
+        for name in RESERVE_REQUIRED_ACTIONS:
+            item = action_map.get(name)
+            if not item or not item.ok:
+                return False
+        return True
     if lottery_type == "互动抽奖":
         required = INTERACT_REQUIRED_ACTIONS
     else:

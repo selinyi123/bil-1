@@ -265,6 +265,10 @@ export const INTERACT_REQUIRED_ACTIONS = ["like", "follow", "favorite", "repost"
 
 export const FORWARD_REQUIRED_ACTIONS = ["like", "follow", "favorite", "repost", "comment"];
 
+export const RESERVE_REQUIRED_ACTIONS = ["follow", "reserve"];
+
+export const RESERVE_STEP_LABELS = ["关注", "预约"];
+
 export const COMMENT_OPTIONAL_PATTERNS = [/关注UP主/i, /关注 up/i, /7\s*天/i, /code=12078/i];
 
 export const LOGIN_REQUIRED_ACTIONS = new Set([

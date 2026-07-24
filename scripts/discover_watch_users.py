@@ -26,6 +26,7 @@ LOTTERY_SOURCE_FILES = (
     DATA_DIR / "output" / "ds3_latest.json",
     DATA_DIR / "output" / "ds5_latest.json",
     DATA_DIR / "output" / "ds6_latest.json",
+    DATA_DIR / "output" / "ds7_latest.json",
 )
 
 DEFAULT_LIMIT = 30

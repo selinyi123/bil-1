@@ -104,6 +104,7 @@ def _ds_paths() -> dict[str, Path]:
         "DS-4": out / "ds4_latest.json",
         "DS-5": out / "ds5_latest.json",
         "DS-6": out / "ds6_latest.json",
+        "DS-7": out / "ds7_latest.json",
     }
 
 

@@ -1,4 +1,4 @@
-"""将 6 个数据源 state 中的「上次专栏/视频」回退为上上个，便于重新触发一键更新流水线。"""
+"""将各数据源 state 中的「上次专栏/视频」回退为上上个，便于重新触发一键更新流水线。"""
 
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ SOURCES = {
     "DS-4": {"mid": 126038161, "type": "article"},
     "DS-5": {"mid": 3546776042736296, "type": "opus"},
     "DS-6": {"mid": 492426375, "type": "opus"},
+    "DS-7": {"mid": 226257459, "type": "opus"},
 }
 
 
@@ -100,7 +101,7 @@ def main() -> None:
             )
             print(f"{source_id}:\n  原: {previous}\n  新: {url} (cv{cv_id}) — {title}")
 
-    print("--- 6 个数据源均已回退到上上个专栏/视频 ---")
+    print(f"--- {len(SOURCES)} 个数据源均已回退到上上个专栏/视频 ---")
 
 
 if __name__ == "__main__":

@@ -13,5 +13,6 @@ SOURCE_OUTPUTS: tuple[tuple[str, Path], ...] = (
     ("DS-4", OUTPUT_DIR / "ds4_latest.json"),
     ("DS-5", OUTPUT_DIR / "ds5_latest.json"),
     ("DS-6", OUTPUT_DIR / "ds6_latest.json"),
+    ("DS-7", OUTPUT_DIR / "ds7_latest.json"),
     ("WATCH", OUTPUT_DIR / "watch_latest.json"),
 )

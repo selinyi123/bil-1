@@ -22,6 +22,7 @@ DS_OUTPUTS = {
     "DS-4": DATA_DIR / "output" / "ds4_latest.json",
     "DS-5": DATA_DIR / "output" / "ds5_latest.json",
     "DS-6": DATA_DIR / "output" / "ds6_latest.json",
+    "DS-7": DATA_DIR / "output" / "ds7_latest.json",
     "WATCH": WATCH_OUTPUT_PATH,
 }
 SOURCE_LABELS = {
@@ -31,6 +32,7 @@ SOURCE_LABELS = {
     "DS-4": "J君名",
     "DS-5": "互动抽奖娘",
     "DS-6": "糯米是个背包",
+    "DS-7": "大锦鲤",
     "WATCH": "监控用户",
 }
 SOURCE_SPACE_URLS = {
@@ -40,6 +42,7 @@ SOURCE_SPACE_URLS = {
     "DS-4": "https://space.bilibili.com/126038161/upload/opus",
     "DS-5": "https://space.bilibili.com/3546776042736296/upload/opus",
     "DS-6": "https://space.bilibili.com/492426375/upload/opus",
+    "DS-7": "https://space.bilibili.com/226257459/upload/opus",
     "WATCH": "",
 }
 
@@ -249,16 +252,16 @@ ACTIVITY_PAGE_SIZE = 20
 
 
 def participate_step_budget(lottery_type: str, *, dynamic_id: str | None = None) -> int:
-    """单次参与在进度条上占用的步数（预约抽奖仅 1 步）。"""
+    """单次参与在进度条上占用的步数（预约抽奖为关注 + 预约共 2 步）。"""
     normalized = (lottery_type or "").strip()
     if normalized == "预约抽奖":
-        return 1
+        return 2
     if normalized in ("互动抽奖", "转发抽奖"):
         return 5
     if dynamic_id:
         try:
             resolved = lookup_lottery_type(dynamic_id)
-            return 1 if resolved == "预约抽奖" else 5
+            return 2 if resolved == "预约抽奖" else 5
         except RuntimeError:
             pass
     return 5

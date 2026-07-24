@@ -9,7 +9,8 @@ python scripts/check_ds3.py # DS-3 你的抽奖工具人更新检查
 python scripts/check_ds4.py # DS-4 J君名更新检查
 python scripts/check_ds5.py # DS-5 互动抽奖娘更新检查
 python scripts/check_ds6.py # DS-6 糯米是个背包更新检查
-python scripts/merge_links.py # 合并六个数据源的活动链接
+python scripts/check_ds7.py # DS-7 大锦鲤更新检查
+python scripts/merge_links.py # 合并各数据源的活动链接
 python scripts/classify_links.py # 活动链接抽奖类型分类
 python scripts/fetch_activity_info.py # 抽奖活动信息拉取
 python scripts/participate.py # 参与活动（互动/转发/预约）
@@ -107,9 +108,22 @@ python scripts/check_ds6.py --force
 
 **功能**：检查最新 Opus 专栏是否更新，有更新时从正文提取活动链接（含互动/预约分区提示）；`--force` 强制重新解析当前最新专栏。
 
+## `check_ds7.py`
+
+**说明**：DS-7 大锦鲤更新检查
+
+**指令**：
+
+```bash
+python scripts/check_ds7.py
+python scripts/check_ds7.py --force
+```
+
+**功能**：检查最新 Opus 帖是否更新，有更新时从正文提取活动链接；`--force` 强制重新解析当前最新 Opus 帖。
+
 ## `merge_links.py`
 
-**说明**：合并六个数据源的活动链接
+**说明**：合并各数据源的活动链接
 
 **指令**：
 
@@ -117,7 +131,7 @@ python scripts/check_ds6.py --force
 python scripts/merge_links.py
 ```
 
-**功能**：读取六个数据源的最新结果，按动态 ID 去重合并，写入 `data/output/merged_latest.json`。输出中包含 `new_activity_ids` / `new_count`，用于标识尚未出现在 `enriched_latest.json` 中的新链接。
+**功能**：读取各数据源的最新结果，按动态 ID 去重合并，写入 `data/output/merged_latest.json`。输出中包含 `new_activity_ids` / `new_count`，用于标识尚未出现在 `enriched_latest.json` 中的新链接。
 
 ## `classify_links.py`
 

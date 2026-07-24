@@ -14,6 +14,8 @@ import threading
 _llm_lock = threading.Semaphore(3)
 _LLM_TIMEOUT = 90.0
 _LLM_RETRY_ATTEMPTS = 3
+# 连接测试只需极短回复，但 DeepSeek V4 等模型在部分网关下 max_tokens=1 会触发 400。
+_LLM_TEST_MAX_TOKENS = 64
 
 
 def _format_llm_http_error(exc: httpx.HTTPStatusError) -> str:
@@ -47,7 +49,7 @@ def _llm_retryable(exc: BaseException) -> bool:
 def _supports_thinking_toggle(config: LlmConfig) -> bool:
     base = (config.base_url or "").lower()
     model = (config.model_name or "").lower()
-    return "deepseek" in base or model.startswith("deepseek-")
+    return "deepseek" in base or "deepseek" in model
 
 
 def _build_chat_payload(
@@ -83,9 +85,9 @@ def _post_chat_completion(*, url: str, headers: dict[str, str], payload: dict[st
 def test_llm_connection(config: LlmConfig) -> str:
     payload = _build_chat_payload(
         config,
-        messages=[{"role": "user", "content": "ping"}],
+        messages=[{"role": "user", "content": "Reply with exactly: ok"}],
         temperature=0,
-        max_tokens=1,
+        max_tokens=_LLM_TEST_MAX_TOKENS,
     )
     headers = {
         "Authorization": f"Bearer {config.api_key}",

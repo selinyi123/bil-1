@@ -7,9 +7,13 @@ from typing import Any, Callable, Literal
 from src.bilibili_auth import require_login
 from src.bilibili_client import BilibiliClient
 from src.lottery_actions import (
+    ACTION_INTERVAL_SEC,
     DEFAULT_PARTICIPATE_TEXT,
     ActionResult,
     execute_full_participation,
+    follow_user,
+    is_following,
+    resolve_sender_uid,
     _api_code,
 )
 from src.lottery_api import (
@@ -34,6 +38,7 @@ from src.sources.common import is_valid_dynamic_id, opus_link
 
 RESERVE_CLICK_URL = "https://api.bilibili.com/x/dynamic/feed/reserve/click"
 RESERVE_RESERVED_STATUS = 2
+RESERVE_PARTICIPATE_STEPS = 2
 
 @dataclass
 class ParticipateResult:
@@ -285,11 +290,18 @@ def _resolve_reserve_info(client: BilibiliClient, dynamic_id: str) -> dict[str, 
     reserve_id = reserve.get("rid")
     if not reserve_id:
         raise RuntimeError("动态中未找到预约组件 rid")
+    sender_uid: int | None
+    try:
+        sender_uid = resolve_sender_uid(item)
+    except RuntimeError:
+        sender_uid = None
     return {
         "reserve_id": int(reserve_id),
         "reserve_total": int(reserve.get("reserve_total") or 0),
         "button_status": int(button.get("status") or 0),
         "title": str(reserve.get("title") or ""),
+        "sender_uid": sender_uid,
+        "referer": opus_link(dynamic_id),
     }
 
 
@@ -389,9 +401,82 @@ def participate_reserve_lottery(
         _persist_result(result=result, persist=persist, dry_run=dry_run)
         return result
 
+    total_steps = RESERVE_PARTICIPATE_STEPS
+    sender_uid = _safe_int(reserve_info.get("sender_uid"))
+    if not sender_uid:
+        sender_uid = _safe_int((notice or {}).get("sender_uid"))
+    if not sender_uid:
+        result = ParticipateResult(
+            dynamic_id=dynamic_id,
+            lottery_type="预约抽奖",
+            status="failed",
+            message="无法解析 UP 主 UID，无法完成关注",
+            action_text="",
+            actions=[],
+            context_snapshot={
+                **_notice_snapshot(notice),
+                "reserve_id": reserve_info["reserve_id"],
+                "reserve_total": reserve_info["reserve_total"],
+                "button_status": reserve_info["button_status"],
+                "title": reserve_info["title"],
+            },
+        )
+        _persist_result(result=result, persist=persist, dry_run=dry_run)
+        return result
+
+    referer = str(reserve_info["referer"])
+
     if on_step:
-        on_step(1, 1, "正在预约直播…", "reserve")
-    action = _reserve_click(
+        on_step(1, total_steps, f"正在关注（1/{total_steps}）", "follow")
+    try:
+        if dry_run:
+            followed = is_following(client, uid=sender_uid, referer=referer)
+            follow_action = ActionResult(
+                "follow",
+                True,
+                f"uid={sender_uid} 已关注，跳过" if followed else f"将关注 uid={sender_uid}",
+            )
+        else:
+            csrf, _ = require_login()
+            if is_following(client, uid=sender_uid, referer=referer):
+                follow_action = ActionResult("follow", True, f"uid={sender_uid} 已关注，跳过")
+            else:
+                follow_action = follow_user(client, uid=sender_uid, csrf=csrf, referer=referer)
+    except RuntimeError as exc:
+        follow_action = ActionResult("follow", False, str(exc).strip() or "关注失败")
+
+    actions: list[ActionResult] = [follow_action]
+    snapshot = _context_snapshot(
+        None,
+        extra={
+            **_notice_snapshot(notice),
+            "sender_uid": sender_uid,
+            "reserve_id": reserve_info["reserve_id"],
+            "reserve_total": reserve_info["reserve_total"],
+            "button_status": reserve_info["button_status"],
+            "title": reserve_info["title"],
+        },
+    )
+
+    if not follow_action.ok:
+        result = ParticipateResult(
+            dynamic_id=dynamic_id,
+            lottery_type="预约抽奖",
+            status="failed",
+            message=follow_action.detail,
+            action_text="",
+            actions=actions,
+            context_snapshot=snapshot,
+        )
+        _persist_result(result=result, persist=persist, dry_run=dry_run)
+        return result
+
+    if not dry_run:
+        time.sleep(ACTION_INTERVAL_SEC)
+
+    if on_step:
+        on_step(2, total_steps, f"正在预约（2/{total_steps}）", "reserve")
+    reserve_action = _reserve_click(
         client,
         dynamic_id=dynamic_id,
         reserve_id=reserve_info["reserve_id"],
@@ -399,34 +484,25 @@ def participate_reserve_lottery(
         button_status=reserve_info["button_status"],
         dry_run=dry_run,
     )
+    actions.append(reserve_action)
 
     if dry_run:
         status: ParticipationOutcome = "dry_run"
         message = "预演完成，未实际请求 B 站"
-    elif action.ok:
+    elif participation_succeeded(actions, lottery_type="预约抽奖"):
         status = "joined"
-        message = "预约成功"
+        message = "关注与预约均已完成"
     else:
         status = "failed"
-        message = action.detail
+        message = reserve_action.detail if not reserve_action.ok else "部分操作失败"
 
-    snapshot = _context_snapshot(
-        None,
-        extra={
-            **_notice_snapshot(notice),
-            "reserve_id": reserve_info["reserve_id"],
-            "reserve_total": reserve_info["reserve_total"],
-            "button_status": reserve_info["button_status"],
-            "title": reserve_info["title"],
-        },
-    )
     result = ParticipateResult(
         dynamic_id=dynamic_id,
         lottery_type="预约抽奖",
         status=status,
         message=message,
         action_text="",
-        actions=[action],
+        actions=actions,
         context_snapshot=snapshot,
     )
     _persist_result(result=result, persist=persist, dry_run=dry_run)

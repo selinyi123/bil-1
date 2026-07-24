@@ -27,8 +27,11 @@ def _interact_actions(*, repost_ok: bool = True, comment_ok: bool = True) -> lis
     ]
 
 
-def _reserve_actions(*, ok: bool = True) -> list[dict]:
-    return [{"action": "reserve", "ok": ok, "detail": "" if ok else "预约失败"}]
+def _reserve_actions(*, ok: bool = True, follow_ok: bool = True) -> list[dict]:
+    return [
+        {"action": "follow", "ok": follow_ok, "detail": "" if follow_ok else "关注失败"},
+        {"action": "reserve", "ok": ok, "detail": "" if ok else "预约失败"},
+    ]
 
 
 def _row(dynamic_id: str, *, can_participate: bool, lottery_type: str = "互动抽奖") -> dict:
@@ -43,10 +46,10 @@ def _row(dynamic_id: str, *, can_participate: bool, lottery_type: str = "互动�
 
 
 def test_participate_step_budget() -> None:
-    assert participate_step_budget("预约抽奖") == 1
+    assert participate_step_budget("预约抽奖") == 2
     assert participate_step_budget("互动抽奖") == 5
     with patch("web.activity_service.lookup_lottery_type", return_value="预约抽奖"):
-        assert participate_step_budget("", dynamic_id=_id(9)) == 1
+        assert participate_step_budget("", dynamic_id=_id(9)) == 2
 
 
 def test_build_triple_progress_plan_mixed_types() -> None:
@@ -55,9 +58,9 @@ def test_build_triple_progress_plan_mixed_types() -> None:
         _row(_id(2), can_participate=True, lottery_type="互动抽奖"),
     ]
     total, plan = build_triple_progress_plan(targets)
-    assert total == 6
-    assert plan[_id(1)] == (0, 1)
-    assert plan[_id(2)] == (1, 5)
+    assert total == 7
+    assert plan[_id(1)] == (0, 2)
+    assert plan[_id(2)] == (2, 5)
 
 
 def test_pick_triple_participate_targets_skips_non_participatable() -> None:
@@ -298,11 +301,12 @@ def test_run_action_participate_triple_uses_mixed_progress_budget() -> None:
 
     def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None) -> dict:
         if dynamic_id == _id(1):
-            on_step(1, 1, "正在预约直播…", "reserve")
+            on_step(1, 2, "正在关注（1/2）", "follow")
+            on_step(2, 2, "正在预约（2/2）", "reserve")
             return {
                 "dynamic_id": dynamic_id,
                 "status": "joined",
-                "message": "预约成功",
+                "message": "关注与预约均已完成",
                 "actions": _reserve_actions(),
                 "lottery_type": "预约抽奖",
             }
@@ -333,7 +337,7 @@ def test_run_action_participate_triple_uses_mixed_progress_budget() -> None:
         run_action("participate_triple", {}, on_progress=on_progress)
 
     assert progress_totals
-    assert progress_totals[0] == 6
+    assert progress_totals[0] == 7
 
 
 def test_run_action_participate_triple_requires_targets() -> None:
@@ -356,11 +360,12 @@ def test_run_action_participate_triple_uses_lookup_type_for_execution() -> None:
         client=None,
     ) -> dict:
         captured_types.append(lottery_type)
-        on_step(1, 1, "正在预约直播…", "reserve")
+        on_step(1, 2, "正在关注（1/2）", "follow")
+        on_step(2, 2, "正在预约（2/2）", "reserve")
         return {
             "dynamic_id": dynamic_id,
             "status": "joined",
-            "message": "预约成功",
+            "message": "关注与预约均已完成",
             "actions": _reserve_actions(),
             "lottery_type": "预约抽奖",
         }
