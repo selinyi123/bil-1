@@ -4,239 +4,293 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Binggo — 本机 B 站抽奖助手。不用一个个找活动，也不用一个个点参加。数据保存在你的电脑上。">
+  <meta name="theme-color" content="#f6f1ea">
   <title>Binggo · B 站抽奖助手</title>
+  <link rel="icon" href="https://raw.githubusercontent.com/luovicter-collab/bilibinggo/main/web/frontend/public/favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Noto+Serif+SC:wght@500;600&display=swap" rel="stylesheet">
-  <style>
-    :root {
-      --bg: #f6f1ea;
-      --surface: #ffffff;
-      --fg: #1f1b18;
-      --muted: #6f645c;
-      --border: #e4d8cc;
-      --accent: #c46f52;
-      --accent-hover: #a95a41;
-      --radius: 16px;
-      --shadow: 0 18px 44px rgba(31, 27, 24, 0.08);
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: "DM Sans", "Segoe UI", system-ui, sans-serif;
-      background: var(--bg);
-      color: var(--fg);
-      line-height: 1.6;
-      -webkit-font-smoothing: antialiased;
-    }
-    .wrap { max-width: 960px; margin: 0 auto; padding: 0 20px; }
-    header { padding: 48px 0 32px; text-align: center; }
-    .logo {
-      font-family: "Noto Serif SC", serif;
-      font-size: clamp(2rem, 5vw, 2.75rem);
-      font-weight: 600;
-      letter-spacing: -0.02em;
-      margin-bottom: 12px;
-    }
-    .tagline {
-      font-size: clamp(1.125rem, 3vw, 1.375rem);
-      color: var(--muted);
-      max-width: 28em;
-      margin: 0 auto 8px;
-    }
-    .tagline strong { color: var(--fg); font-weight: 600; }
-    .privacy {
-      font-size: 0.9rem;
-      color: var(--muted);
-      margin-bottom: 28px;
-    }
-    .cta {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-      justify-content: center;
-      margin-bottom: 40px;
-    }
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      padding: 14px 28px;
-      border-radius: 12px;
-      font-size: 1rem;
-      font-weight: 600;
-      text-decoration: none;
-      transition: transform 0.15s, background 0.15s;
-    }
-    .btn:hover { transform: translateY(-1px); }
-    .btn-primary {
-      background: linear-gradient(135deg, #d07f62, #b85f44);
-      color: #fff;
-      box-shadow: 0 8px 24px rgba(196, 111, 82, 0.35);
-    }
-    .btn-primary:hover { background: var(--accent-hover); }
-    .btn-secondary {
-      background: var(--surface);
-      color: var(--fg);
-      border: 1px solid var(--border);
-    }
-    .hero-img {
-      display: block;
-      width: 100%;
-      max-width: 880px;
-      margin: 0 auto 48px;
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
-      border: 1px solid var(--border);
-    }
-    section { margin-bottom: 48px; }
-    h2 {
-      font-family: "Noto Serif SC", serif;
-      font-size: 1.5rem;
-      text-align: center;
-      margin-bottom: 24px;
-    }
-    .features {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 16px;
-    }
-    .feature {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 20px;
-    }
-    .feature h3 { font-size: 1rem; margin-bottom: 6px; }
-    .feature p { font-size: 0.9rem; color: var(--muted); }
-    .steps {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 24px 28px;
-      counter-reset: step;
-      list-style: none;
-    }
-    .steps li {
-      counter-increment: step;
-      padding: 12px 0 12px 40px;
-      position: relative;
-      border-bottom: 1px solid var(--border);
-    }
-    .steps li:last-child { border-bottom: none; }
-    .steps li::before {
-      content: counter(step);
-      position: absolute;
-      left: 0;
-      top: 12px;
-      width: 28px;
-      height: 28px;
-      background: rgba(196, 111, 82, 0.12);
-      color: var(--accent-hover);
-      font-weight: 700;
-      font-size: 0.85rem;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .faq details {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 16px 20px;
-      margin-bottom: 10px;
-    }
-    .faq summary { font-weight: 600; cursor: pointer; }
-    .faq p { margin-top: 10px; font-size: 0.95rem; color: var(--muted); }
-    footer {
-      text-align: center;
-      padding: 40px 0 56px;
-      font-size: 0.9rem;
-      color: var(--muted);
-    }
-    footer a { color: var(--accent); }
-  </style>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=Noto+Serif+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="landing.css">
 </head>
 <body>
-  <div class="wrap">
-    <header>
-      <h1 class="logo">Binggo</h1>
-      <p class="tagline"><strong>不用一个个找活动，也不用一个个点参加。</strong></p>
-      <p class="privacy">本机运行的 B 站抽奖助手 · 数据保存在你的电脑上</p>
-      <div class="cta">
-        <a class="btn btn-primary" href="https://github.com/luovicter-collab/bilibinggo/releases/latest">免费下载（Windows / Mac）</a>
-        <a class="btn btn-secondary" href="https://github.com/luovicter-collab/bilibinggo">GitHub 开源</a>
+  <div class="grain" aria-hidden="true"></div>
+  <div class="orb orb-a" aria-hidden="true"></div>
+  <div class="orb orb-b" aria-hidden="true"></div>
+
+  <header class="nav" id="nav">
+    <div class="nav-island">
+      <a class="brand" href="#top" aria-label="Binggo 首页">
+        <span class="brand-mark" aria-hidden="true">B</span>
+        <span class="brand-text">
+          <span class="brand-name">Binggo</span>
+          <span class="brand-tag">B站抽奖助手</span>
+        </span>
+      </a>
+
+      <nav class="nav-links" id="nav-links" aria-label="主导航">
+        <a href="#story">故事</a>
+        <a href="#flow">流程</a>
+        <a href="#product">产品</a>
+        <a href="#faq">问答</a>
+      </nav>
+
+      <div class="nav-actions">
+        <a class="btn btn-ghost nav-desktop" href="https://github.com/luovicter-collab/bilibinggo" target="_blank" rel="noopener">GitHub</a>
+        <a class="btn btn-primary nav-desktop" href="https://github.com/luovicter-collab/bilibinggo/releases/latest" target="_blank" rel="noopener">
+          <span>下载</span>
+          <span class="btn-icon" aria-hidden="true">↓</span>
+        </a>
+        <button type="button" class="nav-toggle" id="nav-toggle" aria-expanded="false" aria-controls="nav-sheet" aria-label="打开菜单">
+          <span class="nav-toggle-line"></span>
+          <span class="nav-toggle-line"></span>
+        </button>
       </div>
-    </header>
+    </div>
+  </header>
 
-    <img
-      class="hero-img"
-      src="https://raw.githubusercontent.com/luovicter-collab/bilibinggo/main/assets/screenshots/activities.png"
-      alt="Binggo 活动列表与三连参与"
-      width="880"
-      height="auto"
-      loading="lazy"
-    >
-
-    <section>
-      <h2>为什么用它</h2>
-      <div class="features">
-        <div class="feature">
-          <h3>自动发现</h3>
-          <p>从 UP 合集和监控用户动态里收集抽奖，不用自己到处翻。</p>
-        </div>
-        <div class="feature">
-          <h3>一键参加</h3>
-          <p>互动、转发、预约都能一键操作，还支持三连一次清多条。</p>
-        </div>
-        <div class="feature">
-          <h3>数据本机</h3>
-          <p>登录信息只存在你的电脑里，软件只在本机打开，不上传云端。</p>
-        </div>
-        <div class="feature">
-          <h3>可定时</h3>
-          <p>控制台里可设置定时更新与参与，电脑开着就能自动跑。</p>
-        </div>
-      </div>
-    </section>
-
-    <section>
-      <h2>三步开始</h2>
-      <ol class="steps">
-        <li>下载安装包，双击安装（Mac 用户拖到「应用程序」）</li>
-        <li>打开软件，用手机哔哩哔哩扫码登录</li>
-        <li>在「数据源」点「更新此源」，再到「活动」里参与抽奖</li>
-      </ol>
-    </section>
-
-    <section class="faq">
-      <h2>常见问题</h2>
-      <details>
-        <summary>需要会编程吗？</summary>
-        <p>不需要。下载安装包，像装普通软件一样使用即可。</p>
-      </details>
-      <details>
-        <summary>安全吗？会不会偷账号？</summary>
-        <p>Binggo 是开源软件，数据存在本机。不会把 Cookie 上传到作者服务器。</p>
-      </details>
-      <details>
-        <summary>打开后活动列表是空的？</summary>
-        <p>新安装需要先登录，再在「数据源」里点「更新此源」拉取活动。</p>
-      </details>
-      <details>
-        <summary>能保证中奖吗？</summary>
-        <p>不能。它只是帮你省去找活动和重复点击的时间。</p>
-      </details>
-    </section>
-
-    <footer>
-      <p>
-        <a href="https://github.com/luovicter-collab/bilibinggo/releases/latest">下载最新版</a>
-        ·
-        <a href="https://github.com/luovicter-collab/bilibinggo">给个 Star 支持一下</a>
-      </p>
-      <p style="margin-top:12px">MIT License · 非 B 站官方产品</p>
-    </footer>
+  <div class="nav-sheet" id="nav-sheet" hidden>
+    <div class="nav-sheet-inner">
+      <a href="#story" data-close-nav>故事</a>
+      <a href="#flow" data-close-nav>流程</a>
+      <a href="#product" data-close-nav>产品</a>
+      <a href="#faq" data-close-nav>问答</a>
+      <a class="btn btn-primary" href="https://github.com/luovicter-collab/bilibinggo/releases/latest" target="_blank" rel="noopener">免费下载</a>
+    </div>
   </div>
+
+  <main id="top">
+    <!-- Hero: one composition -->
+    <section class="hero" aria-label="Binggo 介绍">
+      <div class="hero-stage">
+        <div class="hero-copy reveal">
+          <p class="brand-hero">Binggo</p>
+          <h1 class="hero-title">
+            不用一个个找<br>
+            <em>也不用一个个点</em>
+          </h1>
+          <p class="hero-lead">本机运行的 B 站抽奖助手。自动发现活动，一键参与，数据只留在你电脑上。</p>
+          <div class="hero-cta">
+            <a class="btn btn-primary btn-lg" href="https://github.com/luovicter-collab/bilibinggo/releases/latest" target="_blank" rel="noopener">
+              <span>免费下载</span>
+              <span class="btn-icon" aria-hidden="true">↓</span>
+            </a>
+            <a class="btn btn-secondary btn-lg" href="#story">了解更多</a>
+          </div>
+          <p class="hero-meta">Windows · macOS · 开源 MIT</p>
+        </div>
+
+        <div class="hero-visual reveal" data-delay="120">
+          <div class="hero-frame">
+            <div class="hero-frame-glow" aria-hidden="true"></div>
+            <div class="hero-chrome" aria-hidden="true">
+              <span></span><span></span><span></span>
+              <em>127.0.0.1 · 活动</em>
+            </div>
+            <img
+              src="https://raw.githubusercontent.com/luovicter-collab/bilibinggo/main/assets/screenshots/activities.png"
+              alt="Binggo 活动列表与三连参与界面"
+              width="1200"
+              height="750"
+              fetchpriority="high"
+            >
+          </div>
+          <div class="hero-float hero-float-a" aria-hidden="true">自动发现</div>
+          <div class="hero-float hero-float-b" aria-hidden="true">一键参与</div>
+        </div>
+      </div>
+      <a class="scroll-hint" href="#story" aria-label="向下滚动">
+        <span></span>
+      </a>
+    </section>
+
+    <!-- Story / value -->
+    <section class="section story" id="story">
+      <div class="container">
+        <div class="story-head reveal">
+          <p class="eyebrow">为什么存在</p>
+          <h2 class="display">抽奖最累的，<br>从来不是等开奖。</h2>
+        </div>
+
+        <div class="bento">
+          <article class="bento-card bento-wide reveal" data-tilt>
+            <p class="bento-kicker">痛点</p>
+            <h3>翻合集、找活动、再一个个点赞关注转发评论</h3>
+            <p>漏一天可能错过；找到了还要重复点五项。Binggo 把发现与参与收进一个本地控制台。</p>
+          </article>
+          <article class="bento-card reveal" data-delay="80" data-tilt>
+            <p class="bento-kicker">发现</p>
+            <h3>自动汇总</h3>
+            <p>UP 合集 + 监控用户动态，新活动自己来。</p>
+          </article>
+          <article class="bento-card reveal" data-delay="140" data-tilt>
+            <p class="bento-kicker">参与</p>
+            <h3>一键 / 三连</h3>
+            <p>互动、转发、预约；一次清多条未参加。</p>
+          </article>
+          <article class="bento-card bento-accent reveal" data-delay="100" data-tilt>
+            <p class="bento-kicker">隐私</p>
+            <h3>数据不出本机</h3>
+            <p>Cookie 与活动库只存在你的电脑。控制台仅监听 <code>127.0.0.1</code>。</p>
+          </article>
+          <article class="bento-card reveal" data-delay="160" data-tilt>
+            <p class="bento-kicker">节奏</p>
+            <h3>可定时</h3>
+            <p>内置调度：更新与参与按时间表自动跑。</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- Flow -->
+    <section class="section flow" id="flow">
+      <div class="container">
+        <div class="section-split">
+          <div class="section-intro reveal">
+            <p class="eyebrow">上手流程</p>
+            <h2 class="display">三步，像装普通软件一样</h2>
+            <p class="lede">不需要会编程。下载 → 扫码 → 参与。</p>
+          </div>
+          <ol class="flow-list">
+            <li class="flow-item reveal" data-delay="40">
+              <button type="button" class="flow-trigger" aria-expanded="true" data-flow="0">
+                <span class="flow-num">01</span>
+                <span class="flow-body">
+                  <strong>下载安装</strong>
+                  <span>Windows 安装包 / Mac 拖入应用程序</span>
+                </span>
+              </button>
+            </li>
+            <li class="flow-item reveal" data-delay="90">
+              <button type="button" class="flow-trigger" aria-expanded="false" data-flow="1">
+                <span class="flow-num">02</span>
+                <span class="flow-body">
+                  <strong>扫码登录</strong>
+                  <span>手机哔哩哔哩 App 扫码，Cookie 只存本机</span>
+                </span>
+              </button>
+            </li>
+            <li class="flow-item reveal" data-delay="140">
+              <button type="button" class="flow-trigger" aria-expanded="false" data-flow="2">
+                <span class="flow-num">03</span>
+                <span class="flow-body">
+                  <strong>更新并参与</strong>
+                  <span>「更新此源」拉活动，再一键或三连参加</span>
+                </span>
+              </button>
+            </li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <!-- Product showcase -->
+    <section class="section product" id="product">
+      <div class="container">
+        <div class="product-head reveal">
+          <p class="eyebrow">产品界面</p>
+          <h2 class="display">和真正打开后一样好看</h2>
+          <div class="product-tabs" role="tablist" aria-label="界面预览">
+            <button type="button" class="product-tab is-active" role="tab" aria-selected="true" data-panel="activities">活动页</button>
+            <button type="button" class="product-tab" role="tab" aria-selected="false" data-panel="overview">概览页</button>
+          </div>
+        </div>
+
+        <div class="product-stage reveal" data-delay="80">
+          <div class="product-panel is-active" id="panel-activities" role="tabpanel">
+            <div class="device-shell">
+              <div class="device-bar" aria-hidden="true"><span></span><span></span><span></span><em>活动 · 筛选 · 三连参与</em></div>
+              <img
+                src="https://raw.githubusercontent.com/luovicter-collab/bilibinggo/main/assets/screenshots/activities.png"
+                alt="Binggo 活动页截图"
+                width="1200"
+                height="750"
+                loading="lazy"
+              >
+            </div>
+          </div>
+          <div class="product-panel" id="panel-overview" role="tabpanel" hidden>
+            <div class="device-shell">
+              <div class="device-bar" aria-hidden="true"><span></span><span></span><span></span><em>概览 · 账号 · 快捷操作</em></div>
+              <img
+                src="https://raw.githubusercontent.com/luovicter-collab/bilibinggo/main/assets/screenshots/overview.png"
+                alt="Binggo 概览页截图"
+                width="1200"
+                height="750"
+                loading="lazy"
+              >
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA band -->
+    <section class="cta-band" aria-label="下载">
+      <div class="cta-inner reveal">
+        <p class="eyebrow on-coral">现在就开始</p>
+        <h2 class="display">把翻合集的时间，留给真正想要的奖品。</h2>
+        <p class="lede">开源免费。不保证中奖，但保证少点很多下。</p>
+        <div class="cta-actions">
+          <a class="btn btn-cream btn-lg" href="https://github.com/luovicter-collab/bilibinggo/releases/latest" target="_blank" rel="noopener">
+            <span>下载最新版</span>
+            <span class="btn-icon" aria-hidden="true">↓</span>
+          </a>
+          <a class="btn btn-ghost-on-coral btn-lg" href="https://github.com/luovicter-collab/bilibinggo" target="_blank" rel="noopener">在 GitHub 给个 Star</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- FAQ -->
+    <section class="section faq" id="faq">
+      <div class="container faq-grid">
+        <div class="faq-intro reveal">
+          <p class="eyebrow">常见问题</p>
+          <h2 class="display">使用前，你可能想问</h2>
+        </div>
+        <div class="faq-list reveal" data-delay="80">
+          <details class="faq-item" open>
+            <summary>需要会编程吗？</summary>
+            <p>不需要。下载安装包，双击安装，扫码就能用。</p>
+          </details>
+          <details class="faq-item">
+            <summary>安全吗？Cookie 会上传吗？</summary>
+            <p>凭证只存在本机。控制台绑定 127.0.0.1，不会上传到作者服务器。代码开源可审。</p>
+          </details>
+          <details class="faq-item">
+            <summary>为什么活动列表是空的？</summary>
+            <p>新安装需先登录，再在「数据源」对 UP 合集点「更新此源」拉取活动。</p>
+          </details>
+          <details class="faq-item">
+            <summary>一定要配置 LLM 吗？</summary>
+            <p>只有转发抽奖需要。互动与预约可直接参与。</p>
+          </details>
+          <details class="faq-item">
+            <summary>能保证中奖吗？</summary>
+            <p>不能。Binggo 只帮你省去找活动和重复点击的时间。</p>
+          </details>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <a class="brand" href="#top">
+        <span class="brand-mark" aria-hidden="true">B</span>
+        <span class="brand-text">
+          <span class="brand-name">Binggo</span>
+          <span class="brand-tag">非 B 站官方产品</span>
+        </span>
+      </a>
+      <nav class="footer-links" aria-label="页脚链接">
+        <a href="https://github.com/luovicter-collab/bilibinggo/releases/latest" target="_blank" rel="noopener">下载</a>
+        <a href="https://github.com/luovicter-collab/bilibinggo" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/luovicter-collab/bilibinggo/stargazers" target="_blank" rel="noopener">Star</a>
+      </nav>
+      <p class="footer-copy">MIT License · 数据保存在你的电脑上</p>
+    </div>
+  </footer>
+
+  <script src="landing.js" defer></script>
 </body>
 </html>
