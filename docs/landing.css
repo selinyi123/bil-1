@@ -173,12 +173,7 @@ body.touch .cursor, body.touch .glow { display: none; }
 .nav-indicator.is-visible { opacity: 1; }
 .site-nav.is-traveling .nav-indicator {
   height: 3px;
-  box-shadow: 0 0 22px rgba(233,160,124,.75);
-  animation: indicator-glow 1.6s ease-in-out infinite;
-}
-@keyframes indicator-glow {
-  0%, 100% { filter: brightness(1); }
-  50% { filter: brightness(1.25); }
+  box-shadow: 0 0 18px rgba(233,160,124,.65);
 }
 .nav-links a.is-heading span {
   color: var(--coral2);
@@ -838,7 +833,7 @@ section.is-arriving {
   .shot-body img, .start-preview img { animation: none !important; }
   .cursor, .glow { display: none !important; }
   body.is-navigating main { filter: none; transform: none; }
-  .nav-indicator, .nav-progress i, .overlay-links a, .nav-overlay-panel, .nav-cta.is-wide { transition: none !important; }
+  .nav-indicator, .nav-travel-wash, .overlay-links a, .nav-overlay-panel, .nav-cta.is-wide { transition: none !important; }
   .site-nav.is-traveling .nav-indicator { animation: none; }
   .nav-links a.is-heading span { animation: none; }
   section.is-arriving { animation: none; }

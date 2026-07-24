@@ -402,7 +402,7 @@
 
   const setTravelUi = (progress) => {
     const p = Math.max(0, Math.min(1, progress));
-    if (navProgress) navProgress.style.width = `${p * 100}%`;
+    navShell?.style.setProperty("--travel-p", String(p));
   };
 
   const beginTravel = (label, targetEl) => {
@@ -420,7 +420,7 @@
     nav?.classList.remove("is-traveling");
     travelLink?.classList.remove("is-heading");
     travelLink = null;
-    if (navProgress) navProgress.style.width = "0%";
+    navShell?.style.setProperty("--travel-p", "0");
     if (travelTarget) {
       revealSection(travelTarget);
       travelTarget.classList.add("is-arriving");
