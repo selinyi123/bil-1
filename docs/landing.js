@@ -355,10 +355,7 @@
   const navLinks = document.querySelector(".nav-links");
   const navIndicator = document.getElementById("nav-indicator");
   const navRail = document.getElementById("nav-rail");
-  const scrollVeil = document.getElementById("scroll-veil");
-  const navTravel = document.getElementById("nav-travel");
-  const navTravelLabel = navTravel?.querySelector(".nav-travel-label");
-  const navTravelBar = navTravel?.querySelector(".nav-travel-bar");
+  const navRailLabel = document.getElementById("nav-rail-label");
   const navAnchors = [...document.querySelectorAll("[data-nav]")];
   const navSections = [
     { id: "tour", el: document.getElementById("tour") },
@@ -405,25 +402,20 @@
 
   const setTravelUi = (progress) => {
     const p = Math.max(0, Math.min(1, progress));
-    if (navTravelBar) navTravelBar.style.width = `${p * 100}%`;
-    document.documentElement.style.setProperty("--veil-o", String(0.45 + p * 0.4));
+    if (navRail) navRail.style.width = `${p * 100}%`;
   };
 
   const beginTravel = (label, targetEl) => {
     scrollingNav = true;
     travelTarget = targetEl || null;
-    document.body.classList.add("is-navigating");
     nav?.classList.add("is-traveling");
-    if (navTravelLabel && label) navTravelLabel.textContent = label;
+    if (navRailLabel && label) navRailLabel.textContent = label;
     setTravelUi(0);
   };
 
   const endTravel = () => {
     scrollingNav = false;
-    document.body.classList.remove("is-navigating");
     nav?.classList.remove("is-traveling");
-    document.documentElement.style.removeProperty("--veil-o");
-    if (navTravelBar) navTravelBar.style.width = "0%";
     if (navRail) navRail.style.width = "0%";
     if (travelTarget) {
       revealSection(travelTarget);
@@ -465,10 +457,6 @@
       const current = start + delta * eased;
       setScrollY(current);
       setTravelUi(p);
-      if (navRail) {
-        const max = maxScrollY();
-        navRail.style.width = `${max > 0 ? (current / max) * 100 : 0}%`;
-      }
       if (p < 1) scrollAnim = requestAnimationFrame(step);
       else {
         scrollAnim = null;
