@@ -185,7 +185,6 @@
   const playBtn = document.getElementById("tour-play");
   const board = document.getElementById("tour-board");
   const shot = document.getElementById("tour-shot");
-  const themeBtn = document.getElementById("theme-btn");
   const tabs = [...document.querySelectorAll(".tour-tab")];
 
   const showTip = (html) => {
@@ -249,10 +248,6 @@
     body?.classList.toggle("is-tall", TALL.has(tourI));
     renderHots(TALL.has(tourI) ? [] : t.hotspots);
     tabs.forEach((tab, idx) => tab.classList.toggle("is-on", idx === tourI));
-    if (themeBtn) {
-      if (tourI === 5) themeBtn.setAttribute("data-mode", "night");
-      else if (tourI === 0) themeBtn.removeAttribute("data-mode");
-    }
     if (!soft) autoT0 = performance.now();
     paintHero(tourI);
   };
@@ -295,15 +290,10 @@
   requestAnimationFrame(tick);
   setPlayUi();
 
-  themeBtn?.addEventListener("click", () => {
-    const night = themeBtn.getAttribute("data-mode") === "night";
-    renderTour(night ? 0 : 5);
-    document.getElementById("tour")?.scrollIntoView({ behavior: reduce ? "auto" : "smooth" });
-  });
-
   const jump = (i) => {
     renderTour(Number(i));
-    document.getElementById("tour")?.scrollIntoView({ behavior: reduce ? "auto" : "smooth" });
+    setActiveNav("tour");
+    scrollToEl(document.getElementById("tour"));
   };
   document.querySelectorAll("[data-jump]").forEach((el) => {
     el.addEventListener("click", () => jump(el.getAttribute("data-jump")));
@@ -359,27 +349,140 @@
     });
   }
 
-  /* ---------- Scroll / nav ---------- */
-  const progress = document.getElementById("progress");
+  /* ---------- Elegant scroll + nav ---------- */
   const nav = document.getElementById("nav");
-  const onScroll = () => {
-    const max = document.documentElement.scrollHeight - innerHeight;
-    if (progress) progress.style.width = `${max > 0 ? (scrollY / max) * 100 : 0}%`;
-    nav?.classList.toggle("solid", scrollY > 40);
+  const navMid = document.querySelector(".nav-mid");
+  const navInd = document.getElementById("nav-ind");
+  const navAnchors = [...document.querySelectorAll("[data-nav]")];
+  const navSections = [
+    { id: "tour", el: document.getElementById("tour") },
+    { id: "why", el: document.getElementById("why") },
+    { id: "start", el: document.getElementById("start") },
+    { id: "faq", el: document.getElementById("faq") },
+  ].filter((s) => s.el);
+
+  let scrollAnim = null;
+  let scrollingNav = false;
+
+  const easeOutQuint = (t) => 1 - Math.pow(1 - t, 5);
+  const getNavOffset = () => (nav?.offsetHeight ?? 64) + 20;
+
+  const scrollToY = (targetY, onDone) => {
+    const y = Math.max(0, Math.min(targetY, document.documentElement.scrollHeight - innerHeight));
+    if (reduce || Math.abs(scrollY - y) < 2) {
+      scrollTo(0, y);
+      onDone?.();
+      return;
+    }
+    if (scrollAnim) cancelAnimationFrame(scrollAnim);
+    scrollingNav = true;
+    nav?.classList.add("is-scrolling");
+    const start = scrollY;
+    const delta = y - start;
+    const duration = Math.min(1400, Math.max(700, Math.abs(delta) * 0.7));
+    const t0 = performance.now();
+    const step = (now) => {
+      const p = Math.min(1, (now - t0) / duration);
+      scrollTo(0, start + delta * easeOutQuint(p));
+      if (p < 1) scrollAnim = requestAnimationFrame(step);
+      else {
+        scrollAnim = null;
+        scrollingNav = false;
+        nav?.classList.remove("is-scrolling");
+        onDone?.();
+      }
+    };
+    scrollAnim = requestAnimationFrame(step);
   };
-  onScroll();
-  addEventListener("scroll", onScroll, { passive: true });
+
+  const scrollToEl = (el, onDone) => {
+    if (!el) return;
+    scrollToY(el.getBoundingClientRect().top + scrollY - getNavOffset(), onDone);
+  };
+
+  const updateNavIndicator = (link) => {
+    if (!navInd || !navMid || !link) return;
+    navMid.classList.add("has-active");
+    navInd.style.width = `${link.offsetWidth}px`;
+    navInd.style.transform = `translateX(${link.offsetLeft}px)`;
+  };
+
+  const setActiveNav = (id) => {
+    let desktopActive = null;
+    navAnchors.forEach((a) => {
+      const on = a.getAttribute("href") === `#${id}`;
+      a.classList.toggle("is-active", on);
+      a.setAttribute("aria-current", on ? "true" : "false");
+      if (on && a.closest(".nav-mid")) desktopActive = a;
+    });
+    if (desktopActive) updateNavIndicator(desktopActive);
+    else navMid?.classList.remove("has-active");
+  };
+
+  const updateSpy = () => {
+    if (scrollingNav) return;
+    const mark = getNavOffset() + innerHeight * 0.25;
+    let current = "";
+    for (const { id, el } of navSections) {
+      if (el.getBoundingClientRect().top <= mark) current = id;
+    }
+    if (current) setActiveNav(current);
+    else navMid?.classList.remove("has-active");
+  };
 
   const menuBtn = document.getElementById("menu-btn");
   const sheet = document.getElementById("sheet");
   const setOpen = (open) => {
     nav?.classList.toggle("open", open);
     menuBtn?.setAttribute("aria-expanded", open ? "true" : "false");
-    if (sheet) sheet.hidden = !open;
+    if (!sheet) return;
+    if (open) {
+      sheet.hidden = false;
+      requestAnimationFrame(() => sheet.classList.add("is-open"));
+    } else {
+      sheet.classList.remove("is-open");
+      const hide = () => {
+        if (!sheet.classList.contains("is-open")) sheet.hidden = true;
+      };
+      sheet.addEventListener("transitionend", hide, { once: true });
+      setTimeout(hide, 500);
+    }
     document.body.style.overflow = open ? "hidden" : "";
   };
+
+  document.querySelectorAll('a[href^="#"]').forEach((a) => {
+    a.addEventListener("click", (e) => {
+      const href = a.getAttribute("href");
+      if (!href || href === "#") return;
+      const el = document.querySelector(href);
+      if (!el) return;
+      e.preventDefault();
+      a.classList.add("is-pressing");
+      setTimeout(() => a.classList.remove("is-pressing"), 200);
+      if (el.id && navAnchors.some((n) => n.getAttribute("href") === `#${el.id}`)) {
+        setActiveNav(el.id);
+      }
+      scrollToEl(el, () => {
+        if (nav?.classList.contains("open")) setOpen(false);
+      });
+    });
+  });
+
   menuBtn?.addEventListener("click", () => setOpen(!nav?.classList.contains("open")));
-  sheet?.querySelectorAll("[data-x]").forEach((a) => a.addEventListener("click", () => setOpen(false)));
+
+  const progress = document.getElementById("progress");
+  const onScroll = () => {
+    const max = document.documentElement.scrollHeight - innerHeight;
+    if (progress) progress.style.width = `${max > 0 ? (scrollY / max) * 100 : 0}%`;
+    nav?.classList.toggle("solid", scrollY > 40);
+    updateSpy();
+  };
+  onScroll();
+  addEventListener("scroll", onScroll, { passive: true });
+  addEventListener("resize", () => {
+    const active = document.querySelector(".nav-mid a.is-active");
+    if (active) updateNavIndicator(active);
+  });
 
   /* reveal */
   const nodes = document.querySelectorAll("[data-in]");
