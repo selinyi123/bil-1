@@ -1,121 +1,179 @@
 (() => {
-  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const touch = window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+  if (touch) document.body.classList.add("has-touch");
 
-  /* Sticky nav state */
-  const nav = document.getElementById("nav");
+  /* Custom cursor + spotlight */
+  const cursor = document.getElementById("cursor");
+  const dot = document.getElementById("cursor-dot");
+  const spot = document.getElementById("spot");
+  let cx = window.innerWidth / 2;
+  let cy = window.innerHeight / 3;
+  let tx = cx;
+  let ty = cy;
+
+  if (!touch && !reduce) {
+    window.addEventListener(
+      "pointermove",
+      (e) => {
+        tx = e.clientX;
+        ty = e.clientY;
+        if (dot) dot.style.transform = `translate(${tx}px, ${ty}px) translate(-50%, -50%)`;
+        if (spot) spot.style.transform = `translate(${tx}px, ${ty}px) translate(-50%, -50%)`;
+      },
+      { passive: true }
+    );
+
+    const tick = () => {
+      cx += (tx - cx) * 0.18;
+      cy += (ty - cy) * 0.18;
+      if (cursor) cursor.style.transform = `translate(${cx}px, ${cy}px) translate(-50%, -50%)`;
+      requestAnimationFrame(tick);
+    };
+    tick();
+
+    document.querySelectorAll("a, button, [data-magnetic], summary").forEach((el) => {
+      el.addEventListener("pointerenter", () => cursor?.classList.add("is-hot"));
+      el.addEventListener("pointerleave", () => cursor?.classList.remove("is-hot"));
+    });
+  }
+
+  /* Magnetic buttons */
+  if (!touch && !reduce) {
+    document.querySelectorAll("[data-magnetic]").forEach((el) => {
+      el.addEventListener("pointermove", (e) => {
+        const r = el.getBoundingClientRect();
+        const x = e.clientX - (r.left + r.width / 2);
+        const y = e.clientY - (r.top + r.height / 2);
+        el.style.transform = `translate(${x * 0.18}px, ${y * 0.22}px)`;
+      });
+      el.addEventListener("pointerleave", () => {
+        el.style.transform = "";
+      });
+    });
+  }
+
+  /* Scroll progress + nav solid */
+  const bar = document.getElementById("scroll-progress");
+  const nav = document.getElementById("topnav");
   const onScroll = () => {
-    if (!nav) return;
-    nav.classList.toggle("is-scrolled", window.scrollY > 24);
+    const max = document.documentElement.scrollHeight - window.innerHeight;
+    const p = max > 0 ? (window.scrollY / max) * 100 : 0;
+    if (bar) bar.style.width = `${p}%`;
+    nav?.classList.toggle("is-solid", window.scrollY > 40);
   };
   onScroll();
   window.addEventListener("scroll", onScroll, { passive: true });
 
-  /* Mobile menu */
-  const toggle = document.getElementById("nav-toggle");
-  const sheet = document.getElementById("nav-sheet");
-  const setMenu = (open) => {
-    if (!nav || !toggle || !sheet) return;
-    nav.classList.toggle("is-open", open);
-    toggle.setAttribute("aria-expanded", open ? "true" : "false");
-    toggle.setAttribute("aria-label", open ? "关闭菜单" : "打开菜单");
-    sheet.hidden = !open;
+  /* Burger */
+  const burger = document.getElementById("burger");
+  const drawer = document.getElementById("drawer");
+  const setOpen = (open) => {
+    nav?.classList.toggle("is-open", open);
+    burger?.setAttribute("aria-expanded", open ? "true" : "false");
+    if (drawer) drawer.hidden = !open;
     document.body.style.overflow = open ? "hidden" : "";
   };
-
-  toggle?.addEventListener("click", () => {
-    setMenu(!nav.classList.contains("is-open"));
-  });
-
-  sheet?.querySelectorAll("[data-close-nav]").forEach((el) => {
-    el.addEventListener("click", () => setMenu(false));
-  });
-
+  burger?.addEventListener("click", () => setOpen(!nav?.classList.contains("is-open")));
+  drawer?.querySelectorAll("[data-close]").forEach((a) => a.addEventListener("click", () => setOpen(false)));
   window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") setMenu(false);
+    if (e.key === "Escape") setOpen(false);
   });
 
-  /* Scroll reveal */
-  const reveals = document.querySelectorAll(".reveal");
-  if (!reduceMotion && "IntersectionObserver" in window) {
+  /* Split brand letters */
+  const brand = document.querySelector("[data-split]");
+  if (brand && !reduce) {
+    const text = brand.textContent || "";
+    brand.textContent = "";
+    [...text].forEach((ch, i) => {
+      const span = document.createElement("span");
+      span.className = "ch";
+      span.textContent = ch;
+      span.style.animationDelay = `${0.05 + i * 0.05}s`;
+      brand.appendChild(span);
+    });
+  }
+
+  /* Reveal */
+  const nodes = document.querySelectorAll("[data-reveal]");
+  if (!reduce && "IntersectionObserver" in window) {
     const io = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
           if (!entry.isIntersecting) return;
-          const el = entry.target;
-          const delay = el.getAttribute("data-delay");
-          if (delay) el.style.setProperty("--delay", `${delay}ms`);
-          el.classList.add("is-in");
-          io.unobserve(el);
+          entry.target.classList.add("in");
+          io.unobserve(entry.target);
         });
       },
-      { threshold: 0.14, rootMargin: "0px 0px -8% 0px" }
+      { threshold: 0.12, rootMargin: "0px 0px -8% 0px" }
     );
-    reveals.forEach((el) => io.observe(el));
+    nodes.forEach((n) => io.observe(n));
   } else {
-    reveals.forEach((el) => el.classList.add("is-in"));
+    nodes.forEach((n) => n.classList.add("in"));
   }
 
-  /* Product tabs */
-  const tabs = document.querySelectorAll(".product-tab");
-  const panels = {
-    activities: document.getElementById("panel-activities"),
-    overview: document.getElementById("panel-overview"),
+  /* How steps */
+  const steps = document.querySelectorAll(".how-step");
+  const howBar = document.getElementById("how-bar");
+  const howLabel = document.getElementById("how-step-label");
+  const setStep = (n) => {
+    steps.forEach((s) => s.classList.toggle("is-on", s.getAttribute("data-step") === String(n)));
+    if (howBar) howBar.style.width = `${(n / 3) * 100}%`;
+    if (howLabel) howLabel.textContent = `0${n} / 03`;
   };
+  steps.forEach((s) => {
+    s.querySelector("button")?.addEventListener("click", () => setStep(s.getAttribute("data-step")));
+  });
 
+  /* Look tabs */
+  const tabs = document.querySelectorAll(".look-tab");
+  const panelA = document.getElementById("look-a");
+  const panelB = document.getElementById("look-b");
   tabs.forEach((tab) => {
     tab.addEventListener("click", () => {
-      const key = tab.getAttribute("data-panel");
+      const key = tab.getAttribute("data-tab");
       tabs.forEach((t) => {
         const on = t === tab;
-        t.classList.toggle("is-active", on);
+        t.classList.toggle("is-on", on);
         t.setAttribute("aria-selected", on ? "true" : "false");
       });
-      Object.entries(panels).forEach(([id, panel]) => {
-        if (!panel) return;
-        panel.hidden = id !== key;
-        panel.classList.toggle("is-active", id === key);
-      });
+      if (panelA && panelB) {
+        panelA.hidden = key !== "a";
+        panelB.hidden = key !== "b";
+        panelA.classList.toggle("is-on", key === "a");
+        panelB.classList.toggle("is-on", key === "b");
+      }
     });
   });
 
-  /* FAQ: one open at a time */
-  const faqs = document.querySelectorAll(".faq-item");
+  /* Product stage tilt */
+  const stage = document.querySelector("[data-tilt-stage]");
+  if (stage && !touch && !reduce) {
+    stage.addEventListener("pointermove", (e) => {
+      const r = stage.getBoundingClientRect();
+      const x = (e.clientX - r.left) / r.width - 0.5;
+      const y = (e.clientY - r.top) / r.height - 0.5;
+      stage.style.transform = `perspective(1200px) rotateY(${x * 8}deg) rotateX(${-y * 6}deg)`;
+    });
+    stage.addEventListener("pointerleave", () => {
+      stage.style.transform = "";
+    });
+  }
+
+  /* FAQ one-open */
+  const faqs = document.querySelectorAll(".ask-item");
   faqs.forEach((item) => {
     item.addEventListener("toggle", () => {
       if (!item.open) return;
-      faqs.forEach((other) => {
-        if (other !== item) other.open = false;
+      faqs.forEach((o) => {
+        if (o !== item) o.open = false;
       });
     });
   });
 
-  /* Flow accordion highlight */
-  const flowTriggers = document.querySelectorAll(".flow-trigger");
-  flowTriggers.forEach((btn) => {
-    btn.addEventListener("click", () => {
-      flowTriggers.forEach((b) => b.setAttribute("aria-expanded", b === btn ? "true" : "false"));
-    });
-  });
-
-  /* Soft tilt on bento cards */
-  if (!reduceMotion && window.matchMedia("(pointer: fine)").matches) {
-    document.querySelectorAll("[data-tilt]").forEach((card) => {
-      card.addEventListener("pointermove", (e) => {
-        const rect = card.getBoundingClientRect();
-        const x = (e.clientX - rect.left) / rect.width - 0.5;
-        const y = (e.clientY - rect.top) / rect.height - 0.5;
-        card.style.transform = `perspective(900px) rotateY(${x * 6}deg) rotateX(${-y * 6}deg) translateY(-2px)`;
-      });
-      card.addEventListener("pointerleave", () => {
-        card.style.transform = "";
-      });
-    });
-  }
-
-  /* Smooth close menu on resize to desktop */
+  /* Close drawer on desktop */
   const mq = window.matchMedia("(min-width: 768px)");
-  const onMq = () => {
-    if (mq.matches) setMenu(false);
-  };
-  mq.addEventListener?.("change", onMq);
+  mq.addEventListener?.("change", () => {
+    if (mq.matches) setOpen(false);
+  });
 })();
