@@ -328,6 +328,7 @@
       el.addEventListener("pointerleave", () => cursor?.classList.remove("hot"));
     });
     document.querySelectorAll("[data-magnet]").forEach((el) => {
+      if (el.closest(".site-nav")) return;
       el.addEventListener("pointermove", (e) => {
         const r = el.getBoundingClientRect();
         el.style.transform = `translate(${(e.clientX - r.left - r.width / 2) * 0.2}px, ${(e.clientY - r.top - r.height / 2) * 0.24}px)`;
@@ -389,7 +390,14 @@
     window.scrollTo(0, top);
   };
 
-  const getNavOffset = () => (nav?.offsetHeight ?? 80) + 32;
+  const getNavOffset = () => (nav?.offsetHeight ?? 80) + 24;
+  const maxScrollY = () => document.documentElement.scrollHeight - innerHeight;
+
+  const revealSection = (el) => {
+    if (!el) return;
+    if (el.matches("[data-in]")) el.classList.add("show");
+    el.querySelectorAll("[data-in]").forEach((n) => n.classList.add("show"));
+  };
 
   const setTravelUi = (progress) => {
     const p = Math.max(0, Math.min(1, progress));
@@ -412,23 +420,31 @@
     nav?.classList.remove("is-traveling");
     document.documentElement.style.removeProperty("--veil-o");
     if (navTravelBar) navTravelBar.style.width = "0%";
+    if (navRail) navRail.style.width = "0%";
     if (travelTarget) {
+      revealSection(travelTarget);
       travelTarget.classList.add("is-arriving");
       setTimeout(() => travelTarget?.classList.remove("is-arriving"), 1000);
       travelTarget = null;
     }
+    updateSpy();
   };
 
   const scrollToY = (targetY, { label, targetEl, onDone } = {}) => {
-    const y = Math.max(0, Math.min(targetY, document.documentElement.scrollHeight - innerHeight));
+    const y = Math.max(0, Math.min(targetY, maxScrollY()));
+    const finish = () => {
+      if (targetEl) revealSection(targetEl);
+      onDone?.();
+      updateSpy();
+    };
     if (Math.abs(scrollY - y) < 3) {
       setScrollY(y);
-      onDone?.();
+      finish();
       return;
     }
     if (reduce) {
       setScrollY(y);
-      onDone?.();
+      finish();
       return;
     }
     if (scrollAnim) cancelAnimationFrame(scrollAnim);
@@ -462,7 +478,13 @@
     if (!el) return;
     const id = el.id || "top";
     const label = meta.label || sectionLabels[id] || el.getAttribute("data-label") || id;
-    scrollToY(el.getBoundingClientRect().top + scrollY - getNavOffset(), {
+    const isLast = navSections[navSections.length - 1]?.el === el;
+    let targetY = el.getBoundingClientRect().top + scrollY - getNavOffset();
+    const max = maxScrollY();
+    if (isLast) targetY = Math.max(targetY, max);
+    targetY = Math.max(0, Math.min(targetY, max));
+    if (id && navSections.some((s) => s.id === id)) setActiveNav(id);
+    scrollToY(targetY, {
       label,
       targetEl: el.id ? el : null,
       onDone: meta.onDone,
@@ -511,16 +533,9 @@
       });
       link.addEventListener("pointerleave", () => {
         link.classList.remove("is-hover");
-        link.style.transform = "";
         const active = navLinks.querySelector("a.is-active");
         if (active) moveIndicator(active);
         else navLinks.classList.remove("has-active");
-      });
-      link.addEventListener("pointermove", (e) => {
-        const r = link.getBoundingClientRect();
-        const dx = (e.clientX - r.left - r.width / 2) * 0.12;
-        const dy = (e.clientY - r.top - r.height / 2) * 0.18;
-        link.style.transform = `translate(${dx}px, ${dy - 2}px)`;
       });
     });
   }
@@ -576,13 +591,8 @@
 
   const onScroll = () => {
     const y = scrollY;
-    const max = document.documentElement.scrollHeight - innerHeight;
-    if (navRail && !scrollingNav) {
-      navRail.style.width = `${max > 0 ? (y / max) * 100 : 0}%`;
-    }
     nav?.classList.toggle("is-solid", y > 48);
-    nav?.classList.toggle("is-compact", y > 120);
-    updateSpy();
+    if (!scrollingNav) updateSpy();
   };
   onScroll();
   addEventListener("scroll", onScroll, { passive: true });
