@@ -72,11 +72,7 @@ body.touch .cursor, body.touch .glow { display: none; }
 
 .nav-shell {
   position: relative;
-  --travel-beam: 0;
-  --travel-from: 0;
-  --travel-to: 0;
-  --travel-trail-left: 0;
-  --travel-trail-width: 0;
+  --travel-p: 0;
   --travel-alpha: 0;
   --travel-dir: 1;
   border-top: 1px solid rgba(233,160,124,.22);
@@ -97,47 +93,54 @@ body.touch .cursor, body.touch .glow { display: none; }
   border-bottom-color: rgba(212,132,98,.2);
 }
 
-/* 导航滚动 — 细线光刃 + 轨迹铺陈 */
+/* 导航滚动 — 全宽横向进度条（左→右 / 右→左） */
 .nav-travel {
-  position: absolute; inset: 0; z-index: 4;
+  position: absolute; inset: 0; z-index: 1;
   pointer-events: none;
   opacity: var(--travel-alpha, 0);
 }
 
+/* 进度铺陈 */
 .nav-travel::before {
   content: "";
-  position: absolute;
-  left: calc(var(--travel-trail-left, 0) * 100%);
-  bottom: 0;
-  width: calc(var(--travel-trail-width, 0) * 100%);
-  height: 2px;
+  position: absolute; inset: 0;
+}
+.site-nav[data-travel-dir="1"] .nav-travel::before {
   background: linear-gradient(
-    calc(90deg * var(--travel-dir, 1)),
-    rgba(212,132,98,.35),
-    rgba(233,160,124,.72)
+    90deg,
+    rgba(212,132,98,.16) 0%,
+    rgba(233,160,124,.09) calc(var(--travel-p, 0) * 100% - 0.5%),
+    transparent calc(var(--travel-p, 0) * 100% + 0.5%)
   );
-  box-shadow: 0 0 12px rgba(233,160,124,.35);
-  border-radius: 1px;
+}
+.site-nav[data-travel-dir="-1"] .nav-travel::before {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    transparent calc((1 - var(--travel-p, 0)) * 100% - 0.5%),
+    rgba(233,160,124,.09) calc((1 - var(--travel-p, 0)) * 100%),
+    rgba(212,132,98,.16) 100%
+  );
 }
 
+/* 底边进度线 */
 .nav-travel::after {
   content: "";
   position: absolute;
-  top: 10%; bottom: 10%;
-  left: calc(var(--travel-beam, 0) * 100%);
-  width: 2px;
-  transform: translateX(-50%);
-  background: linear-gradient(
-    180deg,
-    transparent 0%,
-    rgba(233,160,124,.78) 18%,
-    rgba(244,239,231,1) 50%,
-    rgba(233,160,124,.78) 82%,
-    transparent 100%
-  );
-  box-shadow:
-    0 0 24px rgba(233,160,124,.5),
-    calc(var(--travel-dir, 1) * -32px) 0 56px rgba(212,132,98,.28);
+  bottom: 0;
+  height: 2px;
+  background: linear-gradient(90deg, rgba(212,132,98,.45), rgba(233,160,124,.82));
+  box-shadow: 0 0 14px rgba(233,160,124,.38);
+  border-radius: 1px;
+}
+.site-nav[data-travel-dir="1"] .nav-travel::after {
+  left: 0;
+  width: calc(var(--travel-p, 0) * 100%);
+}
+.site-nav[data-travel-dir="-1"] .nav-travel::after {
+  right: 0;
+  left: auto;
+  width: calc(var(--travel-p, 0) * 100%);
 }
 
 .nav-inner {
@@ -186,28 +189,21 @@ body.touch .cursor, body.touch .glow { display: none; }
 }
 .nav-indicator {
   position: absolute; left: 0; bottom: 0; z-index: 2;
-  height: 3px; width: 0;
+  height: 3px;
   background: linear-gradient(90deg, var(--coral), var(--coral2));
   border-radius: 999px;
   box-shadow: 0 0 16px rgba(233,160,124,.65);
   pointer-events: none;
-  opacity: 0;
+  opacity: 1;
   transform: translateX(0);
-  transition: opacity .35s var(--ease);
   will-change: transform, width;
 }
-.nav-indicator.is-visible { opacity: 1; }
+.nav-indicator.is-ready { opacity: 1; }
 .site-nav.is-traveling .nav-indicator {
-  height: 2px;
-  box-shadow: 0 0 14px rgba(233,160,124,.45);
+  box-shadow: 0 0 18px rgba(233,160,124,.55);
 }
 .nav-links a.is-heading span {
   color: var(--coral2);
-  animation: nav-heading-glow 1.8s ease-in-out infinite;
-}
-@keyframes nav-heading-glow {
-  0%, 100% { opacity: 1; }
-  50% { opacity: .82; }
 }
 .nav-links a.is-heading em { color: var(--coral2); letter-spacing: .32em; }
 .nav-links a {
@@ -860,8 +856,6 @@ section.is-arriving {
   .cursor, .glow { display: none !important; }
   body.is-navigating main { filter: none; transform: none; }
   .nav-indicator, .nav-travel, .overlay-links a, .nav-overlay-panel, .nav-cta.is-wide { transition: none !important; }
-  .nav-indicator { transition: opacity .35s var(--ease) !important; }
   .site-nav.is-traveling .nav-indicator { animation: none; }
-  .nav-links a.is-heading span { animation: none; }
   section.is-arriving { animation: none; }
 }

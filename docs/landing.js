@@ -357,8 +357,6 @@
     const ALPHA_IN_END = 0.08;
     let phase = "idle";
     let journeyP = 0;
-    let sourceP = 0;
-    let destP = 1;
     let alpha = 0;
     let fadeT0 = 0;
     let fadeRaf = null;
@@ -366,50 +364,43 @@
 
     const smooth = (t) => t * t * (3 - 2 * t);
 
-    const syncBeam = () => {
-      const beam = sourceP + (destP - sourceP) * journeyP;
-      const trailLeft = Math.min(sourceP, beam);
-      const trailWidth = Math.abs(beam - sourceP);
-      navShell?.style.setProperty("--travel-beam", String(beam));
-      navShell?.style.setProperty("--travel-from", String(sourceP));
-      navShell?.style.setProperty("--travel-to", String(beam));
-      navShell?.style.setProperty("--travel-trail-left", String(trailLeft));
-      navShell?.style.setProperty("--travel-trail-width", String(trailWidth));
+    const syncProgress = () => {
+      navShell?.style.setProperty("--travel-p", String(journeyP));
       navShell?.style.setProperty("--travel-alpha", String(alpha));
     };
 
     const fadeOut = (now) => {
       const t = Math.min(1, (now - fadeT0) / FADE_OUT);
       alpha = 1 - smooth(t);
-      syncBeam();
+      syncProgress();
       if (t < 1) {
         fadeRaf = requestAnimationFrame(fadeOut);
         return;
       }
       alpha = 0;
       phase = "idle";
-      syncBeam();
+      syncProgress();
       fadeRaf = null;
       onDone?.();
       onDone = null;
     };
 
     return {
-      start({ from = 0, to = 1 } = {}) {
+      start({ dir = 1 } = {}) {
         if (fadeRaf) cancelAnimationFrame(fadeRaf);
-        sourceP = from;
-        destP = to;
         journeyP = 0;
         alpha = 0;
         phase = "active";
-        nav?.setAttribute("data-travel-dir", to >= from ? "1" : "-1");
-        syncBeam();
+        const d = dir >= 0 ? "1" : "-1";
+        nav?.setAttribute("data-travel-dir", d);
+        navShell?.style.setProperty("--travel-dir", d);
+        syncProgress();
       },
       setProgress(p) {
         journeyP = Math.max(0, Math.min(1, p));
         if (phase !== "active") return;
         alpha = journeyP < ALPHA_IN_END ? smooth(journeyP / ALPHA_IN_END) : 1;
-        syncBeam();
+        syncProgress();
       },
       end(cb) {
         if (phase === "idle") {
@@ -417,6 +408,7 @@
           return;
         }
         journeyP = 1;
+        syncProgress();
         onDone = cb || null;
         phase = "out";
         fadeT0 = performance.now();
@@ -493,7 +485,7 @@
     indicatorW = link.offsetWidth;
     navIndicator.style.transform = `translateX(${indicatorX}px)`;
     navIndicator.style.width = `${indicatorW}px`;
-    navIndicator.classList.add("is-visible");
+    navIndicator.classList.add("is-ready");
   };
 
   const initNavIndicator = () => {
@@ -506,23 +498,14 @@
 
   const glideIndicator = (link, duration = 680) => {
     if (!navIndicator || !navLinks || !link) return;
-    const startLink = navLinks.querySelector("a.is-active");
-    if (startLink && navIndicator.classList.contains("is-visible")) {
-      indicatorX = startLink.offsetLeft;
-      indicatorW = startLink.offsetWidth;
-    } else if (startLink) {
-      snapIndicator(startLink);
-      indicatorX = startLink.offsetLeft;
-      indicatorW = startLink.offsetWidth;
-    } else {
-      readIndicator();
-    }
+    readIndicator();
     const startX = indicatorX;
     const startW = indicatorW || link.offsetWidth;
     const endX = link.offsetLeft;
     const endW = link.offsetWidth;
+    if (Math.abs(startX - endX) < 0.5 && Math.abs(startW - endW) < 0.5) return;
     if (indicatorAnim) cancelAnimationFrame(indicatorAnim);
-    navIndicator.classList.add("is-visible");
+    navIndicator.classList.add("is-ready");
     const t0 = performance.now();
     const dur = Math.max(520, Math.min(duration, 1400));
 
@@ -574,11 +557,7 @@
 
   const clearTravelUi = () => {
     nav?.removeAttribute("data-travel-dir");
-    navShell?.style.removeProperty("--travel-beam");
-    navShell?.style.removeProperty("--travel-from");
-    navShell?.style.removeProperty("--travel-to");
-    navShell?.style.removeProperty("--travel-trail-left");
-    navShell?.style.removeProperty("--travel-trail-width");
+    navShell?.style.removeProperty("--travel-p");
     navShell?.style.removeProperty("--travel-alpha");
     navShell?.style.removeProperty("--travel-dir");
   };
@@ -590,12 +569,10 @@
     navLinks?.querySelectorAll("a").forEach((a) => a.classList.remove("is-heading"));
     travelLink = destLink || (targetEl?.id ? navLinks?.querySelector(`a[href="#${targetEl.id}"]`) : null);
     travelLink?.classList.add("is-heading");
-    const to = getLinkProgress(destLink);
-    const from = sourceLink ? getLinkProgress(sourceLink) : to > 0.5 ? 0.04 : 0.96;
-    const dir = to >= from ? "1" : "-1";
-    nav?.setAttribute("data-travel-dir", dir);
-    navShell?.style.setProperty("--travel-dir", dir);
-    navTravelCtl.start({ from, to });
+    const from = sourceLink ? getLinkProgress(sourceLink) : 0;
+    const to = destLink ? getLinkProgress(destLink) : 1;
+    const dir = to >= from ? 1 : -1;
+    navTravelCtl.start({ dir });
     setTravelUi(0);
   };
 
@@ -608,7 +585,11 @@
     }
     navTravelCtl.end(() => {
       scrollingNav = false;
-      if (travelLink) snapIndicator(travelLink);
+      if (travelLink) {
+        const id = travelLink.getAttribute("href")?.slice(1);
+        if (id) setActiveNav(id);
+        if (!indicatorAnim) snapIndicator(travelLink);
+      }
       nav?.classList.remove("is-traveling");
       clearTravelUi();
       travelLink?.classList.remove("is-heading");
@@ -636,9 +617,8 @@
       return;
     }
     if (scrollAnim) cancelAnimationFrame(scrollAnim);
-    const scrollDur = duration ?? scrollDurationFor(y - scrollY);
-    if (destLink) glideIndicator(destLink, scrollDur);
     beginTravel(label, targetEl, sourceLink, destLink);
+    const scrollDur = duration ?? scrollDurationFor(y - scrollY);
     const start = scrollY;
     const delta = y - start;
     const t0 = performance.now();
@@ -667,9 +647,7 @@
     const sourceLink = getCurrentNavLink();
     const delta = targetY - scrollY;
     const duration = scrollDurationFor(delta);
-    if (link) {
-      navAnchors.forEach((a) => a.classList.toggle("is-active", a === link));
-    }
+    if (link) glideIndicator(link, duration);
     scrollToY(targetY, {
       label,
       targetEl: el.id ? el : null,
@@ -688,7 +666,7 @@
       a.setAttribute("aria-current", on ? "true" : "false");
     });
     const link = navLinks?.querySelector(`a[href="#${id}"]`);
-    if (link) moveIndicator(link);
+    if (link && !scrollingNav && !indicatorAnim) snapIndicator(link);
   };
 
   const updateSpy = () => {
