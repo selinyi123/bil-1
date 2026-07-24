@@ -417,15 +417,6 @@
     };
   })();
 
-  const getLinkProgress = (link) => {
-    if (!link || !navShell) return 0;
-    const shellRect = navShell.getBoundingClientRect();
-    if (shellRect.width < 1) return 0;
-    const linkRect = link.getBoundingClientRect();
-    const cx = linkRect.left + linkRect.width * 0.5 - shellRect.left;
-    return Math.max(0, Math.min(1, cx / shellRect.width));
-  };
-
   const scrollDurationFor = (delta) =>
     Math.min(3200, Math.max(1600, Math.abs(delta) * 1.05));
 
@@ -456,6 +447,36 @@
   let scrollingNav = false;
   let travelTarget = null;
   let travelLink = null;
+
+  const navLinkList = () => [...(navLinks?.querySelectorAll("a") || [])];
+
+  const getLinkIndex = (link) => {
+    if (!link) return -1;
+    return navLinkList().indexOf(link);
+  };
+
+  const getLinkFromIndicator = () => {
+    if (!navIndicator || !navLinks || indicatorW <= 0) return null;
+    const cx = indicatorX + indicatorW / 2;
+    let best = null;
+    let bestD = Infinity;
+    navLinkList().forEach((a) => {
+      const acx = a.offsetLeft + a.offsetWidth / 2;
+      const d = Math.abs(acx - cx);
+      if (d < bestD) {
+        bestD = d;
+        best = a;
+      }
+    });
+    return best;
+  };
+
+  const getTravelDirection = (sourceLink, destLink) => {
+    const fromIdx = getLinkIndex(sourceLink);
+    const toIdx = getLinkIndex(destLink);
+    if (fromIdx < 0 || toIdx < 0) return 1;
+    return toIdx >= fromIdx ? 1 : -1;
+  };
 
   const easeInOutQuart = (t) =>
     t < 0.5 ? 8 * t * t * t * t : 1 - Math.pow(-2 * t + 2, 4) / 2;
@@ -541,6 +562,8 @@
   };
 
   const getCurrentNavLink = () => {
+    const fromBar = getLinkFromIndicator();
+    if (fromBar) return fromBar;
     const active = navLinks?.querySelector("a.is-active");
     if (active) return active;
     const mark = getNavOffset() + innerHeight * 0.28;
@@ -548,6 +571,7 @@
     for (const { id, el } of navSections) {
       if (el.getBoundingClientRect().top <= mark) currentId = id;
     }
+    if (scrollY >= maxScrollY() - 12) currentId = "faq";
     return currentId ? navLinks?.querySelector(`a[href="#${currentId}"]`) : null;
   };
 
@@ -569,9 +593,7 @@
     navLinks?.querySelectorAll("a").forEach((a) => a.classList.remove("is-heading"));
     travelLink = destLink || (targetEl?.id ? navLinks?.querySelector(`a[href="#${targetEl.id}"]`) : null);
     travelLink?.classList.add("is-heading");
-    const from = sourceLink ? getLinkProgress(sourceLink) : 0;
-    const to = destLink ? getLinkProgress(destLink) : 1;
-    const dir = to >= from ? 1 : -1;
+    const dir = getTravelDirection(sourceLink, destLink);
     navTravelCtl.start({ dir });
     setTravelUi(0);
   };
