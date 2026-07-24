@@ -349,10 +349,16 @@
     });
   }
 
-  /* ---------- Elegant scroll + nav ---------- */
+  /* ---------- Premium nav + cinematic scroll ---------- */
   const nav = document.getElementById("nav");
-  const navMid = document.querySelector(".nav-mid");
-  const navInd = document.getElementById("nav-ind");
+  const navLinks = document.querySelector(".nav-links");
+  const navPill = document.getElementById("nav-pill");
+  const navCursor = document.getElementById("nav-cursor");
+  const navRail = document.getElementById("nav-rail");
+  const scrollVeil = document.getElementById("scroll-veil");
+  const navTravel = document.getElementById("nav-travel");
+  const navTravelLabel = navTravel?.querySelector(".nav-travel-label");
+  const navTravelBar = navTravel?.querySelector(".nav-travel-bar");
   const navAnchors = [...document.querySelectorAll("[data-nav]")];
   const navSections = [
     { id: "tour", el: document.getElementById("tour") },
@@ -361,94 +367,192 @@
     { id: "faq", el: document.getElementById("faq") },
   ].filter((s) => s.el);
 
+  const sectionLabels = {
+    tour: "界面导览",
+    why: "能力",
+    start: "上手",
+    faq: "问答",
+    top: "顶部",
+  };
+
   let scrollAnim = null;
   let scrollingNav = false;
+  let lastScrollY = scrollY;
+  let scrollDir = 0;
+  let travelTarget = null;
 
-  const easeOutQuint = (t) => 1 - Math.pow(1 - t, 5);
-  const getNavOffset = () => (nav?.offsetHeight ?? 64) + 20;
+  const easeInOutQuart = (t) =>
+    t < 0.5 ? 8 * t * t * t * t : 1 - Math.pow(-2 * t + 2, 4) / 2;
 
-  const scrollToY = (targetY, onDone) => {
+  const setScrollY = (y) => {
+    const top = Math.max(0, Math.min(y, document.documentElement.scrollHeight - innerHeight));
+    document.documentElement.scrollTop = top;
+    document.body.scrollTop = top;
+    window.scrollTo(0, top);
+  };
+
+  const getNavOffset = () => (nav?.offsetHeight ?? 80) + 32;
+
+  const setTravelUi = (progress) => {
+    const p = Math.max(0, Math.min(1, progress));
+    if (navTravelBar) navTravelBar.style.width = `${p * 100}%`;
+    document.documentElement.style.setProperty("--veil-o", String(0.45 + p * 0.4));
+  };
+
+  const beginTravel = (label, targetEl) => {
+    scrollingNav = true;
+    travelTarget = targetEl || null;
+    document.body.classList.add("is-navigating");
+    nav?.classList.add("is-traveling");
+    if (navTravelLabel && label) navTravelLabel.textContent = label;
+    setTravelUi(0);
+  };
+
+  const endTravel = () => {
+    scrollingNav = false;
+    document.body.classList.remove("is-navigating");
+    nav?.classList.remove("is-traveling");
+    document.documentElement.style.removeProperty("--veil-o");
+    if (navTravelBar) navTravelBar.style.width = "0%";
+    if (travelTarget) {
+      travelTarget.classList.add("is-arriving");
+      setTimeout(() => travelTarget?.classList.remove("is-arriving"), 1000);
+      travelTarget = null;
+    }
+  };
+
+  const scrollToY = (targetY, { label, targetEl, onDone } = {}) => {
     const y = Math.max(0, Math.min(targetY, document.documentElement.scrollHeight - innerHeight));
-    if (reduce || Math.abs(scrollY - y) < 2) {
-      scrollTo(0, y);
+    if (Math.abs(scrollY - y) < 3) {
+      setScrollY(y);
+      onDone?.();
+      return;
+    }
+    if (reduce) {
+      setScrollY(y);
       onDone?.();
       return;
     }
     if (scrollAnim) cancelAnimationFrame(scrollAnim);
-    scrollingNav = true;
-    nav?.classList.add("is-scrolling");
+    beginTravel(label, targetEl);
     const start = scrollY;
     const delta = y - start;
-    const duration = Math.min(1400, Math.max(700, Math.abs(delta) * 0.7));
+    const duration = Math.min(2800, Math.max(1400, Math.abs(delta) * 0.95));
     const t0 = performance.now();
+
     const step = (now) => {
       const p = Math.min(1, (now - t0) / duration);
-      scrollTo(0, start + delta * easeOutQuint(p));
+      const eased = easeInOutQuart(p);
+      const current = start + delta * eased;
+      setScrollY(current);
+      setTravelUi(p);
+      if (navRail) {
+        const max = document.documentElement.scrollHeight - innerHeight;
+        navRail.style.width = `${max > 0 ? (current / max) * 100 : 0}%`;
+      }
       if (p < 1) scrollAnim = requestAnimationFrame(step);
       else {
         scrollAnim = null;
-        scrollingNav = false;
-        nav?.classList.remove("is-scrolling");
+        endTravel();
         onDone?.();
       }
     };
     scrollAnim = requestAnimationFrame(step);
   };
 
-  const scrollToEl = (el, onDone) => {
+  const scrollToEl = (el, meta = {}) => {
     if (!el) return;
-    scrollToY(el.getBoundingClientRect().top + scrollY - getNavOffset(), onDone);
+    const id = el.id || "top";
+    const label = meta.label || sectionLabels[id] || el.getAttribute("data-label") || id;
+    scrollToY(el.getBoundingClientRect().top + scrollY - getNavOffset(), {
+      label,
+      targetEl: el.id ? el : null,
+      onDone: meta.onDone,
+    });
   };
 
-  const updateNavIndicator = (link) => {
-    if (!navInd || !navMid || !link) return;
-    navMid.classList.add("has-active");
-    navInd.style.width = `${link.offsetWidth}px`;
-    navInd.style.transform = `translateX(${link.offsetLeft}px)`;
+  const moveIndicator = (link) => {
+    if (!navLinks || !link) return;
+    navLinks.classList.add("has-active");
+    const w = link.offsetWidth;
+    const x = link.offsetLeft;
+    if (navPill) {
+      navPill.style.width = `${w}px`;
+      navPill.style.transform = `translateX(${x}px)`;
+    }
   };
 
   const setActiveNav = (id) => {
-    let desktopActive = null;
+    let desktop = null;
     navAnchors.forEach((a) => {
       const on = a.getAttribute("href") === `#${id}`;
       a.classList.toggle("is-active", on);
       a.setAttribute("aria-current", on ? "true" : "false");
-      if (on && a.closest(".nav-mid")) desktopActive = a;
+      if (on && a.closest(".nav-links")) desktop = a;
     });
-    if (desktopActive) updateNavIndicator(desktopActive);
-    else navMid?.classList.remove("has-active");
+    if (desktop) moveIndicator(desktop);
+    else navLinks?.classList.remove("has-active");
   };
 
   const updateSpy = () => {
     if (scrollingNav) return;
-    const mark = getNavOffset() + innerHeight * 0.25;
+    const mark = getNavOffset() + innerHeight * 0.28;
     let current = "";
     for (const { id, el } of navSections) {
       if (el.getBoundingClientRect().top <= mark) current = id;
     }
     if (current) setActiveNav(current);
-    else navMid?.classList.remove("has-active");
+    else navLinks?.classList.remove("has-active");
   };
+
+  if (!touch && !reduce && navLinks) {
+    navLinks.querySelectorAll("a").forEach((link) => {
+      link.addEventListener("pointerenter", () => {
+        link.classList.add("is-hover");
+        if (!link.classList.contains("is-active")) moveIndicator(link);
+      });
+      link.addEventListener("pointerleave", () => {
+        link.classList.remove("is-hover");
+        link.style.transform = "";
+        const active = navLinks.querySelector("a.is-active");
+        if (active) moveIndicator(active);
+        else navLinks.classList.remove("has-active");
+      });
+      link.addEventListener("pointermove", (e) => {
+        const r = link.getBoundingClientRect();
+        const dx = (e.clientX - r.left - r.width / 2) * 0.12;
+        const dy = (e.clientY - r.top - r.height / 2) * 0.18;
+        link.style.transform = `translate(${dx}px, ${dy - 2}px)`;
+      });
+    });
+  }
 
   const menuBtn = document.getElementById("menu-btn");
   const sheet = document.getElementById("sheet");
+
   const setOpen = (open) => {
-    nav?.classList.toggle("open", open);
+    nav?.classList.toggle("is-open", open);
     menuBtn?.setAttribute("aria-expanded", open ? "true" : "false");
     if (!sheet) return;
     if (open) {
       sheet.hidden = false;
-      requestAnimationFrame(() => sheet.classList.add("is-open"));
+      requestAnimationFrame(() => {
+        sheet.classList.add("is-open");
+        requestAnimationFrame(() => sheet.classList.add("is-ready"));
+      });
     } else {
-      sheet.classList.remove("is-open");
+      sheet.classList.remove("is-ready", "is-open");
       const hide = () => {
         if (!sheet.classList.contains("is-open")) sheet.hidden = true;
       };
       sheet.addEventListener("transitionend", hide, { once: true });
-      setTimeout(hide, 500);
+      setTimeout(hide, 600);
     }
     document.body.style.overflow = open ? "hidden" : "";
   };
+
+  menuBtn?.addEventListener("click", () => setOpen(!nav?.classList.contains("is-open")));
+  sheet?.querySelector("[data-close]")?.addEventListener("click", () => setOpen(false));
 
   document.querySelectorAll('a[href^="#"]').forEach((a) => {
     a.addEventListener("click", (e) => {
@@ -458,30 +562,42 @@
       if (!el) return;
       e.preventDefault();
       a.classList.add("is-pressing");
-      setTimeout(() => a.classList.remove("is-pressing"), 200);
+      setTimeout(() => a.classList.remove("is-pressing"), 220);
+      const label = a.getAttribute("data-label") || sectionLabels[el.id] || "";
       if (el.id && navAnchors.some((n) => n.getAttribute("href") === `#${el.id}`)) {
         setActiveNav(el.id);
       }
-      scrollToEl(el, () => {
-        if (nav?.classList.contains("open")) setOpen(false);
+      scrollToEl(el, {
+        label,
+        onDone: () => {
+          if (nav?.classList.contains("is-open")) setOpen(false);
+        },
       });
     });
   });
 
-  menuBtn?.addEventListener("click", () => setOpen(!nav?.classList.contains("open")));
-
-  const progress = document.getElementById("progress");
   const onScroll = () => {
+    const y = scrollY;
     const max = document.documentElement.scrollHeight - innerHeight;
-    if (progress) progress.style.width = `${max > 0 ? (scrollY / max) * 100 : 0}%`;
-    nav?.classList.toggle("solid", scrollY > 40);
+    if (navRail && !scrollingNav) {
+      navRail.style.width = `${max > 0 ? (y / max) * 100 : 0}%`;
+    }
+    nav?.classList.toggle("is-solid", y > 48);
+    nav?.classList.toggle("is-compact", y > 120);
+
+    scrollDir = y > lastScrollY ? 1 : y < lastScrollY ? -1 : scrollDir;
+    if (!scrollingNav && !nav?.classList.contains("is-open")) {
+      if (scrollDir > 0 && y > 180) nav?.classList.add("is-away");
+      if (scrollDir < 0 || y < 80) nav?.classList.remove("is-away");
+    }
+    lastScrollY = y;
     updateSpy();
   };
   onScroll();
   addEventListener("scroll", onScroll, { passive: true });
   addEventListener("resize", () => {
-    const active = document.querySelector(".nav-mid a.is-active");
-    if (active) updateNavIndicator(active);
+    const active = document.querySelector(".nav-links a.is-active");
+    if (active) moveIndicator(active);
   });
 
   /* reveal */

@@ -10,39 +10,66 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./landing.css">
+  <link rel="stylesheet" href="./landing.css?v=20260725">
 </head>
 <body>
   <div class="noise" aria-hidden="true"></div>
-  <div class="progress" id="progress" aria-hidden="true"></div>
+  <div class="scroll-veil" id="scroll-veil" aria-hidden="true"></div>
   <div class="glow" id="glow" aria-hidden="true"></div>
   <div class="cursor" id="cursor" aria-hidden="true"></div>
 
-  <header class="nav" id="nav">
-    <a class="brand" href="#top" data-magnet>
-      <span class="brand-b">B</span>
-      <span class="brand-t">Binggo</span>
-    </a>
-    <nav class="nav-mid" aria-label="导航">
-      <span class="nav-ind" id="nav-ind" aria-hidden="true"></span>
-      <a href="#tour" data-nav>界面导览</a>
-      <a href="#why" data-nav>能力</a>
-      <a href="#start" data-nav>上手</a>
-      <a href="#faq" data-nav>问答</a>
-    </nav>
-    <div class="nav-end">
-      <a class="btn btn-ghost" href="https://github.com/luovicter-collab/bilibinggo" target="_blank" rel="noopener">GitHub</a>
-      <a class="btn btn-fill" data-magnet href="https://github.com/luovicter-collab/bilibinggo/releases/latest" target="_blank" rel="noopener">下载</a>
-      <button type="button" class="menu-btn" id="menu-btn" aria-label="菜单" aria-expanded="false"><i></i><i></i></button>
+  <header class="site-nav" id="nav">
+    <div class="nav-topline" aria-hidden="true"></div>
+    <div class="nav-shell">
+      <div class="nav-inner">
+        <a class="nav-brand" href="#top" data-magnet>
+          <span class="brand-mark">B</span>
+          <span class="brand-name">Binggo</span>
+        </a>
+
+        <nav class="nav-links" aria-label="导航">
+          <i class="nav-pill" id="nav-pill" aria-hidden="true"></i>
+          <a href="#tour" data-nav data-label="界面导览"><em>01</em><span>界面导览</span></a>
+          <a href="#why" data-nav data-label="能力"><em>02</em><span>能力</span></a>
+          <a href="#start" data-nav data-label="上手"><em>03</em><span>上手</span></a>
+          <a href="#faq" data-nav data-label="问答"><em>04</em><span>问答</span></a>
+          <i class="nav-cursor" id="nav-cursor" aria-hidden="true"></i>
+        </nav>
+
+        <div class="nav-actions">
+          <a class="nav-ghost" href="https://github.com/luovicter-collab/bilibinggo" target="_blank" rel="noopener">GitHub</a>
+          <a class="nav-cta" data-magnet href="https://github.com/luovicter-collab/bilibinggo/releases/latest" target="_blank" rel="noopener">
+            <span>免费下载</span>
+            <i aria-hidden="true">↓</i>
+          </a>
+          <button type="button" class="nav-menu" id="menu-btn" aria-label="菜单" aria-expanded="false">
+            <span></span><span></span>
+          </button>
+        </div>
+      </div>
+      <div class="nav-rail" aria-hidden="true"><i id="nav-rail"></i></div>
+      <div class="nav-travel" id="nav-travel" aria-hidden="true">
+        <span class="nav-travel-k">前往</span>
+        <strong class="nav-travel-label">—</strong>
+        <span class="nav-travel-track"><i class="nav-travel-bar"></i></span>
+      </div>
     </div>
   </header>
 
-  <div class="sheet" id="sheet" hidden>
-    <a href="#tour" data-x data-nav>界面导览</a>
-    <a href="#why" data-x data-nav>能力</a>
-    <a href="#start" data-x data-nav>上手</a>
-    <a href="#faq" data-x data-nav>问答</a>
-    <a class="btn btn-fill" href="https://github.com/luovicter-collab/bilibinggo/releases/latest" target="_blank" rel="noopener">免费下载</a>
+  <div class="nav-overlay" id="sheet" hidden>
+    <div class="nav-overlay-bg" data-close></div>
+    <div class="nav-overlay-panel">
+      <p class="overlay-kicker">Navigate</p>
+      <nav class="overlay-links" aria-label="全屏导航">
+        <a href="#tour" data-nav data-label="界面导览"><em>01</em><span>界面导览</span></a>
+        <a href="#why" data-nav data-label="能力"><em>02</em><span>能力</span></a>
+        <a href="#start" data-nav data-label="上手"><em>03</em><span>上手</span></a>
+        <a href="#faq" data-nav data-label="问答"><em>04</em><span>问答</span></a>
+      </nav>
+      <a class="nav-cta is-wide" href="https://github.com/luovicter-collab/bilibinggo/releases/latest" target="_blank" rel="noopener">
+        <span>免费下载安装包</span><i aria-hidden="true">↓</i>
+      </a>
+    </div>
   </div>
 
   <main id="top">
@@ -274,7 +301,10 @@
 
   <footer class="foot">
     <div class="wrap foot-row">
-      <a class="brand" href="#top"><span class="brand-b">B</span><span class="brand-t">Binggo</span></a>
+      <a class="nav-brand" href="#top" data-magnet>
+        <span class="brand-mark">B</span>
+        <span class="brand-name">Binggo</span>
+      </a>
       <div class="foot-links">
         <a href="https://github.com/luovicter-collab/bilibinggo/releases/latest" target="_blank" rel="noopener">下载</a>
         <a href="https://github.com/luovicter-collab/bilibinggo" target="_blank" rel="noopener">GitHub</a>
@@ -284,6 +314,6 @@
     </div>
   </footer>
 
-  <script src="./landing.js" defer></script>
+  <script src="./landing.js?v=20260725" defer></script>
 </body>
 </html>
