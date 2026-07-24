@@ -4,218 +4,255 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Binggo — 本机 B 站抽奖助手。不用一个个找，也不用一个个点。">
-  <meta name="theme-color" content="#14110f">
+  <meta name="theme-color" content="#0c0b0a">
+  <meta property="og:title" content="Binggo · B 站抽奖助手">
+  <meta property="og:description" content="不用一个个找，也不用一个个点。本机运行，开源免费。">
   <title>Binggo · B 站抽奖助手</title>
   <link rel="icon" href="https://raw.githubusercontent.com/luovicter-collab/bilibinggo/main/web/frontend/public/favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700;900&family=Syne:wght@600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Noto+Sans+SC:wght@400;500;700;900&family=Noto+Serif+SC:wght@600;700;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="./landing.css">
 </head>
 <body>
+  <div class="noise" aria-hidden="true"></div>
+  <div class="progress" id="progress" aria-hidden="true"></div>
+  <div class="glow" id="glow" aria-hidden="true"></div>
   <div class="cursor" id="cursor" aria-hidden="true"></div>
-  <div class="cursor-dot" id="cursor-dot" aria-hidden="true"></div>
-  <div class="scroll-progress" id="scroll-progress" aria-hidden="true"></div>
-  <div class="spot" id="spot" aria-hidden="true"></div>
 
-  <header class="topnav" id="topnav">
-    <a class="logo" href="#top" data-magnetic>
-      <span class="logo-mark">B</span>
-      <span class="logo-word">Binggo</span>
+  <header class="nav" id="nav">
+    <a class="brand" href="#top" data-magnet>
+      <span class="brand-b">B</span>
+      <span class="brand-t">Binggo</span>
     </a>
-    <nav class="topnav-links" aria-label="导航">
-      <a href="#why">为什么</a>
-      <a href="#how">怎么用</a>
-      <a href="#look">界面</a>
-      <a href="#ask">问答</a>
+    <nav class="nav-mid" aria-label="导航">
+      <a href="#tour">界面导览</a>
+      <a href="#why">能力</a>
+      <a href="#start">上手</a>
+      <a href="#faq">问答</a>
     </nav>
-    <div class="topnav-right">
-      <a class="link-quiet" href="https://github.com/luovicter-collab/bilibinggo" target="_blank" rel="noopener">GitHub</a>
-      <a class="btn btn-solid" data-magnetic href="https://github.com/luovicter-collab/bilibinggo/releases/latest" target="_blank" rel="noopener">下载</a>
-      <button type="button" class="burger" id="burger" aria-label="菜单" aria-expanded="false">
-        <i></i><i></i>
+    <div class="nav-end">
+      <button type="button" class="theme-btn" id="theme-btn" aria-label="切换日夜预览" title="切换日夜预览">
+        <span class="theme-sun">日</span>
+        <span class="theme-moon">夜</span>
       </button>
+      <a class="btn btn-ghost" href="https://github.com/luovicter-collab/bilibinggo" target="_blank" rel="noopener">GitHub</a>
+      <a class="btn btn-fill" data-magnet href="https://github.com/luovicter-collab/bilibinggo/releases/latest" target="_blank" rel="noopener">下载</a>
+      <button type="button" class="menu-btn" id="menu-btn" aria-label="菜单" aria-expanded="false"><i></i><i></i></button>
     </div>
   </header>
 
-  <div class="drawer" id="drawer" hidden>
-    <a href="#why" data-close>为什么</a>
-    <a href="#how" data-close>怎么用</a>
-    <a href="#look" data-close>界面</a>
-    <a href="#ask" data-close>问答</a>
-    <a class="btn btn-solid" href="https://github.com/luovicter-collab/bilibinggo/releases/latest" target="_blank" rel="noopener">免费下载</a>
+  <div class="sheet" id="sheet" hidden>
+    <a href="#tour" data-x>界面导览</a>
+    <a href="#why" data-x>能力</a>
+    <a href="#start" data-x>上手</a>
+    <a href="#faq" data-x>问答</a>
+    <a class="btn btn-fill" href="https://github.com/luovicter-collab/bilibinggo/releases/latest" target="_blank" rel="noopener">免费下载</a>
   </div>
 
   <main id="top">
     <section class="hero">
-      <div class="hero-bg" aria-hidden="true">
-        <div class="hero-mesh"></div>
-        <div class="hero-line"></div>
-      </div>
-
-      <div class="hero-inner">
-        <p class="hero-kicker" data-reveal>LOCAL · PRIVATE · OPEN SOURCE</p>
-        <h1 class="hero-title" data-reveal>
-          <span class="hero-brand" data-split>Binggo</span>
-          <span class="hero-line2">不用一个个找</span>
-          <span class="hero-line3">也不用一个个点</span>
+      <div class="hero-copy">
+        <p class="kicker" data-in><span class="pill">本机 · 开源 · Win / Mac</span></p>
+        <h1 data-in>
+          <span class="word">Binggo</span>
+          <span class="zh">不用一个个找</span>
+          <span class="zh accent">也不用一个个点</span>
         </h1>
-        <p class="hero-sub" data-reveal>本机 B 站抽奖助手。自动发现活动，一键参与，数据只留在你电脑上。</p>
-        <div class="hero-actions" data-reveal>
-          <a class="btn btn-solid btn-xl" data-magnetic href="https://github.com/luovicter-collab/bilibinggo/releases/latest" target="_blank" rel="noopener">
-            免费下载
-            <span class="btn-chip">Win / Mac</span>
+        <p class="lead" data-in>B 站抽奖助手：自动发现活动，一键 / 三连参与，定时调度。Cookie 与数据只留在你的电脑上。</p>
+        <div class="hero-cta" data-in>
+          <a class="btn btn-fill btn-lg" data-magnet href="https://github.com/luovicter-collab/bilibinggo/releases/latest" target="_blank" rel="noopener">
+            免费下载安装包
+            <em>↓</em>
           </a>
-          <a class="btn btn-line btn-xl" data-magnetic href="#why">看看能做什么</a>
+          <a class="btn btn-line btn-lg" data-magnet href="#tour">看六个真实界面</a>
+        </div>
+        <div class="stats" data-in>
+          <div><b data-count="2000">0</b><span>活动可管理</span></div>
+          <div><b>7</b><span>数据源通道</span></div>
+          <div><b>6</b><span>核心界面</span></div>
         </div>
       </div>
-
-      <div class="hero-shot" data-reveal data-parallax>
-        <div class="shot-frame">
-          <div class="shot-bar"><span></span><span></span><span></span><em>127.0.0.1 — 活动</em></div>
-          <img src="https://raw.githubusercontent.com/luovicter-collab/bilibinggo/main/assets/screenshots/activities.png" alt="Binggo 活动页" width="1400" height="900" fetchpriority="high">
+      <div class="hero-visual" data-in>
+        <div class="hero-bezel">
+          <div class="hero-stack" id="hero-stack">
+            <img class="stack-img is-front" src="./images/activities.png" alt="活动页：筛选、参与、三连" width="1200" height="800">
+            <img class="stack-img is-back" src="./images/overview.png" alt="概览页：统计与快捷操作" width="1200" height="800">
+          </div>
         </div>
-        <div class="shot-badge shot-badge-l" data-float>自动发现</div>
-        <div class="shot-badge shot-badge-r" data-float>三连参与</div>
+        <div class="hero-controls">
+          <button type="button" class="hero-swap" id="hero-swap" data-magnet>切换 · 活动 / 概览</button>
+          <p class="hero-hint">拖动画面可微调视角 · 点击热区看功能</p>
+        </div>
       </div>
     </section>
 
-    <div class="marquee" aria-hidden="true">
-      <div class="marquee-track">
-        <span>自动发现</span><span>一键参与</span><span>三连清列表</span><span>本机隐私</span><span>定时调度</span><span>开源免费</span>
-        <span>自动发现</span><span>一键参与</span><span>三连清列表</span><span>本机隐私</span><span>定时调度</span><span>开源免费</span>
+    <div class="ticker" aria-hidden="true">
+      <div class="ticker-track">
+        <span>概览统计</span><span>活动列表</span><span>三连参与</span><span>UP 合集</span><span>监控用户</span><span>定时监视器</span><span>夜间模式</span>
+        <span>概览统计</span><span>活动列表</span><span>三连参与</span><span>UP 合集</span><span>监控用户</span><span>定时监视器</span><span>夜间模式</span>
       </div>
     </div>
 
-    <section class="why" id="why">
+    <section class="tour" id="tour">
       <div class="wrap">
-        <div class="why-head" data-reveal>
-          <h2>抽奖最累的，<br>从来不是等开奖。</h2>
-          <p>翻合集、找活动、再一个个点赞关注转发评论。Binggo 把这些收进一个本地控制台。</p>
+        <div class="tour-head" data-in>
+          <p class="eyebrow">Interactive Tour</p>
+          <h2>六个界面，把抽奖流程看清楚</h2>
+          <p>点标签、点热点、用 ← →，或让它自动播。每张图都是真实控制台截图，附带功能介绍。</p>
         </div>
 
-        <div class="rail" id="rail">
-          <article class="rail-card is-hot" data-reveal>
-            <span class="rail-no">01</span>
-            <h3>自动发现</h3>
-            <p>UP 合集增量同步，监控用户转发补漏。新活动自己来，不用天天翻。</p>
-            <div class="rail-viz" aria-hidden="true">
-              <i></i><i></i><i></i><i></i>
+        <div class="tour-shell" id="tour-shell">
+          <div class="tour-tabs" role="tablist" aria-label="界面导览">
+            <button type="button" class="tour-tab is-on" role="tab" aria-selected="true" data-tour="0">01 概览</button>
+            <button type="button" class="tour-tab" role="tab" aria-selected="false" data-tour="1">02 活动</button>
+            <button type="button" class="tour-tab" role="tab" aria-selected="false" data-tour="2">03 数据源</button>
+            <button type="button" class="tour-tab" role="tab" aria-selected="false" data-tour="3">04 监控名单</button>
+            <button type="button" class="tour-tab" role="tab" aria-selected="false" data-tour="4">05 定时监视器</button>
+            <button type="button" class="tour-tab" role="tab" aria-selected="false" data-tour="5">06 夜间模式</button>
+          </div>
+          <div class="tour-auto" aria-hidden="true"><i id="tour-auto-bar"></i></div>
+
+          <div class="tour-stage">
+            <div class="tour-info">
+              <p class="tour-index" id="tour-index">01 / 06</p>
+              <h3 id="tour-title">概览页</h3>
+              <p id="tour-desc">打开软件后的第一站：账号是否登录、LLM 是否就绪、活动总数 / 未参加 / 已参加一眼看清。</p>
+              <ul class="tour-points" id="tour-points">
+                <li>账号卡片：关注、动态、私信、@未读</li>
+                <li>六宫格统计实时汇总活动库</li>
+                <li>参与文案：自定义或随机借用评论</li>
+              </ul>
+              <div class="tour-nav">
+                <button type="button" class="btn btn-line" id="tour-prev" data-magnet>← 上一张</button>
+                <button type="button" class="btn btn-fill" id="tour-next" data-magnet>下一张 →</button>
+                <button type="button" class="btn btn-line" id="tour-play" data-magnet aria-pressed="true">暂停自动播</button>
+              </div>
+              <p class="tour-keys">键盘 <kbd>←</kbd> <kbd>→</kbd> 切换 · 悬停画面暂停自动播放</p>
             </div>
+            <figure class="tour-frame" id="tour-frame">
+              <div class="tour-chrome">
+                <span></span><span></span><span></span>
+                <em id="tour-url">本地控制台 · 概览</em>
+              </div>
+              <div class="tour-shot" id="tour-shot">
+                <img id="tour-img" src="./images/overview.png" alt="概览页界面" width="1400" height="900">
+                <div class="tour-hotspots" id="tour-hotspots"></div>
+              </div>
+              <div class="tour-tip" id="tour-tip" hidden></div>
+            </figure>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="why" id="why">
+      <div class="wrap">
+        <div class="why-head" data-in>
+          <p class="eyebrow">Why Binggo</p>
+          <h2>为什么值得打开看看</h2>
+        </div>
+        <div class="why-grid">
+          <article class="why-card is-lg" data-in data-tilt>
+            <span>发现</span>
+            <h3>双通道自动找活动</h3>
+            <p>UP 合集增量同步 + 监控用户转发补漏。不用自己翻合集、刷动态。</p>
+            <button type="button" class="why-jump" data-jump="2">去看数据源 →</button>
+            <img src="./images/sources.png" alt="UP 合集数据源" loading="lazy">
           </article>
-          <article class="rail-card" data-reveal>
-            <span class="rail-no">02</span>
+          <article class="why-card" data-in data-tilt>
+            <span>参与</span>
             <h3>一键 / 三连</h3>
-            <p>互动、转发、预约一键完成。三连参与一次清多条未参加。</p>
-            <div class="rail-viz rail-viz-dots" aria-hidden="true">
-              <i></i><i></i><i></i>
+            <p>互动、转发、预约。三连一次清多条未参加。</p>
+            <button type="button" class="why-jump" data-jump="1">去看活动页 →</button>
+          </article>
+          <article class="why-card" data-in data-tilt>
+            <span>节奏</span>
+            <h3>定时点击监视器</h3>
+            <p>倒计时到点自动跑：更新、监控、刷新、三连。撞车即停。</p>
+            <button type="button" class="why-jump" data-jump="4">去看监视器 →</button>
+          </article>
+          <article class="why-card is-wide" data-in data-tilt>
+            <span>隐私</span>
+            <h3>数据只在本机</h3>
+            <p>控制台绑定 127.0.0.1。Cookie、活动库、参与记录不上传云端。日间 / 夜间主题随你切换。</p>
+            <div class="why-duo">
+              <button type="button" class="duo-pick" data-jump="0" aria-label="查看日间概览">
+                <img src="./images/overview.png" alt="日间概览" loading="lazy">
+                <em>日间</em>
+              </button>
+              <button type="button" class="duo-pick" data-jump="5" aria-label="查看夜间概览">
+                <img src="./images/night.png" alt="夜间概览" loading="lazy">
+                <em>夜间</em>
+              </button>
             </div>
-          </article>
-          <article class="rail-card" data-reveal>
-            <span class="rail-no">03</span>
-            <h3>数据本机</h3>
-            <p>Cookie 与活动库只存在你电脑。控制台仅监听 127.0.0.1。</p>
-            <div class="rail-viz rail-viz-lock" aria-hidden="true"><i></i></div>
-          </article>
-          <article class="rail-card" data-reveal>
-            <span class="rail-no">04</span>
-            <h3>可定时</h3>
-            <p>内置调度器按时间表更新与参与，电脑开着就能自动跑。</p>
-            <div class="rail-viz rail-viz-clock" aria-hidden="true"><i></i></div>
           </article>
         </div>
       </div>
     </section>
 
-    <section class="how" id="how">
-      <div class="wrap how-grid">
-        <div class="how-sticky" data-reveal>
-          <h2>三步开始</h2>
-          <p>不需要会编程。像装普通软件一样。</p>
-          <div class="how-progress" aria-hidden="true">
-            <span id="how-step-label">01 / 03</span>
-            <div class="how-bar"><b id="how-bar"></b></div>
+    <section class="start" id="start">
+      <div class="wrap start-grid">
+        <div class="start-left" data-in>
+          <p class="eyebrow">Get started</p>
+          <h2>三步就能用上</h2>
+          <p>不需要会编程。下载安装包，像装普通软件一样。</p>
+          <div class="start-preview">
+            <img id="start-img" src="./images/overview.png" alt="上手预览" width="900" height="600">
           </div>
         </div>
-        <ol class="how-steps">
-          <li class="how-step is-on" data-step="1" data-reveal>
-            <button type="button" class="how-btn">
-              <strong>01 · 下载安装</strong>
-              <span>Windows 安装包，或 Mac 拖入「应用程序」。</span>
+        <ol class="start-steps" data-in>
+          <li>
+            <button type="button" class="step is-on" data-step="0">
+              <b>01</b>
+              <div>
+                <strong>下载安装</strong>
+                <span>Windows Setup / Portable，或 macOS DMG</span>
+              </div>
             </button>
           </li>
-          <li class="how-step" data-step="2" data-reveal>
-            <button type="button" class="how-btn">
-              <strong>02 · 扫码登录</strong>
-              <span>手机哔哩哔哩 App 扫码。凭证只存本机。</span>
+          <li>
+            <button type="button" class="step" data-step="1">
+              <b>02</b>
+              <div>
+                <strong>扫码登录</strong>
+                <span>侧栏「扫码登录」，手机哔哩哔哩确认</span>
+              </div>
             </button>
           </li>
-          <li class="how-step" data-step="3" data-reveal>
-            <button type="button" class="how-btn">
-              <strong>03 · 更新并参与</strong>
-              <span>点「更新此源」拉活动，再一键或三连参加。</span>
+          <li>
+            <button type="button" class="step" data-step="2">
+              <b>03</b>
+              <div>
+                <strong>更新并参与</strong>
+                <span>数据源「更新此源」→ 活动页一键 / 三连</span>
+              </div>
             </button>
           </li>
         </ol>
       </div>
     </section>
 
-    <section class="look" id="look">
-      <div class="wrap">
-        <div class="look-head" data-reveal>
-          <h2>真正打开后的样子</h2>
-          <div class="look-tabs" role="tablist">
-            <button type="button" class="look-tab is-on" data-tab="a" role="tab" aria-selected="true">活动页</button>
-            <button type="button" class="look-tab" data-tab="b" role="tab" aria-selected="false">概览页</button>
-          </div>
-        </div>
-
-        <div class="look-stage" data-reveal data-tilt-stage>
-          <div class="look-panel is-on" id="look-a" role="tabpanel">
-            <img src="https://raw.githubusercontent.com/luovicter-collab/bilibinggo/main/assets/screenshots/activities.png" alt="活动页" width="1400" height="900" loading="lazy">
-          </div>
-          <div class="look-panel" id="look-b" role="tabpanel" hidden>
-            <img src="https://raw.githubusercontent.com/luovicter-collab/bilibinggo/main/assets/screenshots/overview.png" alt="概览页" width="1400" height="900" loading="lazy">
-          </div>
-        </div>
-      </div>
-    </section>
-
     <section class="blast">
-      <div class="blast-inner" data-reveal>
-        <h2>把翻合集的时间，<br>留给真正想要的奖品。</h2>
-        <p>开源免费。不保证中奖，但保证少点很多下。</p>
-        <div class="blast-actions">
-          <a class="btn btn-light btn-xl" data-magnetic href="https://github.com/luovicter-collab/bilibinggo/releases/latest" target="_blank" rel="noopener">立即下载</a>
-          <a class="btn btn-ghost-light btn-xl" data-magnetic href="https://github.com/luovicter-collab/bilibinggo" target="_blank" rel="noopener">去 GitHub 点 Star</a>
+      <div class="blast-inner" data-in>
+        <h2>停下翻合集的手，<br>把时间留给真正想要的奖品。</h2>
+        <p>开源 · MIT · 不保证中奖，但保证少点很多下</p>
+        <div class="blast-cta">
+          <a class="btn btn-light btn-lg" data-magnet href="https://github.com/luovicter-collab/bilibinggo/releases/latest" target="_blank" rel="noopener">立即下载<em>↓</em></a>
+          <a class="btn btn-ghost-light btn-lg" data-magnet href="https://github.com/luovicter-collab/bilibinggo" target="_blank" rel="noopener">GitHub Star</a>
         </div>
       </div>
     </section>
 
-    <section class="ask" id="ask">
-      <div class="wrap ask-grid">
-        <h2 data-reveal>你可能想问</h2>
-        <div class="ask-list" data-reveal>
-          <details class="ask-item" open>
-            <summary>需要会编程吗？</summary>
-            <p>不需要。下载安装包，双击安装，扫码就能用。</p>
-          </details>
-          <details class="ask-item">
-            <summary>Cookie 会上传吗？</summary>
-            <p>不会。凭证只存在本机，控制台绑定 127.0.0.1。代码开源可审。</p>
-          </details>
-          <details class="ask-item">
-            <summary>活动列表为什么是空的？</summary>
-            <p>先登录，再在「数据源」点「更新此源」拉取活动。</p>
-          </details>
-          <details class="ask-item">
-            <summary>一定要配 LLM 吗？</summary>
-            <p>只有转发抽奖需要。互动与预约可直接参与。</p>
-          </details>
-          <details class="ask-item">
-            <summary>能保证中奖吗？</summary>
-            <p>不能。Binggo 只帮你省去找活动和重复点击。</p>
-          </details>
+    <section class="faq" id="faq">
+      <div class="wrap faq-grid">
+        <h2 data-in>常见问题</h2>
+        <div class="faq-list" data-in>
+          <details open><summary>需要会编程吗？</summary><p>不需要。下载安装包即可使用。</p></details>
+          <details><summary>Cookie 会上传吗？</summary><p>不会。凭证只存本机，控制台仅 127.0.0.1。</p></details>
+          <details><summary>活动列表为什么是空的？</summary><p>先登录，再在数据源点「更新此源」。</p></details>
+          <details><summary>一定要配 LLM 吗？</summary><p>仅转发抽奖需要；互动 / 预约可直接参与。</p></details>
+          <details><summary>能保证中奖吗？</summary><p>不能。Binggo 只帮你省去找活动和重复点击。</p></details>
         </div>
       </div>
     </section>
@@ -223,13 +260,13 @@
 
   <footer class="foot">
     <div class="wrap foot-row">
-      <a class="logo" href="#top"><span class="logo-mark">B</span><span class="logo-word">Binggo</span></a>
+      <a class="brand" href="#top"><span class="brand-b">B</span><span class="brand-t">Binggo</span></a>
       <div class="foot-links">
         <a href="https://github.com/luovicter-collab/bilibinggo/releases/latest" target="_blank" rel="noopener">下载</a>
         <a href="https://github.com/luovicter-collab/bilibinggo" target="_blank" rel="noopener">GitHub</a>
-        <a href="https://github.com/luovicter-collab/bilibinggo/stargazers" target="_blank" rel="noopener">Star</a>
+        <a href="#tour">界面导览</a>
       </div>
-      <p>MIT · 非官方 · 数据在你电脑上</p>
+      <p>MIT · 非 B 站官方 · 数据在你电脑上</p>
     </div>
   </footer>
 
