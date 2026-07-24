@@ -88,18 +88,25 @@ body.touch .cursor, body.touch .glow { display: none; }
 }
 .site-nav.is-traveling .nav-shell {
   border-bottom-color: rgba(212,132,98,.22);
+  background: linear-gradient(
+    90deg,
+    rgba(212,132,98,.22) 0%,
+    rgba(233,160,124,.1) calc(var(--travel-p, 0) * 100%),
+    rgba(8,7,6,.72) calc(var(--travel-p, 0) * 100%)
+  );
 }
 
 /* 粒子进度层（canvas，绝对定位，不改变高度） */
 .nav-particles {
-  position: absolute; inset: 0; z-index: 0;
+  position: absolute; inset: 0; z-index: 5;
   width: 100%; height: 100%;
   pointer-events: none;
   opacity: 0;
+  mix-blend-mode: screen;
 }
 
 .nav-inner {
-  position: relative; z-index: 1;
+  position: relative; z-index: 3;
   width: min(100% - clamp(2rem, 6vw, 5rem), 1480px);
   margin-inline: auto;
   display: grid;

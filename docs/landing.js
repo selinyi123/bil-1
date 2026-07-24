@@ -353,10 +353,10 @@
   /* ---------- Nav particle travel ---------- */
   const navParticleCanvas = document.getElementById("nav-particles");
   const navParticles = (() => {
-    const FADE_IN = 480;
-    const FADE_OUT = 720;
-    let canvas = navParticleCanvas;
-    let ctx = canvas?.getContext("2d");
+    const FADE_IN = 520;
+    const FADE_OUT = 800;
+    const canvas = navParticleCanvas;
+    const ctx = canvas?.getContext("2d", { alpha: true });
     let pool = [];
     let raf = null;
     let progress = 0;
@@ -365,14 +365,16 @@
     let fadeT0 = 0;
     let last = 0;
     let onFadeDone = null;
+    let w = 0;
+    let h = 0;
 
     const resize = () => {
       if (!canvas) return;
       const shell = canvas.parentElement;
       if (!shell) return;
       const dpr = Math.min(devicePixelRatio || 1, 2);
-      const w = shell.offsetWidth;
-      const h = shell.offsetHeight;
+      w = shell.offsetWidth;
+      h = shell.offsetHeight;
       canvas.width = Math.max(1, Math.floor(w * dpr));
       canvas.height = Math.max(1, Math.floor(h * dpr));
       canvas.style.width = `${w}px`;
@@ -380,41 +382,55 @@
       ctx?.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
 
-    const spawn = (w, h, fx, n) => {
+    const spawn = (fx, n) => {
       for (let i = 0; i < n; i++) {
-        const atFront = Math.random() < 0.62;
+        const atFront = Math.random() < 0.7;
         pool.push({
-          x: atFront ? fx - Math.random() * 48 : Math.random() * Math.max(12, fx * 0.2),
+          x: atFront ? fx - Math.random() * 72 : Math.random() * Math.max(24, fx * 0.35),
           y: Math.random() * h,
-          vx: 0.35 + Math.random() * 1.15,
-          vy: (Math.random() - 0.5) * 0.4,
-          r: 0.5 + Math.random() * 1.6,
-          life: 0.45 + Math.random() * 0.55,
-          a: 0.2 + Math.random() * 0.5,
+          vx: 0.6 + Math.random() * 2.2,
+          vy: (Math.random() - 0.5) * 0.9,
+          r: 1.2 + Math.random() * 3.2,
+          life: 0.55 + Math.random() * 0.65,
+          a: 0.45 + Math.random() * 0.5,
           warm: Math.random(),
+          spark: Math.random() > 0.82,
         });
       }
     };
 
+    const drawWash = (fx) => {
+      const wash = ctx.createLinearGradient(0, 0, fx, 0);
+      wash.addColorStop(0, `rgba(212,132,98,${0.28 * gAlpha})`);
+      wash.addColorStop(0.55, `rgba(233,160,124,${0.16 * gAlpha})`);
+      wash.addColorStop(1, `rgba(255,210,175,${0.32 * gAlpha})`);
+      ctx.fillStyle = wash;
+      ctx.fillRect(0, 0, fx, h);
+
+      const beam = ctx.createLinearGradient(fx - 64, 0, fx + 12, 0);
+      beam.addColorStop(0, "transparent");
+      beam.addColorStop(0.55, `rgba(255,220,190,${0.22 * gAlpha})`);
+      beam.addColorStop(1, `rgba(255,235,210,${0.55 * gAlpha})`);
+      ctx.fillStyle = beam;
+      ctx.fillRect(fx - 64, 0, 76, h);
+    };
+
     const draw = (now) => {
-      if (!canvas || !ctx) return;
+      if (!canvas || !ctx || w < 2 || h < 2) return;
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
-      const w = canvas.clientWidth;
-      const h = canvas.clientHeight;
-      const fx = w * progress;
+      const fx = Math.max(18, w * progress);
 
       if (phase === "fadeIn") {
-        gAlpha = Math.min(1, (now - fadeT0) / FADE_IN);
-        gAlpha *= gAlpha * (3 - 2 * gAlpha);
-        if (gAlpha >= 0.999) {
+        const t = Math.min(1, (now - fadeT0) / FADE_IN);
+        gAlpha = t * t * (3 - 2 * t);
+        if (t >= 1) {
           gAlpha = 1;
           phase = "travel";
         }
       } else if (phase === "fadeOut") {
         const t = Math.min(1, (now - fadeT0) / FADE_OUT);
-        const e = 1 - t * t;
-        gAlpha = e;
+        gAlpha = 1 - t * t * t;
         if (t >= 1) {
           gAlpha = 0;
           phase = "idle";
@@ -431,53 +447,49 @@
       canvas.style.opacity = String(gAlpha);
 
       if (phase === "fadeIn" || phase === "travel") {
-        const rate = 1.5 + progress * 4;
-        spawn(w, h, fx, Math.max(1, Math.round(rate)));
+        spawn(fx, Math.max(3, Math.round(6 + progress * 14)));
       }
-      if (pool.length > 130) pool.splice(0, pool.length - 130);
+      if (pool.length > 220) pool.splice(0, pool.length - 220);
 
       ctx.clearRect(0, 0, w, h);
-
-      if (gAlpha > 0.02 && fx > 1) {
-        const wash = ctx.createLinearGradient(0, 0, fx, 0);
-        wash.addColorStop(0, `rgba(212,132,98,${0.1 * gAlpha})`);
-        wash.addColorStop(0.7, `rgba(233,160,124,${0.05 * gAlpha})`);
-        wash.addColorStop(1, `rgba(233,160,124,${0.14 * gAlpha})`);
-        ctx.fillStyle = wash;
-        ctx.fillRect(0, 0, fx, h);
-
-        const edge = ctx.createLinearGradient(fx - 36, 0, fx + 6, 0);
-        edge.addColorStop(0, "transparent");
-        edge.addColorStop(1, `rgba(233,160,124,${0.32 * gAlpha})`);
-        ctx.fillStyle = edge;
-        ctx.fillRect(fx - 36, 0, 42, h);
-      }
+      ctx.globalCompositeOperation = "source-over";
+      if (gAlpha > 0.03) drawWash(fx);
+      ctx.globalCompositeOperation = "lighter";
 
       pool = pool.filter((p) => {
-        p.x += p.vx * dt * (52 + progress * 28);
-        p.y += p.vy * dt * 52;
-        p.life -= dt * (phase === "fadeOut" ? 0.9 : 0.38);
-        if (p.x > fx + 10) p.life -= dt * 1.4;
+        p.x += p.vx * dt * (68 + progress * 40);
+        p.y += p.vy * dt * 68;
+        p.life -= dt * (phase === "fadeOut" ? 0.75 : 0.32);
+        if (p.x > fx + 16) p.life -= dt * 1.1;
         if (p.life <= 0) return false;
-        const a = p.a * gAlpha * Math.min(1, p.life * 2.2);
-        if (a < 0.015) return false;
-        const rgb = p.warm > 0.45 ? "233,160,124" : "212,132,98";
-        const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r * 2.8);
-        g.addColorStop(0, `rgba(${rgb},${a})`);
-        g.addColorStop(1, `rgba(${rgb},0)`);
+        const a = p.a * gAlpha * Math.min(1, p.life * 1.8);
+        if (a < 0.02) return false;
+        const rad = p.spark ? p.r * 4.5 : p.r * 3.2;
+        const rgb = p.warm > 0.4 ? "255,210,175" : "233,160,124";
+        const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rad);
+        g.addColorStop(0, `rgba(${rgb},${Math.min(1, a * 1.15)})`);
+        g.addColorStop(0.45, `rgba(212,132,98,${a * 0.55})`);
+        g.addColorStop(1, "rgba(212,132,98,0)");
         ctx.fillStyle = g;
         ctx.beginPath();
-        ctx.arc(p.x, p.y, p.r * 2.8, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, rad, 0, Math.PI * 2);
         ctx.fill();
-        return p.x < w + 24 && p.y > -8 && p.y < h + 8;
+        if (p.spark) {
+          ctx.fillStyle = `rgba(255,245,235,${a * 0.85})`;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.r * 0.55, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        return p.x < w + 40 && p.y > -12 && p.y < h + 12;
       });
 
+      ctx.globalCompositeOperation = "source-over";
       raf = requestAnimationFrame(draw);
     };
 
     return {
       start() {
-        if (!canvas || !ctx || reduce) return;
+        if (!canvas || !ctx) return;
         if (raf) cancelAnimationFrame(raf);
         onFadeDone = null;
         resize();
@@ -487,15 +499,15 @@
         fadeT0 = performance.now();
         last = fadeT0;
         gAlpha = 0;
-        onFadeDone = null;
-        if (raf) cancelAnimationFrame(raf);
+        canvas.style.opacity = "0";
+        spawn(28, 24);
         raf = requestAnimationFrame(draw);
       },
       setProgress(p) {
         progress = Math.max(0, Math.min(1, p));
       },
       end(cb) {
-        if (!canvas || !ctx || reduce || phase === "idle") {
+        if (!canvas || !ctx || phase === "idle") {
           cb?.();
           return;
         }
@@ -560,6 +572,7 @@
   const setTravelUi = (easedProgress) => {
     const p = Math.max(0, Math.min(1, easedProgress));
     navParticles.setProgress(p);
+    document.getElementById("nav-shell")?.style.setProperty("--travel-p", String(p));
   };
 
   const beginTravel = (label, targetEl) => {
@@ -584,6 +597,7 @@
     updateSpy();
     navParticles.end(() => {
       nav?.classList.remove("is-traveling");
+      document.getElementById("nav-shell")?.style.removeProperty("--travel-p");
       travelLink?.classList.remove("is-heading");
       travelLink = null;
     });
