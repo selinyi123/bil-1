@@ -350,11 +350,168 @@
     });
   }
 
+  /* ---------- Nav particle travel ---------- */
+  const navParticleCanvas = document.getElementById("nav-particles");
+  const navParticles = (() => {
+    const FADE_IN = 480;
+    const FADE_OUT = 720;
+    let canvas = navParticleCanvas;
+    let ctx = canvas?.getContext("2d");
+    let pool = [];
+    let raf = null;
+    let progress = 0;
+    let gAlpha = 0;
+    let phase = "idle";
+    let fadeT0 = 0;
+    let last = 0;
+    let onFadeDone = null;
+
+    const resize = () => {
+      if (!canvas) return;
+      const shell = canvas.parentElement;
+      if (!shell) return;
+      const dpr = Math.min(devicePixelRatio || 1, 2);
+      const w = shell.offsetWidth;
+      const h = shell.offsetHeight;
+      canvas.width = Math.max(1, Math.floor(w * dpr));
+      canvas.height = Math.max(1, Math.floor(h * dpr));
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+      ctx?.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+
+    const spawn = (w, h, fx, n) => {
+      for (let i = 0; i < n; i++) {
+        const atFront = Math.random() < 0.62;
+        pool.push({
+          x: atFront ? fx - Math.random() * 48 : Math.random() * Math.max(12, fx * 0.2),
+          y: Math.random() * h,
+          vx: 0.35 + Math.random() * 1.15,
+          vy: (Math.random() - 0.5) * 0.4,
+          r: 0.5 + Math.random() * 1.6,
+          life: 0.45 + Math.random() * 0.55,
+          a: 0.2 + Math.random() * 0.5,
+          warm: Math.random(),
+        });
+      }
+    };
+
+    const draw = (now) => {
+      if (!canvas || !ctx) return;
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+      const w = canvas.clientWidth;
+      const h = canvas.clientHeight;
+      const fx = w * progress;
+
+      if (phase === "fadeIn") {
+        gAlpha = Math.min(1, (now - fadeT0) / FADE_IN);
+        gAlpha *= gAlpha * (3 - 2 * gAlpha);
+        if (gAlpha >= 0.999) {
+          gAlpha = 1;
+          phase = "travel";
+        }
+      } else if (phase === "fadeOut") {
+        const t = Math.min(1, (now - fadeT0) / FADE_OUT);
+        const e = 1 - t * t;
+        gAlpha = e;
+        if (t >= 1) {
+          gAlpha = 0;
+          phase = "idle";
+          pool = [];
+          ctx.clearRect(0, 0, w, h);
+          canvas.style.opacity = "0";
+          raf = null;
+          onFadeDone?.();
+          onFadeDone = null;
+          return;
+        }
+      }
+
+      canvas.style.opacity = String(gAlpha);
+
+      if (phase === "fadeIn" || phase === "travel") {
+        const rate = 1.5 + progress * 4;
+        spawn(w, h, fx, Math.max(1, Math.round(rate)));
+      }
+      if (pool.length > 130) pool.splice(0, pool.length - 130);
+
+      ctx.clearRect(0, 0, w, h);
+
+      if (gAlpha > 0.02 && fx > 1) {
+        const wash = ctx.createLinearGradient(0, 0, fx, 0);
+        wash.addColorStop(0, `rgba(212,132,98,${0.1 * gAlpha})`);
+        wash.addColorStop(0.7, `rgba(233,160,124,${0.05 * gAlpha})`);
+        wash.addColorStop(1, `rgba(233,160,124,${0.14 * gAlpha})`);
+        ctx.fillStyle = wash;
+        ctx.fillRect(0, 0, fx, h);
+
+        const edge = ctx.createLinearGradient(fx - 36, 0, fx + 6, 0);
+        edge.addColorStop(0, "transparent");
+        edge.addColorStop(1, `rgba(233,160,124,${0.32 * gAlpha})`);
+        ctx.fillStyle = edge;
+        ctx.fillRect(fx - 36, 0, 42, h);
+      }
+
+      pool = pool.filter((p) => {
+        p.x += p.vx * dt * (52 + progress * 28);
+        p.y += p.vy * dt * 52;
+        p.life -= dt * (phase === "fadeOut" ? 0.9 : 0.38);
+        if (p.x > fx + 10) p.life -= dt * 1.4;
+        if (p.life <= 0) return false;
+        const a = p.a * gAlpha * Math.min(1, p.life * 2.2);
+        if (a < 0.015) return false;
+        const rgb = p.warm > 0.45 ? "233,160,124" : "212,132,98";
+        const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r * 2.8);
+        g.addColorStop(0, `rgba(${rgb},${a})`);
+        g.addColorStop(1, `rgba(${rgb},0)`);
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r * 2.8, 0, Math.PI * 2);
+        ctx.fill();
+        return p.x < w + 24 && p.y > -8 && p.y < h + 8;
+      });
+
+      raf = requestAnimationFrame(draw);
+    };
+
+    return {
+      start() {
+        if (!canvas || !ctx || reduce) return;
+        if (raf) cancelAnimationFrame(raf);
+        onFadeDone = null;
+        resize();
+        progress = 0;
+        pool = [];
+        phase = "fadeIn";
+        fadeT0 = performance.now();
+        last = fadeT0;
+        gAlpha = 0;
+        onFadeDone = null;
+        if (raf) cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(draw);
+      },
+      setProgress(p) {
+        progress = Math.max(0, Math.min(1, p));
+      },
+      end(cb) {
+        if (!canvas || !ctx || reduce || phase === "idle") {
+          cb?.();
+          return;
+        }
+        onFadeDone = cb || null;
+        phase = "fadeOut";
+        fadeT0 = performance.now();
+        if (!raf) raf = requestAnimationFrame(draw);
+      },
+      resize,
+    };
+  })();
+
   /* ---------- Premium nav + cinematic scroll ---------- */
   const nav = document.getElementById("nav");
   const navLinks = document.querySelector(".nav-links");
   const navIndicator = document.getElementById("nav-indicator");
-  const navShell = document.getElementById("nav-shell");
   const navAnchors = [...document.querySelectorAll("[data-nav]")];
   const navSections = [
     { id: "tour", el: document.getElementById("tour") },
@@ -400,9 +557,9 @@
     el.querySelectorAll("[data-in]").forEach((n) => n.classList.add("show"));
   };
 
-  const setTravelUi = (progress) => {
-    const p = Math.max(0, Math.min(1, progress));
-    navShell?.style.setProperty("--travel-p", String(p));
+  const setTravelUi = (easedProgress) => {
+    const p = Math.max(0, Math.min(1, easedProgress));
+    navParticles.setProgress(p);
   };
 
   const beginTravel = (label, targetEl) => {
@@ -412,15 +569,12 @@
     navLinks?.querySelectorAll("a").forEach((a) => a.classList.remove("is-heading"));
     travelLink = targetEl?.id ? navLinks?.querySelector(`a[href="#${targetEl.id}"]`) : null;
     travelLink?.classList.add("is-heading");
+    navParticles.start();
     setTravelUi(0);
   };
 
   const endTravel = () => {
     scrollingNav = false;
-    nav?.classList.remove("is-traveling");
-    travelLink?.classList.remove("is-heading");
-    travelLink = null;
-    navShell?.style.setProperty("--travel-p", "0");
     if (travelTarget) {
       revealSection(travelTarget);
       travelTarget.classList.add("is-arriving");
@@ -428,6 +582,11 @@
       travelTarget = null;
     }
     updateSpy();
+    navParticles.end(() => {
+      nav?.classList.remove("is-traveling");
+      travelLink?.classList.remove("is-heading");
+      travelLink = null;
+    });
   };
 
   const scrollToY = (targetY, { label, targetEl, onDone, forceSmooth = false } = {}) => {
@@ -460,7 +619,7 @@
       const eased = easeInOutQuart(p);
       const current = start + delta * eased;
       setScrollY(current);
-      setTravelUi(p);
+      setTravelUi(eased);
       if (p < 1) scrollAnim = requestAnimationFrame(step);
       else {
         scrollAnim = null;
@@ -584,6 +743,7 @@
   onScroll();
   addEventListener("scroll", onScroll, { passive: true });
   addEventListener("resize", () => {
+    navParticles.resize();
     const active = navLinks?.querySelector("a.is-active");
     if (active) moveIndicator(active);
     updateSpy();
