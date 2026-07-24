@@ -354,7 +354,7 @@
   const nav = document.getElementById("nav");
   const navLinks = document.querySelector(".nav-links");
   const navIndicator = document.getElementById("nav-indicator");
-  const navProgress = document.getElementById("nav-progress");
+  const navShell = document.getElementById("nav-shell");
   const navAnchors = [...document.querySelectorAll("[data-nav]")];
   const navSections = [
     { id: "tour", el: document.getElementById("tour") },
