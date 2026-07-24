@@ -350,173 +350,24 @@
     });
   }
 
-  /* ---------- Nav particle travel ---------- */
-  const navParticleCanvas = document.getElementById("nav-particles");
-  const navParticles = (() => {
-    const FADE_IN = 520;
-    const FADE_OUT = 800;
-    const canvas = navParticleCanvas;
-    const ctx = canvas?.getContext("2d", { alpha: true });
-    let pool = [];
-    let raf = null;
-    let progress = 0;
-    let gAlpha = 0;
-    let phase = "idle";
-    let fadeT0 = 0;
-    let last = 0;
-    let onFadeDone = null;
-    let w = 0;
-    let h = 0;
-
-    const resize = () => {
-      if (!canvas) return;
-      const shell = canvas.parentElement;
-      if (!shell) return;
-      const dpr = Math.min(devicePixelRatio || 1, 2);
-      w = shell.offsetWidth;
-      h = shell.offsetHeight;
-      canvas.width = Math.max(1, Math.floor(w * dpr));
-      canvas.height = Math.max(1, Math.floor(h * dpr));
-      canvas.style.width = `${w}px`;
-      canvas.style.height = `${h}px`;
-      ctx?.setTransform(dpr, 0, 0, dpr, 0, 0);
-    };
-
-    const spawn = (fx, n) => {
-      for (let i = 0; i < n; i++) {
-        const atFront = Math.random() < 0.7;
-        pool.push({
-          x: atFront ? fx - Math.random() * 72 : Math.random() * Math.max(24, fx * 0.35),
-          y: Math.random() * h,
-          vx: 0.6 + Math.random() * 2.2,
-          vy: (Math.random() - 0.5) * 0.9,
-          r: 1.6 + Math.random() * 4.2,
-          life: 0.65 + Math.random() * 0.75,
-          a: 0.55 + Math.random() * 0.45,
-          warm: Math.random(),
-          spark: Math.random() > 0.82,
-        });
-      }
-    };
-
-    const drawWash = (fx) => {
-      const wash = ctx.createLinearGradient(0, 0, fx, 0);
-      wash.addColorStop(0, `rgba(212,132,98,${0.42 * gAlpha})`);
-      wash.addColorStop(0.55, `rgba(233,160,124,${0.26 * gAlpha})`);
-      wash.addColorStop(1, `rgba(255,210,175,${0.48 * gAlpha})`);
-      ctx.fillStyle = wash;
-      ctx.fillRect(0, 0, fx, h);
-
-      const beam = ctx.createLinearGradient(fx - 64, 0, fx + 12, 0);
-      beam.addColorStop(0, "transparent");
-      beam.addColorStop(0.55, `rgba(255,220,190,${0.22 * gAlpha})`);
-      beam.addColorStop(1, `rgba(255,235,210,${0.55 * gAlpha})`);
-      ctx.fillStyle = beam;
-      ctx.fillRect(fx - 64, 0, 76, h);
-    };
-
-    const draw = (now) => {
-      if (!canvas || !ctx || w < 2 || h < 2) return;
-      const dt = Math.min(0.05, (now - last) / 1000);
-      last = now;
-      const fx = Math.max(18, w * progress);
-
-      if (phase === "fadeIn") {
-        const t = Math.min(1, (now - fadeT0) / FADE_IN);
-        gAlpha = t * t * (3 - 2 * t);
-        if (t >= 1) {
-          gAlpha = 1;
-          phase = "travel";
-        }
-      } else if (phase === "fadeOut") {
-        const t = Math.min(1, (now - fadeT0) / FADE_OUT);
-        gAlpha = 1 - t * t * t;
-        if (t >= 1) {
-          gAlpha = 0;
-          phase = "idle";
-          pool = [];
-          ctx.clearRect(0, 0, w, h);
-          canvas.style.opacity = "0";
-          raf = null;
-          onFadeDone?.();
-          onFadeDone = null;
-          return;
-        }
-      }
-
-      canvas.style.opacity = String(gAlpha);
-
-      if (phase === "fadeIn" || phase === "travel") {
-        spawn(fx, Math.max(5, Math.round(10 + progress * 18)));
-      }
-      if (pool.length > 220) pool.splice(0, pool.length - 220);
-
-      ctx.clearRect(0, 0, w, h);
-      ctx.globalCompositeOperation = "source-over";
-      if (gAlpha > 0.03) drawWash(fx);
-      ctx.globalCompositeOperation = "lighter";
-
-      pool = pool.filter((p) => {
-        p.x += p.vx * dt * (68 + progress * 40);
-        p.y += p.vy * dt * 68;
-        p.life -= dt * (phase === "fadeOut" ? 0.75 : 0.32);
-        if (p.x > fx + 16) p.life -= dt * 1.1;
-        if (p.life <= 0) return false;
-        const a = p.a * gAlpha * Math.min(1, p.life * 1.8);
-        if (a < 0.02) return false;
-        const rad = p.spark ? p.r * 4.5 : p.r * 3.2;
-        const rgb = p.warm > 0.4 ? "255,210,175" : "233,160,124";
-        const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rad);
-        g.addColorStop(0, `rgba(${rgb},${Math.min(1, a * 1.15)})`);
-        g.addColorStop(0.45, `rgba(212,132,98,${a * 0.55})`);
-        g.addColorStop(1, "rgba(212,132,98,0)");
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, rad, 0, Math.PI * 2);
-        ctx.fill();
-        if (p.spark) {
-          ctx.fillStyle = `rgba(255,245,235,${a * 0.85})`;
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, p.r * 0.55, 0, Math.PI * 2);
-          ctx.fill();
-        }
-        return p.x < w + 40 && p.y > -12 && p.y < h + 12;
-      });
-
-      ctx.globalCompositeOperation = "source-over";
-      raf = requestAnimationFrame(draw);
-    };
+  /* ---------- Nav travel beam (CSS-driven, no canvas) ---------- */
+  const navTravel = (() => {
+    const TRAVEL_FADE_OUT = 640;
+    let fadeTimer = null;
 
     return {
       start() {
-        if (!canvas || !ctx) return;
-        if (raf) cancelAnimationFrame(raf);
-        onFadeDone = null;
-        resize();
-        progress = 0;
-        pool = [];
-        phase = "fadeIn";
-        fadeT0 = performance.now();
-        last = fadeT0;
-        gAlpha = 0;
-        canvas.style.opacity = "0";
-        spawn(28, 24);
-        raf = requestAnimationFrame(draw);
-      },
-      setProgress(p) {
-        progress = Math.max(0, Math.min(1, p));
+        clearTimeout(fadeTimer);
+        document.getElementById("nav")?.classList.remove("is-travel-fade");
       },
       end(cb) {
-        if (!canvas || !ctx || phase === "idle") {
+        const navEl = document.getElementById("nav");
+        navEl?.classList.add("is-travel-fade");
+        fadeTimer = setTimeout(() => {
+          navEl?.classList.remove("is-travel-fade");
           cb?.();
-          return;
-        }
-        onFadeDone = cb || null;
-        phase = "fadeOut";
-        fadeT0 = performance.now();
-        if (!raf) raf = requestAnimationFrame(draw);
+        }, TRAVEL_FADE_OUT);
       },
-      resize,
     };
   })();
 
@@ -571,7 +422,6 @@
 
   const setTravelUi = (easedProgress) => {
     const p = Math.max(0, Math.min(1, easedProgress));
-    navParticles.setProgress(p);
     document.getElementById("nav-shell")?.style.setProperty("--travel-p", String(p));
   };
 
@@ -582,7 +432,7 @@
     navLinks?.querySelectorAll("a").forEach((a) => a.classList.remove("is-heading"));
     travelLink = targetEl?.id ? navLinks?.querySelector(`a[href="#${targetEl.id}"]`) : null;
     travelLink?.classList.add("is-heading");
-    navParticles.start();
+    navTravel.start();
     setTravelUi(0);
   };
 
@@ -595,7 +445,7 @@
       travelTarget = null;
     }
     updateSpy();
-    navParticles.end(() => {
+    navTravel.end(() => {
       nav?.classList.remove("is-traveling");
       document.getElementById("nav-shell")?.style.removeProperty("--travel-p");
       travelLink?.classList.remove("is-heading");
@@ -757,7 +607,6 @@
   onScroll();
   addEventListener("scroll", onScroll, { passive: true });
   addEventListener("resize", () => {
-    navParticles.resize();
     const active = navLinks?.querySelector("a.is-active");
     if (active) moveIndicator(active);
     updateSpy();
