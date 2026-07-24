@@ -77,7 +77,6 @@ body.touch .cursor, body.touch .glow { display: none; }
   transform: translateY(0);
   transition: transform .72s var(--ease);
 }
-.site-nav.is-away { transform: translateY(calc(-100% - 2px)); }
 .site-nav.is-open { transform: none; }
 
 .nav-topline {

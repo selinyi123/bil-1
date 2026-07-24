@@ -377,8 +377,6 @@
 
   let scrollAnim = null;
   let scrollingNav = false;
-  let lastScrollY = scrollY;
-  let scrollDir = 0;
   let travelTarget = null;
 
   const easeInOutQuart = (t) =>
@@ -584,13 +582,6 @@
     }
     nav?.classList.toggle("is-solid", y > 48);
     nav?.classList.toggle("is-compact", y > 120);
-
-    scrollDir = y > lastScrollY ? 1 : y < lastScrollY ? -1 : scrollDir;
-    if (!scrollingNav && !nav?.classList.contains("is-open")) {
-      if (scrollDir > 0 && y > 180) nav?.classList.add("is-away");
-      if (scrollDir < 0 || y < 80) nav?.classList.remove("is-away");
-    }
-    lastScrollY = y;
     updateSpy();
   };
   onScroll();
