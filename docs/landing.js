@@ -353,8 +353,6 @@
   /* ---------- Premium nav + cinematic scroll ---------- */
   const nav = document.getElementById("nav");
   const navLinks = document.querySelector(".nav-links");
-  const navPill = document.getElementById("nav-pill");
-  const navCursor = document.getElementById("nav-cursor");
   const navRail = document.getElementById("nav-rail");
   const scrollVeil = document.getElementById("scroll-veil");
   const navTravel = document.getElementById("nav-travel");
@@ -478,11 +476,7 @@
     if (!el) return;
     const id = el.id || "top";
     const label = meta.label || sectionLabels[id] || el.getAttribute("data-label") || id;
-    const isLast = navSections[navSections.length - 1]?.el === el;
-    let targetY = el.getBoundingClientRect().top + scrollY - getNavOffset();
-    const max = maxScrollY();
-    if (isLast) targetY = Math.max(targetY, max);
-    targetY = Math.max(0, Math.min(targetY, max));
+    const targetY = Math.max(0, Math.min(el.getBoundingClientRect().top + scrollY - getNavOffset(), maxScrollY()));
     if (id && navSections.some((s) => s.id === id)) setActiveNav(id);
     scrollToY(targetY, {
       label,
@@ -491,52 +485,33 @@
     });
   };
 
-  const moveIndicator = (link) => {
-    if (!navLinks || !link) return;
-    navLinks.classList.add("has-active");
-    const w = link.offsetWidth;
-    const x = link.offsetLeft;
-    if (navPill) {
-      navPill.style.width = `${w}px`;
-      navPill.style.transform = `translateX(${x}px)`;
-    }
-  };
-
   const setActiveNav = (id) => {
-    let desktop = null;
     navAnchors.forEach((a) => {
       const on = a.getAttribute("href") === `#${id}`;
       a.classList.toggle("is-active", on);
       a.setAttribute("aria-current", on ? "true" : "false");
-      if (on && a.closest(".nav-links")) desktop = a;
     });
-    if (desktop) moveIndicator(desktop);
-    else navLinks?.classList.remove("has-active");
   };
 
   const updateSpy = () => {
     if (scrollingNav) return;
+    const max = maxScrollY();
+    if (scrollY >= max - 12) {
+      setActiveNav("faq");
+      return;
+    }
     const mark = getNavOffset() + innerHeight * 0.28;
     let current = "";
     for (const { id, el } of navSections) {
       if (el.getBoundingClientRect().top <= mark) current = id;
     }
     if (current) setActiveNav(current);
-    else navLinks?.classList.remove("has-active");
   };
 
   if (!touch && !reduce && navLinks) {
     navLinks.querySelectorAll("a").forEach((link) => {
-      link.addEventListener("pointerenter", () => {
-        link.classList.add("is-hover");
-        if (!link.classList.contains("is-active")) moveIndicator(link);
-      });
-      link.addEventListener("pointerleave", () => {
-        link.classList.remove("is-hover");
-        const active = navLinks.querySelector("a.is-active");
-        if (active) moveIndicator(active);
-        else navLinks.classList.remove("has-active");
-      });
+      link.addEventListener("pointerenter", () => link.classList.add("is-hover"));
+      link.addEventListener("pointerleave", () => link.classList.remove("is-hover"));
     });
   }
 
@@ -596,10 +571,7 @@
   };
   onScroll();
   addEventListener("scroll", onScroll, { passive: true });
-  addEventListener("resize", () => {
-    const active = document.querySelector(".nav-links a.is-active");
-    if (active) moveIndicator(active);
-  });
+  addEventListener("resize", () => updateSpy());
 
   /* reveal */
   const nodes = document.querySelectorAll("[data-in]");
