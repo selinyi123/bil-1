@@ -354,8 +354,7 @@
   const nav = document.getElementById("nav");
   const navLinks = document.querySelector(".nav-links");
   const navIndicator = document.getElementById("nav-indicator");
-  const navRail = document.getElementById("nav-rail");
-  const navRailLabel = document.getElementById("nav-rail-label");
+  const navProgress = document.getElementById("nav-progress");
   const navAnchors = [...document.querySelectorAll("[data-nav]")];
   const navSections = [
     { id: "tour", el: document.getElementById("tour") },
@@ -375,6 +374,7 @@
   let scrollAnim = null;
   let scrollingNav = false;
   let travelTarget = null;
+  let travelLink = null;
 
   const easeInOutQuart = (t) =>
     t < 0.5 ? 8 * t * t * t * t : 1 - Math.pow(-2 * t + 2, 4) / 2;
@@ -402,21 +402,25 @@
 
   const setTravelUi = (progress) => {
     const p = Math.max(0, Math.min(1, progress));
-    if (navRail) navRail.style.width = `${p * 100}%`;
+    if (navProgress) navProgress.style.width = `${p * 100}%`;
   };
 
   const beginTravel = (label, targetEl) => {
     scrollingNav = true;
     travelTarget = targetEl || null;
     nav?.classList.add("is-traveling");
-    if (navRailLabel && label) navRailLabel.textContent = label;
+    navLinks?.querySelectorAll("a").forEach((a) => a.classList.remove("is-heading"));
+    travelLink = targetEl?.id ? navLinks?.querySelector(`a[href="#${targetEl.id}"]`) : null;
+    travelLink?.classList.add("is-heading");
     setTravelUi(0);
   };
 
   const endTravel = () => {
     scrollingNav = false;
     nav?.classList.remove("is-traveling");
-    if (navRail) navRail.style.width = "0%";
+    travelLink?.classList.remove("is-heading");
+    travelLink = null;
+    if (navProgress) navProgress.style.width = "0%";
     if (travelTarget) {
       revealSection(travelTarget);
       travelTarget.classList.add("is-arriving");
