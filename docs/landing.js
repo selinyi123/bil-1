@@ -354,7 +354,7 @@
   const navShell = document.getElementById("nav-shell");
   const navTravelCtl = (() => {
     const FADE_OUT = 580;
-    const ALPHA_IN_END = 0.12;
+    const ALPHA_IN_END = 0.08;
     let phase = "idle";
     let journeyP = 0;
     let sourceP = 0;
@@ -368,7 +368,13 @@
 
     const syncBeam = () => {
       const beam = sourceP + (destP - sourceP) * journeyP;
+      const trailLeft = Math.min(sourceP, beam);
+      const trailWidth = Math.abs(beam - sourceP);
       navShell?.style.setProperty("--travel-beam", String(beam));
+      navShell?.style.setProperty("--travel-from", String(sourceP));
+      navShell?.style.setProperty("--travel-to", String(beam));
+      navShell?.style.setProperty("--travel-trail-left", String(trailLeft));
+      navShell?.style.setProperty("--travel-trail-width", String(trailWidth));
       navShell?.style.setProperty("--travel-alpha", String(alpha));
     };
 
@@ -421,9 +427,11 @@
 
   const getLinkProgress = (link) => {
     if (!link || !navShell) return 0;
-    const shellW = navShell.offsetWidth;
-    if (shellW < 1) return 0;
-    return (link.offsetLeft + link.offsetWidth * 0.5) / shellW;
+    const shellRect = navShell.getBoundingClientRect();
+    if (shellRect.width < 1) return 0;
+    const linkRect = link.getBoundingClientRect();
+    const cx = linkRect.left + linkRect.width * 0.5 - shellRect.left;
+    return Math.max(0, Math.min(1, cx / shellRect.width));
   };
 
   const scrollDurationFor = (delta) =>
@@ -479,9 +487,36 @@
     if (w) indicatorW = w;
   };
 
+  const snapIndicator = (link) => {
+    if (!navIndicator || !link) return;
+    indicatorX = link.offsetLeft;
+    indicatorW = link.offsetWidth;
+    navIndicator.style.transform = `translateX(${indicatorX}px)`;
+    navIndicator.style.width = `${indicatorW}px`;
+    navIndicator.classList.add("is-visible");
+  };
+
+  const initNavIndicator = () => {
+    if (!navLinks || !navIndicator) return;
+    const link = navLinks.querySelector("a.is-active") || navLinks.querySelector('a[href="#tour"]');
+    if (!link) return;
+    navLinks.querySelectorAll("a").forEach((a) => a.classList.toggle("is-active", a === link));
+    snapIndicator(link);
+  };
+
   const glideIndicator = (link, duration = 680) => {
     if (!navIndicator || !navLinks || !link) return;
-    readIndicator();
+    const startLink = navLinks.querySelector("a.is-active");
+    if (startLink && navIndicator.classList.contains("is-visible")) {
+      indicatorX = startLink.offsetLeft;
+      indicatorW = startLink.offsetWidth;
+    } else if (startLink) {
+      snapIndicator(startLink);
+      indicatorX = startLink.offsetLeft;
+      indicatorW = startLink.offsetWidth;
+    } else {
+      readIndicator();
+    }
     const startX = indicatorX;
     const startW = indicatorW || link.offsetWidth;
     const endX = link.offsetLeft;
@@ -489,7 +524,7 @@
     if (indicatorAnim) cancelAnimationFrame(indicatorAnim);
     navIndicator.classList.add("is-visible");
     const t0 = performance.now();
-    const dur = reduce ? 0 : duration;
+    const dur = Math.max(520, Math.min(duration, 1400));
 
     const apply = (x, w) => {
       navIndicator.style.transform = `translateX(${x}px)`;
@@ -497,11 +532,6 @@
       indicatorX = x;
       indicatorW = w;
     };
-
-    if (dur < 16) {
-      apply(endX, endW);
-      return;
-    }
 
     const step = (now) => {
       const t = Math.min(1, (now - t0) / dur);
@@ -513,7 +543,10 @@
     indicatorAnim = requestAnimationFrame(step);
   };
 
-  const moveIndicator = (link, duration = 560) => glideIndicator(link, duration);
+  const moveIndicator = (link, duration = 560) => {
+    if (!duration) snapIndicator(link);
+    else glideIndicator(link, duration);
+  };
 
   const getNavOffset = () => (nav?.offsetHeight ?? 80) + 24;
   const maxScrollY = () => document.documentElement.scrollHeight - innerHeight;
@@ -542,7 +575,12 @@
   const clearTravelUi = () => {
     nav?.removeAttribute("data-travel-dir");
     navShell?.style.removeProperty("--travel-beam");
+    navShell?.style.removeProperty("--travel-from");
+    navShell?.style.removeProperty("--travel-to");
+    navShell?.style.removeProperty("--travel-trail-left");
+    navShell?.style.removeProperty("--travel-trail-width");
     navShell?.style.removeProperty("--travel-alpha");
+    navShell?.style.removeProperty("--travel-dir");
   };
 
   const beginTravel = (label, targetEl, sourceLink, destLink) => {
@@ -556,6 +594,7 @@
     const from = sourceLink ? getLinkProgress(sourceLink) : to > 0.5 ? 0.04 : 0.96;
     const dir = to >= from ? "1" : "-1";
     nav?.setAttribute("data-travel-dir", dir);
+    navShell?.style.setProperty("--travel-dir", dir);
     navTravelCtl.start({ from, to });
     setTravelUi(0);
   };
@@ -569,6 +608,7 @@
     }
     navTravelCtl.end(() => {
       scrollingNav = false;
+      if (travelLink) snapIndicator(travelLink);
       nav?.classList.remove("is-traveling");
       clearTravelUi();
       travelLink?.classList.remove("is-heading");
@@ -627,6 +667,9 @@
     const sourceLink = getCurrentNavLink();
     const delta = targetY - scrollY;
     const duration = scrollDurationFor(delta);
+    if (link) {
+      navAnchors.forEach((a) => a.classList.toggle("is-active", a === link));
+    }
     scrollToY(targetY, {
       label,
       targetEl: el.id ? el : null,
@@ -649,7 +692,7 @@
   };
 
   const updateSpy = () => {
-    if (scrollingNav) return;
+    if (scrollingNav || indicatorAnim) return;
     const max = maxScrollY();
     if (scrollY >= max - 12) {
       setActiveNav("faq");
@@ -734,10 +777,11 @@
     if (!scrollingNav) updateSpy();
   };
   onScroll();
+  initNavIndicator();
   addEventListener("scroll", onScroll, { passive: true });
   addEventListener("resize", () => {
     const active = navLinks?.querySelector("a.is-active");
-    if (active) moveIndicator(active, 0);
+    if (active) snapIndicator(active);
     updateSpy();
   });
 
