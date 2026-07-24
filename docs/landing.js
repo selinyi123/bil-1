@@ -353,6 +353,7 @@
   /* ---------- Premium nav + cinematic scroll ---------- */
   const nav = document.getElementById("nav");
   const navLinks = document.querySelector(".nav-links");
+  const navIndicator = document.getElementById("nav-indicator");
   const navRail = document.getElementById("nav-rail");
   const scrollVeil = document.getElementById("scroll-veil");
   const navTravel = document.getElementById("nav-travel");
@@ -382,10 +383,15 @@
     t < 0.5 ? 8 * t * t * t * t : 1 - Math.pow(-2 * t + 2, 4) / 2;
 
   const setScrollY = (y) => {
-    const top = Math.max(0, Math.min(y, document.documentElement.scrollHeight - innerHeight));
+    const top = Math.max(0, Math.min(y, maxScrollY()));
     document.documentElement.scrollTop = top;
-    document.body.scrollTop = top;
-    window.scrollTo(0, top);
+  };
+
+  const moveIndicator = (link) => {
+    if (!navIndicator || !navLinks || !link) return;
+    navIndicator.style.width = `${link.offsetWidth}px`;
+    navIndicator.style.transform = `translateX(${link.offsetLeft}px)`;
+    navIndicator.classList.add("is-visible");
   };
 
   const getNavOffset = () => (nav?.offsetHeight ?? 80) + 24;
@@ -428,19 +434,20 @@
     updateSpy();
   };
 
-  const scrollToY = (targetY, { label, targetEl, onDone } = {}) => {
+  const scrollToY = (targetY, { label, targetEl, onDone, forceSmooth = false } = {}) => {
     const y = Math.max(0, Math.min(targetY, maxScrollY()));
     const finish = () => {
       if (targetEl) revealSection(targetEl);
       onDone?.();
       updateSpy();
     };
-    if (Math.abs(scrollY - y) < 3) {
+    const useAnim = forceSmooth || !reduce;
+    if (Math.abs(scrollY - y) < 1) {
       setScrollY(y);
       finish();
       return;
     }
-    if (reduce) {
+    if (!useAnim) {
       setScrollY(y);
       finish();
       return;
@@ -449,7 +456,7 @@
     beginTravel(label, targetEl);
     const start = scrollY;
     const delta = y - start;
-    const duration = Math.min(2800, Math.max(1400, Math.abs(delta) * 0.95));
+    const duration = Math.min(3200, Math.max(1600, Math.abs(delta) * 1.05));
     const t0 = performance.now();
 
     const step = (now) => {
@@ -459,7 +466,7 @@
       setScrollY(current);
       setTravelUi(p);
       if (navRail) {
-        const max = document.documentElement.scrollHeight - innerHeight;
+        const max = maxScrollY();
         navRail.style.width = `${max > 0 ? (current / max) * 100 : 0}%`;
       }
       if (p < 1) scrollAnim = requestAnimationFrame(step);
@@ -477,10 +484,12 @@
     const id = el.id || "top";
     const label = meta.label || sectionLabels[id] || el.getAttribute("data-label") || id;
     const targetY = Math.max(0, Math.min(el.getBoundingClientRect().top + scrollY - getNavOffset(), maxScrollY()));
-    if (id && navSections.some((s) => s.id === id)) setActiveNav(id);
+    const link = id ? navLinks?.querySelector(`a[href="#${id}"]`) : null;
+    if (link) moveIndicator(link);
     scrollToY(targetY, {
       label,
       targetEl: el.id ? el : null,
+      forceSmooth: true,
       onDone: meta.onDone,
     });
   };
@@ -491,6 +500,8 @@
       a.classList.toggle("is-active", on);
       a.setAttribute("aria-current", on ? "true" : "false");
     });
+    const link = navLinks?.querySelector(`a[href="#${id}"]`);
+    if (link) moveIndicator(link);
   };
 
   const updateSpy = () => {
@@ -510,8 +521,17 @@
 
   if (!touch && !reduce && navLinks) {
     navLinks.querySelectorAll("a").forEach((link) => {
-      link.addEventListener("pointerenter", () => link.classList.add("is-hover"));
-      link.addEventListener("pointerleave", () => link.classList.remove("is-hover"));
+      link.addEventListener("pointerenter", () => {
+        link.classList.add("is-hover");
+        if (!scrollingNav) moveIndicator(link);
+      });
+      link.addEventListener("pointerleave", () => {
+        link.classList.remove("is-hover");
+        if (!scrollingNav) {
+          const active = navLinks.querySelector("a.is-active");
+          if (active) moveIndicator(active);
+        }
+      });
     });
   }
 
@@ -571,7 +591,11 @@
   };
   onScroll();
   addEventListener("scroll", onScroll, { passive: true });
-  addEventListener("resize", () => updateSpy());
+  addEventListener("resize", () => {
+    const active = navLinks?.querySelector("a.is-active");
+    if (active) moveIndicator(active);
+    updateSpy();
+  });
 
   /* reveal */
   const nodes = document.querySelectorAll("[data-in]");
