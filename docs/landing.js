@@ -350,188 +350,60 @@
     });
   }
 
-  /* ---------- Nav travel: directional beam + particles ---------- */
-  const navTravelDust = document.getElementById("nav-travel-dust");
+  /* ---------- Nav travel beam (CSS) + playful indicator ---------- */
   const navShell = document.getElementById("nav-shell");
   const navTravelCtl = (() => {
-    const FADE_OUT = 720;
-    const ALPHA_IN_END = 0.14;
-    const canvas = navTravelDust;
-    const ctx = canvas?.getContext("2d", { alpha: true });
-    let raf = null;
+    const FADE_OUT = 580;
+    const ALPHA_IN_END = 0.12;
     let phase = "idle";
-    let fadeT0 = 0;
-    let alpha = 0;
     let journeyP = 0;
     let sourceP = 0;
     let destP = 1;
-    let direction = 1;
+    let alpha = 0;
+    let fadeT0 = 0;
+    let fadeRaf = null;
     let onDone = null;
-    let last = 0;
-    let w = 0;
-    let h = 0;
-    let dust = [];
 
     const smooth = (t) => t * t * (3 - 2 * t);
 
-    const resize = () => {
-      if (!canvas || !navShell) return;
-      const dpr = Math.min(devicePixelRatio || 1, 2);
-      w = navShell.offsetWidth;
-      h = navShell.offsetHeight;
-      canvas.width = Math.max(1, Math.floor(w * dpr));
-      canvas.height = Math.max(1, Math.floor(h * dpr));
-      canvas.style.width = `${w}px`;
-      canvas.style.height = `${h}px`;
-      ctx?.setTransform(dpr, 0, 0, dpr, 0, 0);
-    };
-
-    const beamP = () => sourceP + (destP - sourceP) * journeyP;
-
-    const setAlpha = (a) => {
-      navShell?.style.setProperty("--travel-alpha", String(a));
-    };
-
-    const syncBeamCss = () => {
-      const beam = beamP();
-      const left = Math.min(sourceP, beam);
-      const width = Math.abs(beam - sourceP);
+    const syncBeam = () => {
+      const beam = sourceP + (destP - sourceP) * journeyP;
       navShell?.style.setProperty("--travel-beam", String(beam));
-      navShell?.style.setProperty("--travel-left", String(left));
-      navShell?.style.setProperty("--travel-width", String(width));
-      navShell?.style.setProperty("--travel-dir", String(direction));
+      navShell?.style.setProperty("--travel-alpha", String(alpha));
     };
 
-    const spawnDust = (fx) => {
-      const bandTop = h * 0.22;
-      const bandH = h * 0.56;
-      const count = 2 + Math.floor(Math.random() * 3);
-      for (let i = 0; i < count; i++) {
-        const behind = (4 + Math.random() * 22) * -direction;
-        dust.push({
-          x: fx + behind + (Math.random() - 0.5) * 8,
-          y: bandTop + Math.random() * bandH,
-          vx: direction * (0.9 + Math.random() * 2.4),
-          vy: (Math.random() - 0.5) * 0.35,
-          life: 0.5 + Math.random() * 0.55,
-          size: 1.4 + Math.random() * 2.6,
-          warm: Math.random() > 0.25,
-        });
+    const fadeOut = (now) => {
+      const t = Math.min(1, (now - fadeT0) / FADE_OUT);
+      alpha = 1 - smooth(t);
+      syncBeam();
+      if (t < 1) {
+        fadeRaf = requestAnimationFrame(fadeOut);
+        return;
       }
-    };
-
-    const drawBeamSparks = (fx) => {
-      const top = h * 0.1;
-      const beamH = h * 0.8;
-      const lg = ctx.createLinearGradient(fx, top, fx, top + beamH);
-      lg.addColorStop(0, "rgba(212,132,98,0)");
-      lg.addColorStop(0.5, `rgba(244,239,231,${0.55 * alpha})`);
-      lg.addColorStop(1, "rgba(212,132,98,0)");
-      ctx.fillStyle = lg;
-      ctx.fillRect(fx - 0.75, top, 1.5, beamH);
-
-      for (let i = 0; i < 4; i++) {
-        const py = top + Math.random() * beamH;
-        const px = fx + (Math.random() - 0.5) * 3 - direction * Math.random() * 4;
-        const g = ctx.createRadialGradient(px, py, 0, px, py, 2.2);
-        g.addColorStop(0, `rgba(244,239,231,${alpha * 0.85})`);
-        g.addColorStop(1, "rgba(233,160,124,0)");
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.arc(px, py, 2.2, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    };
-
-    const updateAlpha = () => {
-      if (phase === "out") return;
-      alpha = journeyP < ALPHA_IN_END ? smooth(journeyP / ALPHA_IN_END) : 1;
-    };
-
-    const tick = (now) => {
-      if (!canvas || !ctx || w < 2 || h < 2) return;
-      const dt = Math.min(0.05, (now - last) / 1000);
-      last = now;
-
-      if (phase === "out") {
-        const t = Math.min(1, (now - fadeT0) / FADE_OUT);
-        alpha = 1 - smooth(t);
-        if (t >= 1) {
-          alpha = 0;
-          phase = "idle";
-          dust = [];
-          ctx.clearRect(0, 0, w, h);
-          setAlpha(0);
-          raf = null;
-          onDone?.();
-          onDone = null;
-          return;
-        }
-      } else {
-        updateAlpha();
-      }
-
-      setAlpha(alpha);
-      syncBeamCss();
-      const fx = Math.max(8, Math.min(w - 8, beamP() * w));
-
-      if (phase === "active" && alpha > 0.12) {
-        if (Math.random() < 0.78) spawnDust(fx);
-      }
-      if (dust.length > 72) dust.splice(0, dust.length - 72);
-
-      ctx.clearRect(0, 0, w, h);
-      if (alpha > 0.05) drawBeamSparks(fx);
-
-      const tail = direction > 0 ? fx + 10 : fx - 10;
-      dust = dust.filter((p) => {
-        p.x += p.vx * dt * 62;
-        p.y += p.vy * dt * 62;
-        p.life -= dt * 0.95;
-        if (p.life <= 0) return false;
-        if (direction > 0 && p.x > tail) return false;
-        if (direction < 0 && p.x < tail) return false;
-        const a = p.life * alpha * 0.88;
-        if (a < 0.03) return false;
-        const core = p.warm ? "233,160,124" : "244,239,231";
-        const rad = p.size * 1.8;
-        const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rad);
-        g.addColorStop(0, `rgba(${core},${Math.min(1, a)})`);
-        g.addColorStop(0.45, `rgba(212,132,98,${a * 0.65})`);
-        g.addColorStop(1, "rgba(182,95,63,0)");
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, rad, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = `rgba(244,239,231,${a * 0.9})`;
-        ctx.fillRect(p.x - 0.6, p.y - 0.6, 1.2, 1.2);
-        return p.y > 2 && p.y < h - 2;
-      });
-
-      raf = requestAnimationFrame(tick);
+      alpha = 0;
+      phase = "idle";
+      syncBeam();
+      fadeRaf = null;
+      onDone?.();
+      onDone = null;
     };
 
     return {
       start({ from = 0, to = 1 } = {}) {
-        if (!canvas || !ctx) return;
-        if (raf) cancelAnimationFrame(raf);
-        onDone = null;
-        resize();
+        if (fadeRaf) cancelAnimationFrame(fadeRaf);
         sourceP = from;
         destP = to;
-        direction = to >= from ? 1 : -1;
         journeyP = 0;
-        phase = "active";
         alpha = 0;
-        dust = [];
-        last = performance.now();
-        setAlpha(0);
-        syncBeamCss();
-        raf = requestAnimationFrame(tick);
+        phase = "active";
+        nav?.setAttribute("data-travel-dir", to >= from ? "1" : "-1");
+        syncBeam();
       },
       setProgress(p) {
         journeyP = Math.max(0, Math.min(1, p));
-        updateAlpha();
+        if (phase !== "active") return;
+        alpha = journeyP < ALPHA_IN_END ? smooth(journeyP / ALPHA_IN_END) : 1;
+        syncBeam();
       },
       end(cb) {
         if (phase === "idle") {
@@ -539,13 +411,11 @@
           return;
         }
         journeyP = 1;
-        syncBeamCss();
         onDone = cb || null;
         phase = "out";
         fadeT0 = performance.now();
-        if (!raf) raf = requestAnimationFrame(tick);
+        fadeRaf = requestAnimationFrame(fadeOut);
       },
-      resize,
     };
   })();
 
@@ -555,6 +425,9 @@
     if (shellW < 1) return 0;
     return (link.offsetLeft + link.offsetWidth * 0.5) / shellW;
   };
+
+  const scrollDurationFor = (delta) =>
+    Math.min(3200, Math.max(1600, Math.abs(delta) * 1.05));
 
   /* ---------- Premium nav + cinematic scroll ---------- */
   const nav = document.getElementById("nav");
@@ -577,6 +450,9 @@
   };
 
   let scrollAnim = null;
+  let indicatorAnim = null;
+  let indicatorX = 0;
+  let indicatorW = 0;
   let scrollingNav = false;
   let travelTarget = null;
   let travelLink = null;
@@ -584,17 +460,60 @@
   const easeInOutQuart = (t) =>
     t < 0.5 ? 8 * t * t * t * t : 1 - Math.pow(-2 * t + 2, 4) / 2;
 
+  const easePlayful = (t) => {
+    const c1 = 1.22;
+    const c3 = c1 + 1;
+    return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2;
+  };
+
   const setScrollY = (y) => {
     const top = Math.max(0, Math.min(y, maxScrollY()));
     document.documentElement.scrollTop = top;
   };
 
-  const moveIndicator = (link) => {
-    if (!navIndicator || !navLinks || !link) return;
-    navIndicator.style.width = `${link.offsetWidth}px`;
-    navIndicator.style.transform = `translateX(${link.offsetLeft}px)`;
-    navIndicator.classList.add("is-visible");
+  const readIndicator = () => {
+    if (!navIndicator) return;
+    const m = navIndicator.style.transform.match(/translateX\(([-\d.]+)px\)/);
+    if (m) indicatorX = parseFloat(m[1]);
+    const w = parseFloat(navIndicator.style.width);
+    if (w) indicatorW = w;
   };
+
+  const glideIndicator = (link, duration = 680) => {
+    if (!navIndicator || !navLinks || !link) return;
+    readIndicator();
+    const startX = indicatorX;
+    const startW = indicatorW || link.offsetWidth;
+    const endX = link.offsetLeft;
+    const endW = link.offsetWidth;
+    if (indicatorAnim) cancelAnimationFrame(indicatorAnim);
+    navIndicator.classList.add("is-visible");
+    const t0 = performance.now();
+    const dur = reduce ? 0 : duration;
+
+    const apply = (x, w) => {
+      navIndicator.style.transform = `translateX(${x}px)`;
+      navIndicator.style.width = `${w}px`;
+      indicatorX = x;
+      indicatorW = w;
+    };
+
+    if (dur < 16) {
+      apply(endX, endW);
+      return;
+    }
+
+    const step = (now) => {
+      const t = Math.min(1, (now - t0) / dur);
+      const e = easePlayful(t);
+      apply(startX + (endX - startX) * e, startW + (endW - startW) * e);
+      if (t < 1) indicatorAnim = requestAnimationFrame(step);
+      else indicatorAnim = null;
+    };
+    indicatorAnim = requestAnimationFrame(step);
+  };
+
+  const moveIndicator = (link, duration = 560) => glideIndicator(link, duration);
 
   const getNavOffset = () => (nav?.offsetHeight ?? 80) + 24;
   const maxScrollY = () => document.documentElement.scrollHeight - innerHeight;
@@ -623,9 +542,6 @@
   const clearTravelUi = () => {
     nav?.removeAttribute("data-travel-dir");
     navShell?.style.removeProperty("--travel-beam");
-    navShell?.style.removeProperty("--travel-left");
-    navShell?.style.removeProperty("--travel-width");
-    navShell?.style.removeProperty("--travel-dir");
     navShell?.style.removeProperty("--travel-alpha");
   };
 
@@ -653,7 +569,6 @@
     }
     navTravelCtl.end(() => {
       scrollingNav = false;
-      if (travelLink) moveIndicator(travelLink);
       nav?.classList.remove("is-traveling");
       clearTravelUi();
       travelLink?.classList.remove("is-heading");
@@ -662,7 +577,7 @@
     });
   };
 
-  const scrollToY = (targetY, { label, targetEl, onDone, forceSmooth = false, sourceLink, destLink } = {}) => {
+  const scrollToY = (targetY, { label, targetEl, onDone, forceSmooth = false, sourceLink, destLink, duration } = {}) => {
     const y = Math.max(0, Math.min(targetY, maxScrollY()));
     const finish = () => {
       if (targetEl) revealSection(targetEl);
@@ -681,17 +596,17 @@
       return;
     }
     if (scrollAnim) cancelAnimationFrame(scrollAnim);
+    const scrollDur = duration ?? scrollDurationFor(y - scrollY);
+    if (destLink) glideIndicator(destLink, scrollDur);
     beginTravel(label, targetEl, sourceLink, destLink);
     const start = scrollY;
     const delta = y - start;
-    const duration = Math.min(3200, Math.max(1600, Math.abs(delta) * 1.05));
     const t0 = performance.now();
 
     const step = (now) => {
-      const p = Math.min(1, (now - t0) / duration);
+      const p = Math.min(1, (now - t0) / scrollDur);
       const eased = easeInOutQuart(p);
-      const current = start + delta * eased;
-      setScrollY(current);
+      setScrollY(start + delta * eased);
       setTravelUi(eased);
       if (p < 1) scrollAnim = requestAnimationFrame(step);
       else {
@@ -710,12 +625,15 @@
     const targetY = Math.max(0, Math.min(el.getBoundingClientRect().top + scrollY - getNavOffset(), maxScrollY()));
     const link = id ? navLinks?.querySelector(`a[href="#${id}"]`) : null;
     const sourceLink = getCurrentNavLink();
+    const delta = targetY - scrollY;
+    const duration = scrollDurationFor(delta);
     scrollToY(targetY, {
       label,
       targetEl: el.id ? el : null,
       forceSmooth: true,
       sourceLink,
       destLink: link,
+      duration,
       onDone: meta.onDone,
     });
   };
@@ -749,7 +667,7 @@
     navLinks.querySelectorAll("a").forEach((link) => {
       link.addEventListener("pointerenter", () => {
         link.classList.add("is-hover");
-        if (!scrollingNav) moveIndicator(link);
+        if (!scrollingNav) moveIndicator(link, 480);
       });
       link.addEventListener("pointerleave", () => {
         link.classList.remove("is-hover");
@@ -818,9 +736,8 @@
   onScroll();
   addEventListener("scroll", onScroll, { passive: true });
   addEventListener("resize", () => {
-    navTravelCtl.resize();
     const active = navLinks?.querySelector("a.is-active");
-    if (active) moveIndicator(active);
+    if (active) moveIndicator(active, 0);
     updateSpy();
   });
 
