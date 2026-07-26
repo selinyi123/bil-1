@@ -1,5 +1,20 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
-  <rect width="64" height="64" rx="16" fill="#C46F52"/>
-  <path d="M18 42V22h8.5c5.2 0 8.5 2.8 8.5 7.4 0 3.1-1.6 5.4-4.2 6.5L38 42h-7.2l-4.8-5.2H26V42H18zm8-10.8h2.8c2 0 3.1-1 3.1-2.7 0-1.7-1.1-2.6-3.1-2.6H26v5.3z" fill="#FFF8F2"/>
-  <circle cx="46" cy="24" r="5" fill="#FFF8F2" opacity="0.9"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+  <path
+    fill="#E88850"
+    stroke="#C96A3A"
+    stroke-width="1.2"
+    stroke-linejoin="round"
+    d="M20 2 35.2 10.75v18.5L20 38 4.8 29.25v-18.5L20 2Z"
+  />
+  <path
+    fill="none"
+    stroke="#FFF8F2"
+    stroke-opacity="0.28"
+    stroke-width="0.85"
+    d="M20 6.2 31.6 12.85v14.3L20 33.8 8.4 27.15V12.85L20 6.2Z"
+  />
+  <path
+    fill="#FFF8F2"
+    d="M14.2 12.2h5.9c2.85 0 4.7 1.5 4.7 3.85 0 1.6-.8 2.8-2.15 3.4 1.75.55 2.85 1.9 2.85 3.9 0 2.65-2.05 4.35-5.25 4.35h-6.05V12.2Zm2.95 2.55v3.7h2.7c1.25 0 1.95-.6 1.95-1.85s-.7-1.85-1.95-1.85h-2.7Zm0 6.15v4.4h3.25c1.5 0 2.35-.8 2.35-2.2s-.85-2.2-2.35-2.2h-3.25Z"
+  />
 </svg>

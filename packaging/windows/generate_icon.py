@@ -1,47 +1,29 @@
-"""从网站 favicon 风格生成 Windows .ico 文件。"""
+"""从 packaging/assets/app-icon.png 生成 Windows .ico 文件。"""
 
 from __future__ import annotations
 
+import importlib.util
+import sys
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
-
-ROOT = Path(__file__).resolve().parents[2]
 OUT_PATH = Path(__file__).resolve().parent / "binggo.ico"
-BG = "#C46F52"
-FG = "#FFF8F2"
+_ICON_RASTER = Path(__file__).resolve().parents[1] / "icon_raster.py"
 
 
-def _draw_icon(size: int) -> Image.Image:
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-    radius = max(4, size * 16 // 64)
-    draw.rounded_rectangle((0, 0, size - 1, size - 1), radius=radius, fill=BG)
-
-    font_size = max(10, size * 30 // 64)
-    try:
-        font = ImageFont.truetype("arialbd.ttf", font_size)
-    except OSError:
-        font = ImageFont.load_default()
-
-    text = "B"
-    bbox = draw.textbbox((0, 0), text, font=font)
-    tw = bbox[2] - bbox[0]
-    th = bbox[3] - bbox[1]
-    x = (size - tw) / 2 - bbox[0]
-    y = (size - th) / 2 - bbox[1] - size * 2 // 64
-    draw.text((x, y), text, fill=FG, font=font)
-
-    dot_r = max(2, size * 5 // 64)
-    cx = size * 46 // 64
-    cy = size * 24 // 64
-    draw.ellipse((cx - dot_r, cy - dot_r, cx + dot_r, cy + dot_r), fill=FG)
-    return img
+def _load_raster_icon():
+    spec = importlib.util.spec_from_file_location("binggo_icon_raster", _ICON_RASTER)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"无法加载 {_ICON_RASTER}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module.raster_icon
 
 
 def main() -> None:
+    raster_icon = _load_raster_icon()
     sizes = [16, 24, 32, 48, 64, 128, 256]
-    images = [_draw_icon(size) for size in sizes]
+    images = [raster_icon(size) for size in sizes]
     images[0].save(
         OUT_PATH,
         format="ICO",

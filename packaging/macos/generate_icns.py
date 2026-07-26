@@ -1,18 +1,16 @@
-"""从现有 Windows 图标逻辑生成 macOS .icns（尽力；失败不阻断构建）。"""
+"""从 packaging/assets/app-icon.png 生成 macOS .icns（尽力；失败不阻断构建）。"""
 
 from __future__ import annotations
 
+import importlib.util
 import struct
 import sys
+from io import BytesIO
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
-
 OUT_PATH = Path(__file__).resolve().parent / "binggo.icns"
-BG = "#C46F52"
-FG = "#FFF8F2"
+_ICON_RASTER = Path(__file__).resolve().parents[1] / "icon_raster.py"
 
-# icns 类型 → 像素边长
 _ICNS_SIZES: list[tuple[str, int]] = [
     ("ic07", 128),
     ("ic08", 256),
@@ -25,64 +23,38 @@ _ICNS_SIZES: list[tuple[str, int]] = [
 ]
 
 
-def _draw_icon(size: int) -> Image.Image:
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-    radius = max(4, size * 16 // 64)
-    draw.rounded_rectangle((0, 0, size - 1, size - 1), radius=radius, fill=BG)
-
-    font_size = max(10, size * 30 // 64)
-    try:
-        font = ImageFont.truetype("Arial Bold.ttf", font_size)
-    except OSError:
-        try:
-            font = ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial Bold.ttf", font_size)
-        except OSError:
-            font = ImageFont.load_default()
-
-    text = "B"
-    bbox = draw.textbbox((0, 0), text, font=font)
-    tw = bbox[2] - bbox[0]
-    th = bbox[3] - bbox[1]
-    x = (size - tw) / 2 - bbox[0]
-    y = (size - th) / 2 - bbox[1] - size * 2 // 64
-    draw.text((x, y), text, fill=FG, font=font)
-
-    dot_r = max(2, size * 5 // 64)
-    cx = size * 46 // 64
-    cy = size * 24 // 64
-    draw.ellipse((cx - dot_r, cy - dot_r, cx + dot_r, cy + dot_r), fill=FG)
-    return img
+def _load_raster_icon():
+    spec = importlib.util.spec_from_file_location("binggo_icon_raster", _ICON_RASTER)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"无法加载 {_ICON_RASTER}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module.raster_icon
 
 
-def _png_bytes(size: int) -> bytes:
-    from io import BytesIO
-
+def _png_chunk(raster_icon, fourcc: str, size: int) -> bytes:
+    img = raster_icon(size)
     buf = BytesIO()
-    _draw_icon(size).save(buf, format="PNG")
-    return buf.getvalue()
+    img.save(buf, format="PNG")
+    data = buf.getvalue()
+    return fourcc.encode("ascii") + struct.pack(">I", len(data) + 8) + data
 
 
 def write_icns(path: Path) -> None:
-    """最小 PNG-based icns 写入（无需 iconutil）。"""
-    entries: list[tuple[bytes, bytes]] = []
-    for type_code, size in _ICNS_SIZES:
-        data = _png_bytes(size)
-        entries.append((type_code.encode("ascii"), data))
-
-    file_size = 8 + sum(8 + len(data) for _, data in entries)
-    chunks = [b"icns", struct.pack(">I", file_size)]
-    for type_code, data in entries:
-        chunks.append(type_code)
-        chunks.append(struct.pack(">I", 8 + len(data)))
-        chunks.append(data)
-    path.write_bytes(b"".join(chunks))
+    raster_icon = _load_raster_icon()
+    chunks: list[bytes] = []
+    for fourcc, size in _ICNS_SIZES:
+        chunks.append(_png_chunk(raster_icon, fourcc, size))
+    body = b"".join(chunks)
+    file_size = 8 + len(body)
+    path.write_bytes(b"icns" + struct.pack(">I", file_size) + body)
 
 
 def main() -> int:
     try:
         write_icns(OUT_PATH)
-        print(f"wrote {OUT_PATH}")
+        print(f"已生成: {OUT_PATH}")
         return 0
     except Exception as exc:
         print(f"generate_icns failed: {exc}", file=sys.stderr)

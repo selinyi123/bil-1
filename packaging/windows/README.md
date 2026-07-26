@@ -21,7 +21,8 @@ powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1
 `build.ps1` 会：
 
 1. 从 `src.app_paths.__version__` 读取版本（唯一权威版本号）
-2. `npm ci && npm run build` 构建前端
+2. `python packaging/windows/generate_icon.py`（从 `packaging/assets/app-icon.png` 生成 `binggo.ico`；PNG 由 `scripts/render_brand_png.py` 从 `assets/brand/icon.svg` 导出）
+3. `npm ci && npm run build` 构建前端
 3. PyInstaller → 便携 ZIP
 4. 若本机有 ISCC：以 `/DAppVersion=<version>` 注入 Inno，产出 Setup
 
