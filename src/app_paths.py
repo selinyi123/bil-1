@@ -7,7 +7,7 @@ import shutil
 import sys
 from pathlib import Path
 
-__version__ = "5.0.2"
+__version__ = "5.0.3"
 
 
 def is_frozen() -> bool:

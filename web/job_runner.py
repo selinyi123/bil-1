@@ -354,6 +354,7 @@ class JobRunner:
             log_append: str | None = None,
             qrcode_refreshed_at: int | None = None,
             login_phase: str | None = None,
+            result_patch: dict[str, Any] | None = None,
         ) -> None:
             should_flush = False
             flush_payload: dict[str, Any] | None = None
@@ -376,22 +377,36 @@ class JobRunner:
                         self._status.log = _append_memory_log(self._status.log, cleaned_chunk)
                         log_chunk = cleaned_chunk
                 result_delta: dict[str, Any] | None = None
-                if qrcode_refreshed_at is not None or login_phase is not None:
-                    result = dict(self._status.result or {})
+                result_touch = (
+                    qrcode_refreshed_at is not None
+                    or login_phase is not None
+                    or result_patch is not None
+                )
+                if result_touch:
+                    merged = dict(self._status.result or {})
                     if qrcode_refreshed_at is not None:
-                        result["qrcode_refreshed_at"] = qrcode_refreshed_at
+                        merged["qrcode_refreshed_at"] = qrcode_refreshed_at
                     if login_phase is not None:
-                        result["login_phase"] = login_phase
-                    self._status.result = result
-                    result_delta = {
-                        key: result[key]
-                        for key in ("login_phase", "qrcode_refreshed_at")
-                        if key in result
-                    }
+                        merged["login_phase"] = login_phase
+                    if result_patch is not None:
+                        merged.update(result_patch)
+                    self._status.result = merged
+                    result_delta = {}
+                    if login_phase is not None:
+                        result_delta["login_phase"] = merged["login_phase"]
+                    if qrcode_refreshed_at is not None:
+                        result_delta["qrcode_refreshed_at"] = merged["qrcode_refreshed_at"]
+                    if result_patch is not None:
+                        result_delta.update(result_patch)
                 now_mono = time.monotonic()
                 login_touch = qrcode_refreshed_at is not None or login_phase is not None
                 due = (now_mono - self._last_db_flush_at) >= _PROGRESS_DB_INTERVAL_SEC
-                changed = step != prev_step or message != prev_message or login_touch or bool(cleaned_chunk)
+                changed = (
+                    step != prev_step
+                    or message != prev_message
+                    or result_touch
+                    or bool(cleaned_chunk)
+                )
                 if changed:
                     publish_progress = True
                     progress_event = {
@@ -402,7 +417,7 @@ class JobRunner:
                     }
                     if result_delta:
                         progress_event["result"] = result_delta
-                if step != prev_step or login_touch or due:
+                if step != prev_step or result_touch or login_touch or due:
                     should_flush = True
                     flush_payload = {
                         "step": self._status.progress_step,

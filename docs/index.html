@@ -4,35 +4,38 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Binggo — 本机 B 站抽奖助手。不用一个个找，也不用一个个点。">
-  <meta name="theme-color" content="#0c0b0a">
+  <meta name="binggo-contact-email" content="victerrrrr@163.com">
+  <meta name="theme-color" content="#faf9f5">
   <title>Binggo · B 站抽奖助手</title>
   <link rel="icon" href="https://raw.githubusercontent.com/luovicter-collab/bilibinggo/main/web/frontend/public/favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./landing.css?v=20260725s">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Noto+Serif+SC:wght@300;400;500;600&family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./landing.css?v=20260801l">
 </head>
 <body>
   <div class="noise" aria-hidden="true"></div>
   <div class="scroll-veil" id="scroll-veil" aria-hidden="true"></div>
-  <div class="glow" id="glow" aria-hidden="true"></div>
   <div class="cursor" id="cursor" aria-hidden="true"></div>
 
   <header class="site-nav" id="nav">
     <div class="nav-shell" id="nav-shell">
       <div class="nav-travel" id="nav-travel" aria-hidden="true"></div>
       <div class="nav-inner">
-        <a class="nav-brand" href="#top">
-          <span class="brand-mark">B</span>
+        <a class="nav-brand" id="nav-brand" href="#top" aria-label="返回首页">
+          <img class="brand-logo" src="./images/logo.svg?v=7" alt="" width="28" height="28" decoding="async">
           <span class="brand-name">Binggo</span>
         </a>
 
         <nav class="nav-links" aria-label="导航">
           <i class="nav-indicator" id="nav-indicator" aria-hidden="true"></i>
-          <a href="#tour" data-nav data-label="界面导览"><em>01</em><span>界面导览</span></a>
-          <a href="#why" data-nav data-label="能力"><em>02</em><span>能力</span></a>
-          <a href="#start" data-nav data-label="上手"><em>03</em><span>上手</span></a>
-          <a href="#faq" data-nav data-label="问答"><em>04</em><span>问答</span></a>
+          <a href="#top" data-nav data-label="首页"><em aria-hidden="true"><i>0</i><i>0</i></em><span>首页</span></a>
+          <a href="#why" data-nav data-label="能力"><em aria-hidden="true"><i>0</i><i>1</i></em><span>能力</span></a>
+          <a href="#tour" data-nav data-label="界面"><em aria-hidden="true"><i>0</i><i>2</i></em><span>界面</span></a>
+          <a href="#start" data-nav data-label="上手"><em aria-hidden="true"><i>0</i><i>3</i></em><span>上手</span></a>
+          <a href="#blast" data-nav data-label="联系"><em aria-hidden="true"><i>0</i><i>4</i></em><span>联系</span></a>
+          <a href="#faq" data-nav data-label="问答"><em aria-hidden="true"><i>0</i><i>5</i></em><span>问答</span></a>
+          <a href="#notice" data-nav data-label="注意"><em aria-hidden="true"><i>0</i><i>6</i></em><span>注意</span></a>
         </nav>
 
         <div class="nav-actions">
@@ -57,10 +60,13 @@
     <div class="nav-overlay-panel">
       <p class="overlay-kicker">Navigate</p>
       <nav class="overlay-links" aria-label="全屏导航">
-        <a href="#tour" data-nav data-label="界面导览"><em>01</em><span>界面导览</span></a>
-        <a href="#why" data-nav data-label="能力"><em>02</em><span>能力</span></a>
+        <a href="#top" data-nav data-label="首页"><em>00</em><span>首页</span></a>
+        <a href="#why" data-nav data-label="能力"><em>01</em><span>能力</span></a>
+        <a href="#tour" data-nav data-label="界面"><em>02</em><span>界面</span></a>
         <a href="#start" data-nav data-label="上手"><em>03</em><span>上手</span></a>
-        <a href="#faq" data-nav data-label="问答"><em>04</em><span>问答</span></a>
+        <a href="#blast" data-nav data-label="联系"><em>04</em><span>联系</span></a>
+        <a href="#faq" data-nav data-label="问答"><em>05</em><span>问答</span></a>
+        <a href="#notice" data-nav data-label="注意"><em>06</em><span>注意</span></a>
       </nav>
       <a class="nav-cta is-wide" href="https://github.com/luovicter-collab/bilibinggo/releases/latest" target="_blank" rel="noopener">
         <span>免费下载安装包</span><i aria-hidden="true">↓</i>
@@ -68,248 +74,673 @@
     </div>
   </div>
 
-  <main id="top">
-    <!-- HERO: copy on top, full-width landscape showcase -->
-    <section class="hero">
-      <div class="hero-orb" aria-hidden="true"></div>
+  <main>
+    <!-- HERO: Split product proof — brand lead | real UI -->
+    <section class="hero" id="top" style="--hero-p: 0">
+      <!-- Bound to homepage upper half — scrolls away with #top, not viewport-fixed -->
+      <div class="page-atmos" aria-hidden="true">
+        <i class="page-atmos-glow page-atmos-glow-tl"></i>
+        <i class="page-atmos-glow page-atmos-glow-tr"></i>
+        <i class="page-atmos-grid"></i>
+      </div>
+      <div class="wrap wrap-wide hero-inner">
       <div class="hero-copy">
-        <p class="pill" data-in>本机运行 · 开源免费 · Win / Mac</p>
-        <h1 data-in>
-          <span class="word">Binggo</span>
-          <span class="zh">
-            <span class="line"><i>不用一个个找</i></span>
-            <span class="line accent"><i>也不用一个个点</i></span>
-          </span>
-        </h1>
-        <p class="lead" data-in>自动发现抽奖活动，一键 / 三连参与，定时调度。Cookie 与数据只留在你的电脑上。</p>
+        <p class="hero-num-kicker" data-in>00 · 首页</p>
+        <p class="hero-kicker" data-in>本机 · 开源 · Win / Mac</p>
+        <p class="hero-brand" data-in>Binggo</p>
+        <h1 class="hero-title" data-in>不用一个个找，<br>也不用一个个点</h1>
+        <i class="hero-rule" aria-hidden="true" data-in></i>
+        <p class="hero-lead" data-in>抽奖不用自己翻合集、翻动态去找，也不用一条条点参与。Binggo 会自动发现进行中的活动，一键参与或三连一次点完。挂着就行，真正省心。</p>
         <div class="hero-cta" data-in>
           <a class="btn btn-fill btn-lg" data-magnet href="https://github.com/luovicter-collab/bilibinggo/releases/latest" target="_blank" rel="noopener">
-            免费下载安装包 <em>↓</em>
+            免费下载
           </a>
-          <a class="btn btn-line btn-lg" data-magnet href="#tour">看六个真实界面</a>
+          <a class="btn btn-line btn-lg" data-magnet href="#tour">看真实界面</a>
         </div>
       </div>
 
-      <div class="hero-stage" data-in>
-        <div class="hero-frame" id="hero-frame">
-          <div class="hero-rail" id="hero-rail">
-            <figure class="hero-slide is-wide"><img src="./images/overview.png" alt="概览页" width="2552" height="1308" decoding="async" fetchpriority="high"></figure>
-            <figure class="hero-slide is-wide"><img src="./images/activities.png" alt="活动页" width="2552" height="1308" decoding="async"></figure>
-            <figure class="hero-slide is-wide"><img src="./images/sources.png" alt="数据源" width="2552" height="1308" decoding="async"></figure>
-            <figure class="hero-slide is-wide"><img src="./images/sources-watch.png" alt="监控名单" width="2552" height="1308" decoding="async"></figure>
-            <figure class="hero-slide is-tall"><img src="./images/scheduler.png" alt="定时监视器" width="395" height="714" decoding="async"></figure>
-            <figure class="hero-slide is-wide"><img src="./images/night.png" alt="夜间模式" width="2552" height="1308" decoding="async"></figure>
+      <div class="hero-stage" data-in id="hero-stage">
+        <div class="hero-window">
+          <div class="hero-window-bar" aria-hidden="true">
+            <span class="hero-traffic">
+              <i class="tl tl-close"></i>
+              <i class="tl tl-min"></i>
+              <i class="tl tl-max"></i>
+            </span>
+            <span class="hero-window-title">Binggo</span>
+          </div>
+            <div class="hero-frame" id="hero-frame" role="button" tabindex="0" aria-label="查看当前界面导览，可拖拽切换">
+              <div class="hero-rail" id="hero-rail">
+                <figure class="hero-slide is-wide is-overview"><img src="./images/guide-overview.png?v=20260727y" alt="概览页" width="2552" height="1308" decoding="async" fetchpriority="high"></figure>
+                <figure class="hero-slide is-wide"><img src="./images/guide-sources.png?v=20260727y" alt="数据源" width="2552" height="1308" decoding="async"></figure>
+                <figure class="hero-slide is-wide"><img src="./images/guide-activities.png?v=20260727y" alt="活动页" width="2552" height="1308" decoding="async"></figure>
+                <figure class="hero-slide is-wide"><img src="./images/guide-participate.png?v=20260727y" alt="参加活动" width="2552" height="1308" decoding="async"></figure>
+              </div>
+            </div>
+        </div>
+
+        <div class="hero-meta">
+          <div class="hero-caption" id="hero-caption">
+            <div class="hero-caption-viewport">
+              <div class="hero-caption-pane is-show" data-pane="0">
+                <em class="hero-cap-t">概览页</em>
+                <span class="hero-cap-s">统计与快捷操作</span>
+              </div>
+              <div class="hero-caption-pane is-prep-right" data-pane="1" aria-hidden="true">
+                <em class="hero-cap-t"></em>
+                <span class="hero-cap-s"></span>
+              </div>
+            </div>
+          </div>
+          <div class="hero-dock" role="tablist" aria-label="切换界面预览">
+            <button type="button" class="hero-dock-tab is-on" data-hero="0" role="tab" aria-selected="true">
+              <span class="hero-dock-t">概览</span>
+              <i class="hero-dock-meter" aria-hidden="true"></i>
+            </button>
+            <button type="button" class="hero-dock-tab" data-hero="1" role="tab">
+              <span class="hero-dock-t">数据源</span>
+              <i class="hero-dock-meter" aria-hidden="true"></i>
+            </button>
+            <button type="button" class="hero-dock-tab" data-hero="2" role="tab">
+              <span class="hero-dock-t">活动</span>
+              <i class="hero-dock-meter" aria-hidden="true"></i>
+            </button>
+            <button type="button" class="hero-dock-tab" data-hero="3" role="tab">
+              <span class="hero-dock-t">参加</span>
+              <i class="hero-dock-meter" aria-hidden="true"></i>
+            </button>
           </div>
         </div>
-        <div class="hero-bar">
-          <button type="button" class="icon-btn" id="hero-prev" aria-label="上一张">←</button>
-          <div class="hero-dots" id="hero-dots" role="tablist"></div>
-          <button type="button" class="icon-btn" id="hero-next" aria-label="下一张">→</button>
-          <p class="hero-cap" id="hero-cap">概览页 · 统计 / 快捷操作</p>
-        </div>
       </div>
+      </div>
+    </section>
 
-      <div class="stat-row" data-in>
-        <div class="stat"><b data-count="2000">0</b><span>活动可管理</span></div>
-        <div class="stat"><b>7</b><span>数据源通道</span></div>
-        <div class="stat"><b>6</b><span>核心界面</span></div>
-        <div class="stat"><b>0</b><span>云端上传 Cookie</span></div>
-      </div>
+    <section class="hero-after" aria-label="产品价值">
+      <ul class="hero-outcomes">
+        <li>
+          <span class="hero-out-en">Auto-discover activities</span>
+          <span class="hero-out-zh">自动找活动</span>
+        </li>
+        <li>
+          <span class="hero-out-en">Join activities yourself</span>
+          <span class="hero-out-zh">自己参加活动</span>
+        </li>
+        <li>
+          <span class="hero-out-en">One-click any activity type</span>
+          <span class="hero-out-zh">一键参与任何类型活动</span>
+        </li>
+        <li>
+          <span class="hero-out-en">Data stays on this device</span>
+          <span class="hero-out-zh">数据状态只存本机</span>
+        </li>
+      </ul>
     </section>
 
     <div class="marquee" aria-hidden="true">
-      <div class="marquee-track">
-        <span>概览</span><span>活动</span><span>三连参与</span><span>UP 合集</span><span>监控用户</span><span>定时监视器</span><span>夜间模式</span>
-        <span>概览</span><span>活动</span><span>三连参与</span><span>UP 合集</span><span>监控用户</span><span>定时监视器</span><span>夜间模式</span>
+      <div class="marquee-viewport">
+        <div class="marquee-track">
+          <div class="marquee-set">
+            <span>少翻合集</span><span>活动自动发现</span><span>一键参与</span><span>定时挂着点</span><span>本机运行不上传</span><span>合集与动态双源</span>
+          </div>
+          <div class="marquee-set" aria-hidden="true">
+            <span>少翻合集</span><span>活动自动发现</span><span>一键参与</span><span>定时挂着点</span><span>本机运行不上传</span><span>合集与动态双源</span>
+          </div>
+        </div>
       </div>
     </div>
 
-    <!-- TOUR: full-width sharp screenshot on top -->
-    <section class="tour" id="tour">
-      <div class="wrap wrap-wide">
-        <header class="sec-head" data-in>
-          <p class="eyebrow">Interactive Tour</p>
-          <h2>六个界面，把抽奖流程看清楚</h2>
-          <p>自动播放 · 点标签 / 热点 · 键盘 ← →。每张都是真实控制台截图。</p>
-        </header>
-
-        <div class="tour-board" id="tour-board">
-          <div class="tour-tabs" role="tablist">
-            <button type="button" class="tour-tab is-on" data-tour="0" role="tab">01 概览</button>
-            <button type="button" class="tour-tab" data-tour="1" role="tab">02 活动</button>
-            <button type="button" class="tour-tab" data-tour="2" role="tab">03 数据源</button>
-            <button type="button" class="tour-tab" data-tour="3" role="tab">04 监控</button>
-            <button type="button" class="tour-tab" data-tour="4" role="tab">05 定时</button>
-            <button type="button" class="tour-tab" data-tour="5" role="tab">06 夜间</button>
-          </div>
-          <div class="tour-meter"><i id="tour-meter"></i></div>
-
-          <figure class="shot" id="tour-shot">
-            <div class="shot-chrome"><span></span><span></span><span></span><em id="tour-url">本地控制台 · 概览</em></div>
-            <div class="shot-body" id="shot-body">
-              <img id="tour-img" src="./images/overview.png" alt="概览页" width="2552" height="1308" decoding="async">
-              <div class="hots" id="tour-hots"></div>
-            </div>
-            <div class="shot-tip" id="tour-tip" hidden></div>
-          </figure>
-
-          <div class="tour-foot">
-            <div class="tour-side">
-              <p class="tour-n" id="tour-n">01 / 06</p>
-              <h3 id="tour-title">概览页</h3>
-              <p id="tour-desc">打开软件第一站：登录态、LLM、活动统计与快捷操作一眼看清。</p>
-            </div>
-            <ul id="tour-points">
-              <li>账号卡片：关注 / 动态 / 私信 / @</li>
-              <li>六宫格统计实时汇总</li>
-              <li>参与文案可自定义或随机</li>
-            </ul>
-            <div class="tour-acts">
-              <button type="button" class="btn btn-ghost-dark" id="tour-prev">←</button>
-              <button type="button" class="btn btn-fill" id="tour-next">下一张 →</button>
-              <button type="button" class="btn btn-ghost-dark" id="tour-play" aria-pressed="true">⏸</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- WHY -->
+    <!-- WHY · 3-col editorial · homepage-matched atmos · calm hover -->
     <section class="why" id="why">
-      <div class="wrap">
-        <header class="sec-head light" data-in>
-          <p class="eyebrow">Why Binggo</p>
-          <h2>为什么值得打开看看</h2>
+      <div class="why-atmos" aria-hidden="true">
+        <i class="why-atmos-grid"></i>
+      </div>
+      <div class="wrap wrap-wide">
+        <header class="why-head" data-in>
+          <p class="why-kicker">01 · 能力</p>
+          <h2>
+            <span class="why-line">抽奖不该耗掉你整晚</span>
+            <span class="why-line"><em class="why-brand">Binggo</em> 帮你扛</span>
+          </h2>
         </header>
 
-        <div class="bento">
-          <article class="tile tile-lg" data-in data-tilt>
-            <div class="tile-copy">
-              <span>发现</span>
-              <h3>双通道自动找活动</h3>
-              <p>UP 合集增量同步 + 监控用户转发补漏，不用自己翻合集刷动态。</p>
-              <button type="button" class="linkish" data-jump="2">去看数据源 →</button>
-            </div>
-            <img src="./images/sources.png" alt="数据源" loading="lazy">
-          </article>
+        <div class="why-block" data-in>
+          <p class="why-band">主能力</p>
+          <div class="why-grid why-grid-lead">
+            <article class="why-item" tabindex="0">
+              <p class="why-mark" aria-hidden="true">I</p>
+              <h3>自动找活动</h3>
+              <p class="why-sum">Binggo 会从合集增量同步并靠监控名单补上转发漏网，把进行中的抽奖先收进活动库，省掉你自己翻合集、刷动态去挖的功夫。</p>
+            </article>
+            <article class="why-item" tabindex="0">
+              <p class="why-mark" aria-hidden="true">II</p>
+              <h3>一键 / 三连</h3>
+              <p class="why-sum">互动、转发、预约都在同一张列表里点完，三连还能一次带走多条未参加，让 Binggo 把「一条条点」收成「一次点完」。</p>
+            </article>
+            <article class="why-item" tabindex="0">
+              <p class="why-mark" aria-hidden="true">III</p>
+              <h3>自动参与</h3>
+              <p class="why-sum">到点后 Binggo 会去点你指定的参与入口，把更新、筛选、参与串成一条线，不必你一直盯着屏幕等倒计时。</p>
+            </article>
+          </div>
+        </div>
 
-          <article class="tile" data-in data-tilt>
-            <span>参与</span>
-            <h3>一键 / 三连</h3>
-            <p>互动、转发、预约。三连一次清多条未参加。</p>
-            <button type="button" class="linkish" data-jump="1">去看活动页 →</button>
-            <img class="tile-mini" src="./images/activities.png" alt="" loading="lazy">
-          </article>
-
-          <article class="tile" data-in data-tilt>
-            <span>节奏</span>
-            <h3>定时点击监视器</h3>
-            <p>倒计时到点自动跑。撞车即停，不搅局。</p>
-            <button type="button" class="linkish" data-jump="4">去看监视器 →</button>
-            <img class="tile-mini" src="./images/scheduler.png" alt="" loading="lazy">
-          </article>
-
-          <article class="tile tile-wide" data-in data-tilt>
-            <div class="tile-copy">
-              <span>隐私</span>
-              <h3>数据只在本机</h3>
-              <p>绑定 127.0.0.1。Cookie、活动库不上传。日间 / 夜间一键切换。</p>
-            </div>
-            <div class="duo">
-              <button type="button" data-jump="0"><img src="./images/overview.png" alt="日间"><em>日间</em></button>
-              <button type="button" data-jump="5"><img src="./images/night.png" alt="夜间"><em>夜间</em></button>
-            </div>
-          </article>
+        <div class="why-block why-block-more" data-in>
+          <p class="why-band">更多能力</p>
+          <div class="why-grid">
+            <article class="why-item" tabindex="0">
+              <p class="why-mark" aria-hidden="true">IV</p>
+              <h3>定时点击</h3>
+              <p class="why-sum">开奖前或预约节点，Binggo 到点自动点控制台按钮；若已有任务在跑则撞车即停，不会打断进行中的流程。</p>
+            </article>
+            <article class="why-item" tabindex="0">
+              <p class="why-mark" aria-hidden="true">V</p>
+              <h3>只存本机</h3>
+              <p class="why-sum">Binggo 控制台只响应本机 127.0.0.1，Cookie 与活动库都留在你电脑上，不往云端同步。</p>
+            </article>
+            <article class="why-item" tabindex="0">
+              <p class="why-mark" aria-hidden="true">VI</p>
+              <h3>夜间模式</h3>
+              <p class="why-sum">侧栏一键切换亮暗主题，Binggo 会把偏好记在本机，夜里长刷活动库时眼睛更轻松。</p>
+            </article>
+          </div>
         </div>
       </div>
     </section>
 
-    <!-- START -->
-    <section class="start" id="start">
-      <div class="wrap start-layout">
-        <header class="sec-head" data-in>
-          <p class="eyebrow">Get started</p>
-          <h2>三步就能用上</h2>
-          <p>不用会编程。下载安装包，像装普通软件一样。</p>
+    <!-- TOUR · editorial split · sharp full-page shots · rise-from-under -->
+    <section class="tour" id="tour">
+      <div class="wrap wrap-wide tour-shell">
+        <div class="tour-split" data-in>
+          <aside class="tour-copy" id="tour-copy">
+            <p class="tour-kicker">02 · 界面导览</p>
+            <p class="tour-num" id="tour-num" aria-hidden="true">I</p>
+            <div class="tour-story" id="tour-story">
+              <h2 id="tour-title">打开就看清全局</h2>
+              <p class="tour-lede" id="tour-desc">登录态、活动统计与快捷操作同屏铺开，你先确认账号是否就绪，再决定今天更新监控、刷新状态，还是走进活动列表</p>
+            </div>
+
+            <div class="tour-rail" role="tablist" aria-label="切换界面">
+              <button type="button" class="tour-rail-item is-on" role="tab" aria-selected="true" data-tour-scene="0">
+                <b>I</b>
+                <span>
+                  <em>概览</em>
+                  <small>先对齐登录与统计，确认本机就绪，再决定更新还是参与</small>
+                </span>
+                <i class="tour-rail-meter" aria-hidden="true"></i>
+                <i class="tour-rail-tail" aria-hidden="true"></i>
+              </button>
+              <button type="button" class="tour-rail-item" role="tab" aria-selected="false" data-tour-scene="1">
+                <b>II</b>
+                <span>
+                  <em>数据源</em>
+                  <small>把常转抽奖的 UP 放进名单，用动态窗口补上合集漏掉的新活动</small>
+                </span>
+                <i class="tour-rail-meter" aria-hidden="true"></i>
+                <i class="tour-rail-tail" aria-hidden="true"></i>
+              </button>
+              <button type="button" class="tour-rail-item" role="tab" aria-selected="false" data-tour-scene="2">
+                <b>III</b>
+                <span>
+                  <em>活动</em>
+                  <small>按类型与状态收窄列表后，单条参与或三连一次清掉最前面几条</small>
+                </span>
+                <i class="tour-rail-meter" aria-hidden="true"></i>
+                <i class="tour-rail-tail" aria-hidden="true"></i>
+              </button>
+              <button type="button" class="tour-rail-item" role="tab" aria-selected="false" data-tour-scene="3">
+                <b>IV</b>
+                <span>
+                  <em>参加活动</em>
+                  <small>三连进度、定时点击与任务日志同屏，跑到哪一步一眼清楚</small>
+                </span>
+                <i class="tour-rail-meter" aria-hidden="true"></i>
+                <i class="tour-rail-tail" aria-hidden="true"></i>
+              </button>
+            </div>
+          </aside>
+
+          <div class="tour-stage" id="tour-stage">
+            <div class="tour-device" id="tour-device">
+              <div class="tour-device-head">
+                <p class="tour-device-label" id="tour-frame-label" aria-live="polite">
+                  <em id="tour-frame-title">概览</em>
+                  <span id="tour-frame-sub">统计与快捷操作</span>
+                </p>
+                <div class="tour-device-track" aria-hidden="true">
+                  <i class="tour-device-meter" id="tour-device-meter"></i>
+                </div>
+              </div>
+              <div class="tour-scene" id="tour-viewport" data-dir="1">
+                <div class="tour-flight" id="tour-flight">
+              <figure class="tour-slide is-overview is-active" data-tour-slide="0">
+                <div class="tour-slide-inner">
+                  <img src="./images/tour-overview.png?v=20260730c" alt="概览页" width="2170" height="1310" decoding="async">
+                </div>
+              </figure>
+              <figure class="tour-slide" data-tour-slide="1">
+                <div class="tour-slide-inner">
+                  <img src="./images/tour-sources.png?v=20260730c" alt="数据源" width="2170" height="1310" decoding="async">
+                </div>
+              </figure>
+              <figure class="tour-slide" data-tour-slide="2">
+                <div class="tour-slide-inner">
+                  <img src="./images/tour-activities.png?v=20260730c" alt="活动列表" width="2170" height="1310" decoding="async">
+                </div>
+              </figure>
+              <figure class="tour-slide" data-tour-slide="3">
+                <div class="tour-slide-inner">
+                  <img src="./images/tour-participate.png?v=20260730c" alt="参加活动" width="2170" height="1311" decoding="async">
+                </div>
+              </figure>
+                </div>
+                <i class="tour-scene-edge" aria-hidden="true"></i>
+              </div>
+            <i class="tour-device-glow" aria-hidden="true"></i>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- START · Long Document manual -->
+    <section class="start" id="start" aria-labelledby="start-title">
+      <div class="wrap wrap-wide start-manual">
+        <header class="start-head" data-in>
+          <p class="start-kicker">03 · 上手</p>
+          <h2 id="start-title">从下载到第一次参与</h2>
+          <p class="start-lede">不用会编程。请从第 1 章按顺序往下做；全部在本机完成，账号与数据不会上传到网上。装好后若活动列表是空的，先别慌，登录并更新数据源后就会出现。</p>
         </header>
 
         <div class="start-body" data-in>
-          <div class="start-preview">
-            <img id="start-img" src="./images/overview.png" alt="上手预览">
+        <nav class="start-rail" aria-label="上手目录">
+          <a class="start-rail-link is-current" href="#start-download" data-start-chapter="start-download">
+            <b>I</b>
+            <span><em>下载安装包</em></span>
+          </a>
+          <a class="start-rail-link" href="#start-install" data-start-chapter="start-install">
+            <b>II</b>
+            <span><em>安装并打开</em></span>
+          </a>
+          <a class="start-rail-link" href="#start-login" data-start-chapter="start-login">
+            <b>III</b>
+            <span><em>扫码登录</em></span>
+          </a>
+          <a class="start-rail-link" href="#start-llm" data-start-chapter="start-llm">
+            <b>IV</b>
+            <span><em>配置 LLM</em></span>
+          </a>
+          <a class="start-rail-link" href="#start-daily" data-start-chapter="start-daily">
+            <b>V</b>
+            <span><em>日常如何使用</em></span>
+          </a>
+        </nav>
+
+        <div class="start-main">
+        <div class="start-article">
+          <article class="start-chapter" id="start-download">
+            <h3>1 · 下载安装包</h3>
+            <p class="start-ch-intro"><a class="start-inline-cta" href="https://github.com/luovicter-collab/bilibinggo/releases/latest" target="_blank" rel="noopener">打开最新 Release</a>，在页面下方「Assets」里选和你系统一致的文件下载（和平时下软件一样）。</p>
+            <div class="start-spec-wrap">
+              <table class="start-spec">
+                <caption class="visually-hidden">各平台安装包</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">系统</th>
+                    <th scope="col">文件</th>
+                    <th scope="col">说明</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <th scope="row">Windows</th>
+                    <td><code class="start-code">Binggo-Setup-win64.exe</code></td>
+                    <td>安装版，推荐</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Windows</th>
+                    <td><code class="start-code">Binggo-Portable-win64.zip</code></td>
+                    <td>解压后双击主程序</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">macOS</th>
+                    <td><code class="start-code">Binggo-macOS-arm64.dmg</code></td>
+                    <td>拖到「应用程序」</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">macOS</th>
+                    <td><code class="start-code">Binggo-macOS-arm64.zip</code></td>
+                    <td>解压后启动</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </article>
+
+          <article class="start-chapter" id="start-install">
+            <h3>2 · 安装并打开</h3>
+            <p class="start-ch-intro">安装或解压后启动 Binggo，一般会<strong>自动打开浏览器</strong>进入控制台。控制台在本机占用端口 <strong>8181</strong>（地址 <code class="start-code">http://127.0.0.1:8181</code>，只监听本机，不会暴露到局域网）。若浏览器没自动打开，请手动在地址栏输入该地址后回车。</p>
+            <ol class="start-steps">
+              <li><strong>Windows 安装版：</strong>双击 exe → 允许安装 → 从开始菜单或桌面打开 Binggo。</li>
+              <li><strong>Windows 便携版：</strong>解压 zip → 进入文件夹 → 双击带 Binggo 字样的主程序。</li>
+              <li><strong>macOS：</strong>从 dmg 拖入「应用程序」后打开；若被拦截，<strong>右键图标 → 打开</strong>（仅首次）。</li>
+              <li><strong>SmartScreen 提示：</strong>选「更多信息」→「仍要运行」（未签名软件的常见提示）。</li>
+            </ol>
+          </article>
+
+          <article class="start-chapter" id="start-login">
+            <h3>3 · 扫码登录</h3>
+            <p class="start-ch-intro">在控制台<strong>左侧边栏最下方</strong>点「扫码登录」，用手机哔哩哔哩扫一扫并确认；再到「概览」看是否出现昵称与头像。此处不用输入密码，Cookie 只保存在本机。登录后「活动」可能仍为空，在第 5 步更新数据源后才会有列表。</p>
+          </article>
+
+          <article class="start-chapter" id="start-llm">
+            <h3>4 · 配置 LLM</h3>
+            <p class="start-ch-intro">登录后需要完成 LLM 配置并<strong>测试通过</strong>，才能正常使用更新、参与等功能（解析转发抽奖正文也依赖它）。在「概览」打开「LLM 配置」，依次填写下面三项 → 点「测试」→ 再「保存」。</p>
+            <ol class="start-steps">
+              <li><strong>API Key：</strong>你的模型服务商提供的密钥（只保存在本机）。</li>
+              <li><strong>接口地址：</strong>兼容 OpenAI 格式的 API 根地址，按服务商文档填写。</li>
+              <li><strong>模型名称：</strong>填你要调用的模型 ID。这里只做抽奖正文解析，<strong>便宜的文本模型</strong>就够用（例如 <strong>DeepSeek-V4-Flash</strong>）。</li>
+            </ol>
+          </article>
+
+          <article class="start-chapter" id="start-daily">
+            <h3>5 · 日常如何使用</h3>
+            <p class="start-ch-intro">建议顺序：<strong>数据源拉活动 → 活动页参与 → 可选开启定时调度 → 用任务日志盯进度</strong>。</p>
+            <p class="start-band">UP 合集</p>
+            <ol class="start-steps">
+              <li>左侧进「数据源」上半部分，内置多个 UP 抽奖合集专栏。</li>
+              <li>可以点<strong>一键更新活动链接</strong>一次更新全部合集；日常更建议对需要的源逐个点<strong>更新此源</strong>，更稳、不易触发限流。</li>
+            </ol>
+            <p class="start-band">监控用户动态</p>
+            <ol class="start-steps">
+              <li>下半部分用于关注<strong>常参与活动、会转发抽奖</strong>的 UP，补上合集没收录的动态。</li>
+              <li>在用户空间页打开目标 UP，从浏览器<strong>地址栏链接</strong>里摘取那串数字 <strong>MID</strong>，填入名单后点「更新监控用户动态」。</li>
+            </ol>
+            <p class="start-band">活动</p>
+            <ol class="start-steps">
+              <li>左侧进「活动」，按类型/状态筛选或搜奖品名。</li>
+              <li>单条点「参与」，或筛「未参加」后点顶部<strong>三连参与</strong>（最多 3 条）。充电抽奖会自动跳过。</li>
+            </ol>
+            <p class="start-band">参与文案</p>
+            <ol class="start-steps">
+              <li>在「概览」设置<strong>参与文案</strong>：固定句子，或「随机借用评论」（不足时用兜底文案）。</li>
+            </ol>
+            <p class="start-band">定时调度</p>
+            <ol class="start-steps">
+              <li>点右下角<strong>定时点击</strong>面板，按说明<strong>启动调度</strong>（不用时可停止）。</li>
+              <li>调度只会自动点这四类操作：「一键更新活动链接」「更新监控用户动态」「刷新任务状态」「三连参与」。</li>
+              <li><strong>更新类</strong>在每天 <strong>0、3、6、9、12、15、18、21 点</strong>整点批次触发；<strong>三连参与</strong>在每小时 <strong>5、10、15…55 分</strong>（每 5 分钟）尝试触发。</li>
+              <li>若到点时控制台里已有别的任务在跑（<strong>撞车</strong>），调度会<strong>自动停机</strong>，但<strong>不会取消</strong>正在执行的那次抽奖任务。</li>
+            </ol>
+            <p class="start-band">任务日志</p>
+            <ol class="start-steps">
+              <li>右下角<strong>任务日志</strong>查看当前任务输出；出错时可对照最后几行排查。</li>
+            </ol>
+            <p class="start-note">「刷新任务状态」只更新已有活动的参加/开奖结果，不会拉取新活动。</p>
+          </article>
+
+          <footer class="start-more">
+            <p>更细的页面说明见 <a href="https://github.com/luovicter-collab/bilibinggo/blob/main/docs/console.md" target="_blank" rel="noopener">控制台使用指南（console.md）</a>。</p>
+          </footer>
+        </div>
+        </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="blast" id="blast" aria-labelledby="blast-title">
+      <div class="wrap wrap-wide blast-shell">
+        <div class="blast-split">
+          <header class="blast-copy" data-in>
+            <div class="blast-manifest">
+              <p class="blast-eyebrow">Binggo</p>
+              <h2 id="blast-title" class="blast-headline">
+                <span class="blast-hook">停下翻合集的手</span>
+                <span class="blast-hero">
+                  <span class="blast-hero-line">把时间留给</span>
+                  <span class="blast-hero-line blast-hero-line--accent">真正想要的奖品</span>
+                </span>
+              </h2>
+              <p class="blast-tagline">不用翻合集找抽奖，B站活动自动发现收录，一键参与，到点定时帮你点。</p>
+            </div>
+          </header>
+          <aside class="blast-stage" data-in>
+            <nav class="blast-rail" id="blast-rail" aria-label="下载与联系">
+              <a
+                class="blast-rail-link is-active"
+                data-magnet
+                href="https://github.com/luovicter-collab/bilibinggo/releases/latest"
+                target="_blank"
+                rel="noopener"
+              >
+                <b aria-hidden="true">I</b>
+                <span>
+                  <em>立即下载</em>
+                  <small>Windows · macOS 安装包</small>
+                </span>
+                <i class="blast-rail-tail" aria-hidden="true"></i>
+              </a>
+              <a
+                class="blast-rail-link"
+                data-magnet
+                href="https://github.com/luovicter-collab/bilibinggo"
+                target="_blank"
+                rel="noopener"
+              >
+                <b aria-hidden="true">II</b>
+                <span>
+                  <em>项目仓库</em>
+                  <small>源码、文档与 Star</small>
+                </span>
+                <i class="blast-rail-tail" aria-hidden="true"></i>
+              </a>
+              <a
+                class="blast-rail-link"
+                data-magnet
+                href="https://github.com/luovicter-collab/bilibinggo/issues/new?title=%5B反馈%5D%20"
+                target="_blank"
+                rel="noopener"
+              >
+                <b aria-hidden="true">III</b>
+                <span>
+                  <em>提交反馈</em>
+                  <small>Bug 与建议走 Issue</small>
+                </span>
+                <i class="blast-rail-tail" aria-hidden="true"></i>
+              </a>
+              <div
+                class="blast-rail-link blast-rail-link--static"
+                id="blast-contact"
+                tabindex="0"
+              >
+                <b aria-hidden="true">IV</b>
+                <span>
+                  <em>联系我</em>
+                  <small>victerrrrr@163.com</small>
+                </span>
+                <i class="blast-rail-tail" aria-hidden="true"></i>
+              </div>
+            </nav>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <section class="faq" id="faq" aria-labelledby="faq-title">
+      <div class="wrap faq-shell">
+        <header class="faq-head" data-in>
+          <p class="faq-kicker">05 · 问答</p>
+          <div class="faq-head-row">
+            <h2 id="faq-title">常见问题</h2>
+            <a class="faq-cta-btn" href="#start">打开上手教程</a>
           </div>
-          <ol class="ladder">
-            <li>
-              <button type="button" class="rung is-on" data-step="0" data-img="./images/overview.png">
-                <b>01</b>
-                <div>
-                  <strong>下载安装</strong>
-                  <span>Windows Setup / Portable，或 macOS DMG</span>
+        </header>
+
+        <div class="faq-body" data-in>
+          <section class="faq-group" aria-labelledby="faq-gate-1">
+            <h3 class="faq-group-title" id="faq-gate-1">上手与设备</h3>
+            <div class="faq-list">
+              <div class="faq-item is-open">
+                <button type="button" class="faq-trigger" aria-expanded="true">
+                  <span class="faq-n" aria-hidden="true">01</span>
+                  <span class="faq-q">需要会编程或敲命令吗？</span>
+                  <span class="faq-chevron" aria-hidden="true"></span>
+                </button>
+                <div class="faq-answer">
+                  <p>不需要。下载 Windows 或 macOS 安装包，按页面「上手」从第 1 章往下做即可。只有你自己改源码、跑开发环境时才需要 Python。</p>
                 </div>
-              </button>
-            </li>
-            <li>
-              <button type="button" class="rung" data-step="1" data-img="./images/overview.png">
-                <b>02</b>
-                <div>
-                  <strong>扫码登录</strong>
-                  <span>侧栏「扫码登录」，手机哔哩哔哩确认</span>
+              </div>
+              <div class="faq-item">
+                <button type="button" class="faq-trigger" aria-expanded="false">
+                  <span class="faq-n" aria-hidden="true">02</span>
+                  <span class="faq-q">支持哪些电脑？</span>
+                  <span class="faq-chevron" aria-hidden="true"></span>
+                </button>
+                <div class="faq-answer" hidden>
+                  <p>Release 提供 Windows（安装包与便携 zip）和 macOS Apple Silicon（arm64）的 dmg / zip。Intel Mac 请查看仓库说明，或自行用源码运行。</p>
                 </div>
-              </button>
-            </li>
-            <li>
-              <button type="button" class="rung" data-step="2" data-img="./images/activities.png">
-                <b>03</b>
-                <div>
-                  <strong>更新并参与</strong>
-                  <span>数据源「更新此源」→ 活动页一键 / 三连</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="faq-group" aria-labelledby="faq-gate-2">
+            <h3 class="faq-group-title" id="faq-gate-2">账号与数据</h3>
+            <div class="faq-list">
+              <div class="faq-item">
+                <button type="button" class="faq-trigger" aria-expanded="false">
+                  <span class="faq-n" aria-hidden="true">03</span>
+                  <span class="faq-q">Binggo 是哔哩哔哩官方的吗？</span>
+                  <span class="faq-chevron" aria-hidden="true"></span>
+                </button>
+                <div class="faq-answer" hidden>
+                  <p>不是。Binggo 是社区开源工具，与 B 站无任何合作关系；是否使用、使用频率请自行判断并遵守平台规则。</p>
                 </div>
-              </button>
-            </li>
-          </ol>
+              </div>
+              <div class="faq-item">
+                <button type="button" class="faq-trigger" aria-expanded="false">
+                  <span class="faq-n" aria-hidden="true">04</span>
+                  <span class="faq-q">Cookie 和 LLM 密钥会上传吗？</span>
+                  <span class="faq-chevron" aria-hidden="true"></span>
+                </button>
+                <div class="faq-answer" hidden>
+                  <p>不会上传到项目方服务器。控制台只在本机监听（开发环境 127.0.0.1:8787，安装包一般为 8181），Cookie 与 <code>llm.env</code> 写在电脑本地数据目录。</p>
+                </div>
+              </div>
+              <div class="faq-item">
+                <button type="button" class="faq-trigger" aria-expanded="false">
+                  <span class="faq-n" aria-hidden="true">05</span>
+                  <span class="faq-q">换了 B 站账号，参与记录会乱吗？</span>
+                  <span class="faq-chevron" aria-hidden="true"></span>
+                </button>
+                <div class="faq-answer" hidden>
+                  <p>不会混在一起。参与记录按登录 UID 分目录保存，换号后读取的是新账号对应的数据。</p>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="faq-group" aria-labelledby="faq-gate-3">
+            <h3 class="faq-group-title" id="faq-gate-3">列表与配置</h3>
+            <div class="faq-list">
+              <div class="faq-item">
+                <button type="button" class="faq-trigger" aria-expanded="false">
+                  <span class="faq-n" aria-hidden="true">06</span>
+                  <span class="faq-q">活动列表为什么是空的？</span>
+                  <span class="faq-chevron" aria-hidden="true"></span>
+                </button>
+                <div class="faq-answer" hidden>
+                  <p>常见原因是还没登录，或还没拉过数据源。先扫码登录，再在「数据源」对某个来源点「更新此源」，或执行「一键更新」。</p>
+                </div>
+              </div>
+              <div class="faq-item">
+                <button type="button" class="faq-trigger" aria-expanded="false">
+                  <span class="faq-n" aria-hidden="true">07</span>
+                  <span class="faq-q">一定要配置 LLM 吗？</span>
+                  <span class="faq-chevron" aria-hidden="true"></span>
+                </button>
+                <div class="faq-answer" hidden>
+                  <p>解析<strong>转发抽奖</strong>动态时需要模型读正文；互动、预约类走 B 站官方接口，不消耗 LLM。控制台要求 LLM 测试通过后才能正常使用更新、参与等功能。</p>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="faq-group" aria-labelledby="faq-gate-4">
+            <h3 class="faq-group-title" id="faq-gate-4">参与与预期</h3>
+            <div class="faq-list">
+              <div class="faq-item">
+                <button type="button" class="faq-trigger" aria-expanded="false">
+                  <span class="faq-n" aria-hidden="true">08</span>
+                  <span class="faq-q">能保证中奖吗？</span>
+                  <span class="faq-chevron" aria-hidden="true"></span>
+                </button>
+                <div class="faq-answer" hidden>
+                  <p>不能。Binggo 帮你发现活动、减少重复翻页和点击；是否中奖仍取决于 UP 主规则与平台判定。</p>
+                </div>
+              </div>
+              <div class="faq-item">
+                <button type="button" class="faq-trigger" aria-expanded="false">
+                  <span class="faq-n" aria-hidden="true">09</span>
+                  <span class="faq-q">一直参加不了活动，获取活动一直失败怎么办？</span>
+                  <span class="faq-chevron" aria-hidden="true"></span>
+                </button>
+                <div class="faq-answer" hidden>
+                  <p>多为 Cookie 过期或 B 站风控。请在控制台重新扫码登录；若仍出现，先降低操作频率、避免短时间大量自动参与，再重试。</p>
+                </div>
+              </div>
+              <div class="faq-item">
+                <button type="button" class="faq-trigger" aria-expanded="false">
+                  <span class="faq-n" aria-hidden="true">10</span>
+                  <span class="faq-q">「定时点击」会自动做哪些事？</span>
+                  <span class="faq-chevron" aria-hidden="true"></span>
+                </button>
+                <div class="faq-answer" hidden>
+                  <p>只会在设定时间触发控制台里已有的几类操作：一键更新活动链接、更新监控用户动态、刷新任务状态、三连参与。不会修改密码或隐私设置。</p>
+                </div>
+              </div>
+            </div>
+          </section>
         </div>
       </div>
     </section>
 
-    <section class="blast">
-      <div class="blast-inner" data-in>
-        <h2>停下翻合集的手，<br>把时间留给真正想要的奖品。</h2>
-        <p>开源 · MIT · 不保证中奖，但保证少点很多下</p>
-        <div class="blast-cta">
-          <a class="btn btn-light btn-lg" data-magnet href="https://github.com/luovicter-collab/bilibinggo/releases/latest" target="_blank" rel="noopener">立即下载 <em>↓</em></a>
-          <a class="btn btn-ghost-light btn-lg" data-magnet href="https://github.com/luovicter-collab/bilibinggo" target="_blank" rel="noopener">GitHub Star</a>
-        </div>
-      </div>
-    </section>
-
-    <section class="faq" id="faq">
-      <div class="wrap faq-layout">
-        <h2 data-in>常见问题</h2>
-        <div class="faq-list" data-in>
-          <details open><summary>需要会编程吗？</summary><p>不需要。下载安装包即可。</p></details>
-          <details><summary>Cookie 会上传吗？</summary><p>不会。只存本机，控制台仅 127.0.0.1。</p></details>
-          <details><summary>活动列表为什么是空的？</summary><p>先登录，再在数据源点「更新此源」。</p></details>
-          <details><summary>一定要配 LLM 吗？</summary><p>仅转发抽奖需要；互动 / 预约可直接参与。</p></details>
-          <details><summary>能保证中奖吗？</summary><p>不能。Binggo 只帮你少找、少点。</p></details>
+    <section class="notice" id="notice" aria-labelledby="notice-title">
+      <div class="wrap notice-shell">
+        <header class="notice-head" data-in>
+          <p class="notice-kicker">06 · 注意</p>
+          <h2 id="notice-title">谨防「你已中奖」类诈骗</h2>
+        </header>
+        <div class="notice-body" data-in>
+          <article class="notice-panel">
+            <div class="notice-prose">
+              <p>在 B 站及相关平台，常见有人<strong>伪装成官方或「内部人员」</strong>，私信声称你已在某场抽奖中中奖，进而诱导你完成所谓任务、填写个人信息、预付邮费/保证金，或向指定账户转账。这类行为属于诈骗，与正常 UP 主发起的抽奖流程无关。</p>
+              <p>请牢记：<strong>真中奖一般以活动页规则、UP 主公开说明或 B 站站内通知为准</strong>，不会轻易通过私信让你先交钱、先扫码加群、或把验证码交给陌生人。凡是要求你先付款、先转账、先「解冻账户」的，都应直接拒绝并拉黑举报。</p>
+              <p class="notice-aside"><strong>与 Binggo 的关系：</strong>Binggo 是本地开源工具，不会以任何名义私信你「通知中奖」，也不会代收费用、代领奖品或索要你的支付密码。若有人冒用 Binggo、本仓库或作者名义行骗，<strong>与项目无关</strong>，请提高警惕并向平台举报，必要时保留证据向公安机关报案。</p>
+            </div>
+          </article>
         </div>
       </div>
     </section>
   </main>
 
-  <footer class="foot">
-    <div class="wrap foot-row">
-      <a class="nav-brand" href="#top" data-magnet>
-        <span class="brand-mark">B</span>
+  <footer class="foot" id="foot">
+    <div class="wrap foot-shell">
+      <a class="nav-brand foot-brand" href="#top" data-magnet>
+        <img class="brand-logo" src="./images/logo.svg?v=7" alt="" width="28" height="28" decoding="async">
         <span class="brand-name">Binggo</span>
       </a>
-      <div class="foot-links">
-        <a href="https://github.com/luovicter-collab/bilibinggo/releases/latest" target="_blank" rel="noopener">下载</a>
-        <a href="https://github.com/luovicter-collab/bilibinggo" target="_blank" rel="noopener">GitHub</a>
-        <a href="#tour">界面导览</a>
+      <div class="foot-end">
+        <p class="foot-lead">
+          欢迎提出反馈；若觉得做得不错，欢迎<a
+            class="foot-star-link"
+            href="https://github.com/luovicter-collab/bilibinggo"
+            target="_blank"
+            rel="noopener"
+          >给项目点一颗星</a>。
+        </p>
       </div>
-      <p>MIT · 非 B 站官方 · 数据在你电脑上</p>
     </div>
   </footer>
 
-  <script src="./landing.js?v=20260725s" defer></script>
+  <script src="./landing.js?v=20260801l" defer></script>
 </body>
 </html>

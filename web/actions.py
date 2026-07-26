@@ -35,6 +35,7 @@ from src.status_refresh import refresh_local_activity_statuses
 from web.activity_service import (
     PARTICIPATE_TRIPLE_LIMIT,
     build_triple_progress_plan,
+    build_triple_target_preview,
     invalidate_activity_cache,
     lookup_lottery_type,
     participate_step_budget,
@@ -845,11 +846,13 @@ def run_action(
             }
 
         logger.info("三连参与开始：%s", ", ".join(target_titles))
+        triple_target_items = build_triple_target_preview(targets)["items"]
         progress(
             step=0,
             total=total_steps,
             message=f"准备并行三连参与 {len(targets)} 个活动…",
             log_append="目标活动：" + "、".join(target_titles),
+            result_patch={"targets": triple_target_items},
         )
 
         progress_lock = threading.Lock()

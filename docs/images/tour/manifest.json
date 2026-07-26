@@ -1,0 +1,192 @@
+{
+  "version": 1,
+  "files": {
+    "watch-desktop-light.png": {
+      "chapter": "discover",
+      "label": "数据源 · 监控用户动态",
+      "role": "primary",
+      "width": 1024,
+      "height": 494,
+      "aspect": 2.073,
+      "luma": 243.2,
+      "theme_hint": "light",
+      "source": "c__Users_15745_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_image-b36842d3-3d75-4393-ba63-48455fe3f76a.png"
+    },
+    "watch-desktop-light-alt.png": {
+      "chapter": "discover",
+      "label": "数据源 · 监控名单（备选）",
+      "role": "alt",
+      "width": 1024,
+      "height": 494,
+      "aspect": 2.073,
+      "luma": 245.6,
+      "theme_hint": "light",
+      "source": "c__Users_15745_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_image-e43bc55a-2488-4dc7-94c4-4f7cd21341ae.png"
+    },
+    "sources-up-desktop-light.png": {
+      "chapter": "discover",
+      "label": "数据源 · UP 合集",
+      "role": "primary",
+      "width": 1024,
+      "height": 549,
+      "aspect": 1.865,
+      "luma": 249.4,
+      "theme_hint": "light",
+      "source": "c__Users_15745_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_image-d1b98751-47e3-4e8b-8113-8e5b5412f19f.png"
+    },
+    "activities-desktop-light.png": {
+      "chapter": "activities",
+      "label": "活动 · 列表与筛选",
+      "role": "primary",
+      "width": 1024,
+      "height": 601,
+      "aspect": 1.704,
+      "luma": 244.2,
+      "theme_hint": "light",
+      "source": "c__Users_15745_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_image-86884a10-a27c-4629-afbb-5692423207d7.png"
+    },
+    "triple-progress-desktop-light.png": {
+      "chapter": "activities",
+      "label": "三连参与 · 并行进度",
+      "role": "primary",
+      "width": 1024,
+      "height": 415,
+      "aspect": 2.467,
+      "luma": 239.2,
+      "theme_hint": "light",
+      "source": "c__Users_15745_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_image-3ef263ff-470f-47fc-a601-8049ceb7f6e8.png"
+    },
+    "scheduler-desktop-light.png": {
+      "chapter": "scheduler",
+      "label": "定时点击监视器（运行中）",
+      "role": "primary",
+      "width": 386,
+      "height": 711,
+      "aspect": 0.543,
+      "luma": 227.2,
+      "theme_hint": "light",
+      "source": "c__Users_15745_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_image-4a438e7e-faca-4fc1-9b5e-ffc68f87f522.png"
+    },
+    "overview-desktop-dark.png": {
+      "chapter": "overview",
+      "label": "概览 · 账号与统计（暗色）",
+      "role": "primary",
+      "width": 1024,
+      "height": 493,
+      "aspect": 2.077,
+      "luma": 34.9,
+      "theme_hint": "dark",
+      "source": "c__Users_15745_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_image-d6435268-5867-4a46-ade3-f3d4367a9ae7.png"
+    },
+    "watch-desktop-dark.png": {
+      "chapter": "discover",
+      "label": "监控用户（暗色）",
+      "role": "secondary",
+      "width": 1024,
+      "height": 492,
+      "aspect": 2.081,
+      "luma": 34.0,
+      "theme_hint": "dark",
+      "source": "c__Users_15745_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_image-0fab0ae2-77fa-466f-aa18-a100de011860.png"
+    },
+    "activities-desktop-dark.png": {
+      "chapter": "activities",
+      "label": "活动（暗色）",
+      "role": "secondary",
+      "width": 1024,
+      "height": 600,
+      "aspect": 1.707,
+      "luma": 29.7,
+      "theme_hint": "dark",
+      "source": "c__Users_15745_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_image-110ba870-a152-49f1-aa6a-069f8f47c7d5.png"
+    },
+    "scheduler-desktop-dark.png": {
+      "chapter": "scheduler",
+      "label": "定时点击（已停止 · 暗色）",
+      "role": "primary",
+      "width": 386,
+      "height": 714,
+      "aspect": 0.541,
+      "luma": 42.8,
+      "theme_hint": "dark",
+      "source": "c__Users_15745_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_image-40a24e61-44f3-4857-902a-466980c43c2a.png"
+    },
+    "triple-progress-desktop-dark.png": {
+      "chapter": "activities",
+      "label": "三连进度（暗色）",
+      "role": "secondary",
+      "width": 1024,
+      "height": 415,
+      "aspect": 2.467,
+      "luma": 42.3,
+      "theme_hint": "dark",
+      "source": "c__Users_15745_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_image-f2a8794b-74bd-401e-8c1f-77b342a329f6.png"
+    },
+    "overview-mobile-light.png": {
+      "chapter": "overview",
+      "label": "概览 · 账号卡片（亮色 · 窄屏）",
+      "role": "secondary",
+      "width": 483,
+      "height": 1024,
+      "aspect": 0.472,
+      "luma": 236.6,
+      "theme_hint": "light",
+      "source": "c__Users_15745_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_c62c982e447718b4af2e6c0f73cfec96-cfa3121d-08cf-43a4-bbb4-b70e9361f9ca.png"
+    },
+    "watch-mobile-light.png": {
+      "chapter": "discover",
+      "label": "监控（亮色 · 窄屏）",
+      "role": "secondary",
+      "width": 484,
+      "height": 1024,
+      "aspect": 0.473,
+      "luma": 237.0,
+      "theme_hint": "light",
+      "source": "c__Users_15745_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_33e6e0249cd9a2f2681278c7b3ab91da-250ed4c9-7ed9-4380-bc9e-e078486398cb.png"
+    },
+    "activities-triple-mobile-light.png": {
+      "chapter": "activities",
+      "label": "三连参与 · 快捷操作",
+      "role": "primary",
+      "width": 485,
+      "height": 1024,
+      "aspect": 0.474,
+      "luma": 236.0,
+      "theme_hint": "light",
+      "source": "c__Users_15745_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_da4b720d83108cebe8c4a9dbded97fb2-bc694c2f-2153-4363-8ca2-ae80e042cf5e.png"
+    },
+    "overview-mobile-dark.png": {
+      "chapter": "overview",
+      "label": "概览 · 账号卡片（暗色 · 窄屏）",
+      "role": "secondary",
+      "width": 483,
+      "height": 1024,
+      "aspect": 0.472,
+      "luma": 43.6,
+      "theme_hint": "dark",
+      "source": "c__Users_15745_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_b3420f75805f24a1cafe023d63d58b13-969298c7-762b-4de4-b866-d77fc18e4fb6.png"
+    },
+    "watch-mobile-dark.png": {
+      "chapter": "discover",
+      "label": "监控（暗色 · 窄屏）",
+      "role": "secondary",
+      "width": 483,
+      "height": 1024,
+      "aspect": 0.472,
+      "luma": 36.0,
+      "theme_hint": "dark",
+      "source": "c__Users_15745_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_2de8403587a149ab3c305309016ce053-a62f060c-7240-42ce-8ccb-b8e8fc2a803f.png"
+    },
+    "activities-triple-mobile-dark.png": {
+      "chapter": "activities",
+      "label": "三连参与（暗色 · 窄屏）",
+      "role": "secondary",
+      "width": 484,
+      "height": 1024,
+      "aspect": 0.473,
+      "luma": 33.8,
+      "theme_hint": "dark",
+      "source": "c__Users_15745_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_b71a8b5c3805abe7d97b95e298f0e82b-4e83456f-08ff-4d37-b2ce-a5e435c15d60.png"
+    }
+  }
+}

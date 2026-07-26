@@ -587,3 +587,19 @@ When photography is used (rare — mostly testimonials), avatars crop to perfect
 - Form validation states beyond `{component.text-input-focused}` are not extracted — error / success states would need a sign-up or feedback flow to confirm.
 - The actual Claude product surface (claude.ai chat interface) shares some tokens with the marketing site but adds many product-specific components (chat bubbles, message tools, file upload chips, conversation history sidebar) that are out of scope for this marketing-surface document.
 - The "agent" / "computer use" demo cards on certain pages display animated Claude controlling a browser — the static screenshot doesn't fully capture the animation chrome.
+
+---
+
+## Variant: Binggo marketing landing (`docs/`)
+
+Hallmark-locked system for the public homepage at `docs/`. When editing the landing page, prefer this variant over Anthropic-licensed Copernicus / StyreneB substitutes.
+
+- **Genre:** editorial
+- **Macrostructure (marketing):** Split product proof — left brand copy, right real UI carousel
+- **Display:** Playfair Display 700 (Latin brand) + Noto Serif SC (Chinese display)
+- **Body / UI:** Noto Sans SC
+- **Paper:** `#faf9f5` · **Ink:** `#141413` · **Accent:** `#cc785c` (≤ 5% per viewport)
+- **Nav:** single-row cream bar — wordmark · numbered centre links · GitHub / download (restored preferred chrome; Playfair + Noto type retained)
+- **Footer:** Ft2 inline single line
+- **Motion:** exponential ease-out only; hero-only entrance; no spring / bounce
+- **Hard bans on this page:** re-drawn browser chrome · section eyebrows · glassmorphism · purple gradients · invented metrics

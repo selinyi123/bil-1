@@ -10,11 +10,13 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12+-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 
+🌐 **[官方网站](https://luovicter-collab.github.io/bilibinggo/)** — 界面预览、上手说明与防诈提示
+
 ---
 
 ## 下载
 
-👉 **[最新 Release（推荐）](https://github.com/luovicter-collab/bilibinggo/releases/latest)**
+👉 **[最新 Release（推荐）](https://github.com/luovicter-collab/bilibinggo/releases/latest)** · **[官方网站](https://luovicter-collab.github.io/bilibinggo/)**
 
 | 平台 | 文件 | 说明 |
 |------|------|------|
@@ -80,6 +82,18 @@
 
 ---
 
+## 谨防「你已中奖」类诈骗
+
+在 B 站及相关平台，常见有人**伪装成官方或「内部人员」**，私信声称你已在某场抽奖中中奖，进而诱导你完成任务、填写个人信息、预付邮费/保证金，或向指定账户转账。这类行为属于诈骗，与正常 UP 主发起的抽奖流程无关。
+
+请牢记：**真中奖一般以活动页规则、UP 主公开说明或 B 站站内通知为准**，不会轻易通过私信让你先交钱、先扫码加群、或把验证码交给陌生人。凡是要求你先付款、先转账、先「解冻账户」的，都应直接拒绝并拉黑举报。
+
+**与 Binggo 的关系：** Binggo 是本地开源工具，不会以任何名义私信你「通知中奖」，也不会代收费用、代领奖品或索要支付密码。若有人冒用 Binggo、本仓库或作者名义行骗，**与项目无关**，请提高警惕并向平台举报，必要时保留证据向公安机关报案。
+
+完整说明见宣传站 [「注意」一节](https://luovicter-collab.github.io/bilibinggo/#notice)。
+
+---
+
 ## 常见问题
 
 **Cookie 会上传吗？**  
@@ -92,7 +106,7 @@ v5 起发行版不内置活动种子。扫码登录后，在数据源对 UP 合�
 只有 **转发抽奖** 需要（解析奖品与开奖时间）。互动 / 预约可直接参与。
 
 **Windows SmartScreen / macOS 打不开？**  
-安装包未做商业签名 / Apple 公证。Windows 选「仍要运行」；macOS 首次请 **右键 → 打开**。Intel Mac 请用源码运行。
+见下方 [安装说明](#安装说明)（未做商业签名 / Apple 公证时的处理方式）。
 
 **能保证中奖吗？**  
 不能。Binggo 是抽奖辅助工具，帮你省去找活动和重复点击的时间。
@@ -188,6 +202,13 @@ python scripts/export_state_seed.py
 ---
 
 ## 更新记录
+
+### v5.0.3（2026-07-26）
+
+- DS-7 大锦鲤活动参与支持
+- 预约抽奖增加关注步骤
+- LLM「测试连接」修复
+- 宣传站上线（[luovicter-collab.github.io/bilibinggo](https://luovicter-collab.github.io/bilibinggo/)）
 
 ### v5.0.2（2026-07-22）
 

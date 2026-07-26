@@ -464,8 +464,38 @@ export function participateProgressLabels(total) {
   return [...PARTICIPATE_STEP_LABELS];
 }
 
-export function findTripleTargetForLane(lane, job) {
-  const targets = job?.result?.targets || state.tripleTargets?.items || [];
+export function tripleTargetsForJob(job) {
+  const fromJob = job?.result?.targets;
+  if (Array.isArray(fromJob) && fromJob.length) return fromJob;
+  return state.tripleTargets?.items || [];
+}
+
+export function inferLotteryTypeFromLaneStatus(status) {
+  const text = String(status || "");
+  const stepMatch = text.match(/（\s*\d+\s*\/\s*(\d+)\s*）/);
+  if (stepMatch) {
+    const total = Number(stepMatch[1]);
+    if (total === 2) return "预约抽奖";
+    if (total === 5) return "互动抽奖";
+  }
+  if (/关注与预约|正在预约|预约（|关注（1\/2）|正在关注（1\/2）/.test(text)) {
+    return "预约抽奖";
+  }
+  return "";
+}
+
+export function resolveTripleLaneLotteryType(lane, job, laneIndex = -1) {
+  const target = findTripleTargetForLane(lane, job, laneIndex);
+  const fromTarget = String(target?.lottery_type || "").trim();
+  if (fromTarget) return fromTarget;
+  return inferLotteryTypeFromLaneStatus(lane?.status);
+}
+
+export function findTripleTargetForLane(lane, job, laneIndex = -1) {
+  const targets = tripleTargetsForJob(job);
+  if (laneIndex >= 0 && laneIndex < targets.length) {
+    return targets[laneIndex];
+  }
   const laneKey = String(lane?.idPart || "").trim();
   if (!laneKey) return null;
   return (
@@ -476,7 +506,8 @@ export function findTripleTargetForLane(lane, job) {
         title === laneKey ||
         dynamicId === laneKey ||
         dynamicId.endsWith(laneKey) ||
-        laneKey.endsWith(dynamicId.slice(-6))
+        laneKey.endsWith(dynamicId.slice(-6)) ||
+        (title && (laneKey.includes(title) || title.includes(laneKey)))
       );
     }) || null
   );
@@ -484,19 +515,27 @@ export function findTripleTargetForLane(lane, job) {
 
 export function participateActiveStepIndex(status, labelCount, labels = PARTICIPATE_STEP_LABELS) {
   const text = String(status || "");
+  const scopedLabels = labels.length ? labels : PARTICIPATE_STEP_LABELS.slice(0, labelCount);
   if (PARTICIPATE_DONE_KEYWORDS.some((keyword) => text.includes(keyword))) {
+    const reserveDone = scopedLabels.length === 2 && /关注与预约|预约.*完成|关注.*预约/.test(text);
+    if (reserveDone) return scopedLabels.length;
     return labelCount;
   }
   const match = text.match(/（\s*(\d+)\s*\/\s*(\d+)\s*）/);
   if (match) {
     const step = Number(match[1]);
-    if (step > 0) return Math.min(step - 1, Math.max(0, labelCount - 1));
+    const total = Number(match[2]);
+    if (total === 2 && scopedLabels.length === 2) {
+      if (step > 0) return Math.min(step - 1, 1);
+    } else if (step > 0) {
+      return Math.min(step - 1, Math.max(0, labelCount - 1));
+    }
   }
   if (PARTICIPATE_PENDING_KEYWORDS.some((keyword) => text.includes(keyword)) || text.includes("检查")) {
     return -1;
   }
-  for (let index = 0; index < labels.length; index += 1) {
-    if (text.includes(labels[index])) return Math.min(index, labelCount - 1);
+  for (let index = 0; index < scopedLabels.length; index += 1) {
+    if (text.includes(scopedLabels[index])) return Math.min(index, labelCount - 1);
   }
   return -1;
 }
@@ -825,8 +864,8 @@ export function renderTripleParticipateProgress(job) {
     <div class="triple-progress-stack">
       ${lanes
         .map((lane, index) => {
-          const target = findTripleTargetForLane(lane, job);
-          const lotteryType = target?.lottery_type || "";
+          const target = findTripleTargetForLane(lane, job, index);
+          const lotteryType = resolveTripleLaneLotteryType(lane, job, index);
           const labels = participateStepLabelsForType(lotteryType);
           const laneState = classifyLaneStatus(lane.status);
           const failed = laneState === "failed";

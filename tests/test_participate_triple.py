@@ -340,6 +340,47 @@ def test_run_action_participate_triple_uses_mixed_progress_budget() -> None:
     assert progress_totals[0] == 7
 
 
+def test_run_action_participate_triple_emits_targets_in_initial_progress() -> None:
+    targets = [
+        _row(_id(1), can_participate=True, lottery_type="预约抽奖"),
+        _row(_id(2), can_participate=True, lottery_type="互动抽奖"),
+    ]
+    progress_targets: list[list[dict]] = []
+
+    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None) -> dict:
+        on_step(1, 2 if dynamic_id == _id(1) else 5, "进行中", "follow")
+        return {
+            "dynamic_id": dynamic_id,
+            "status": "joined",
+            "message": "完成",
+            "actions": _reserve_actions() if dynamic_id == _id(1) else _interact_actions(),
+            "lottery_type": "预约抽奖" if dynamic_id == _id(1) else "互动抽奖",
+        }
+
+    def on_progress(**kwargs) -> None:
+        patch = kwargs.get("result_patch")
+        if isinstance(patch, dict) and patch.get("targets"):
+            progress_targets.append(list(patch["targets"]))
+
+    with (
+        patch("web.actions.pick_triple_participate_targets", return_value=targets),
+        patch("web.actions.resolve_participate_lottery_type", side_effect=lambda dynamic_id, **_: "预约抽奖" if dynamic_id == _id(1) else "互动抽奖"),
+        patch("web.actions.ensure_activity_participatable"),
+        patch("web.actions._execute_participate", side_effect=fake_execute),
+        patch("web.actions.invalidate_activity_cache"),
+        patch("web.actions.mark_enriched_joined"),
+        patch("web.actions.refresh_local_activity_statuses"),
+        patch("web.actions.BilibiliClient"),
+    ):
+        run_action("participate_triple", {}, on_progress=on_progress)
+
+    assert progress_targets
+    emitted = progress_targets[0]
+    assert len(emitted) == 2
+    assert emitted[0]["lottery_type"] == "预约抽奖"
+    assert emitted[1]["lottery_type"] == "互动抽奖"
+
+
 def test_run_action_participate_triple_requires_targets() -> None:
     with patch("web.actions.pick_triple_participate_targets", return_value=[]):
         payload = run_action("participate_triple", {})
