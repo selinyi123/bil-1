@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="docs/images/logo.svg" alt="Binggo" width="72" height="72">
+  <img src="docs/images/logo.svg" alt="Binggo · B站抽奖助手" width="72" height="72">
 </p>
 
 <h1 align="center">Binggo</h1>
 
 <p align="center">
-  <strong>本机 B 站抽奖助手 — 自动发现活动，一键 / 三连参与。</strong><br>
-  <em>Local Bilibili lottery helper — discover events and participate from your machine.</em>
+  <strong>开源本机 B 站抽奖助手 — 自动发现活动，一键 / 三连参与。</strong><br>
+  <em>Open-source local Bilibili lottery helper — discover events and participate from your machine.</em>
 </p>
 
 <p align="center">
@@ -27,7 +27,7 @@
 
 ## About · 项目简介
 
-**中文：** Binggo 在本机运行，从多个 UP 合集与监控用户动态增量发现 B 站抽奖活动，在网页控制台完成登录、更新、参与与定时调度。Cookie、活动库与参与记录仅保存在你的电脑上；控制台只监听 `127.0.0.1`。
+**中文：** **Binggo**（亦可作「哔哩哔哩 / B 站抽奖助手」）在本机运行，从多个 UP 合集与监控用户动态增量发现抽奖活动，在网页控制台完成登录、更新、参与与定时调度。Cookie、活动库与参与记录仅保存在你的电脑上；控制台只监听 `127.0.0.1`。官网：[luovicter-collab.github.io/bilibinggo](https://luovicter-collab.github.io/bilibinggo/)。
 
 **English:** Binggo runs locally. It aggregates lottery posts from curated UP collections and watched users, then lets you log in, refresh, and participate (including batch “triple participate”) through a web dashboard. Credentials and data never leave your machine; the server binds to loopback only.
 
