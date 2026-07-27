@@ -199,6 +199,9 @@ def run_server_mode() -> int:
         logger.info("Binggo 服务进程启动，监听 %s", DASHBOARD_URL)
         run_dashboard_server()
         return 0
+    except RuntimeError as exc:
+        _show_error(str(exc))
+        return 1
     except Exception:
         try:
             get_logger("launcher").exception("Binggo 服务进程异常退出")
@@ -221,7 +224,12 @@ def main() -> int:
         )
         return 0
 
-    ensure_user_dirs()
+    try:
+        ensure_user_dirs()
+    except RuntimeError as exc:
+        _show_error(str(exc))
+        return 1
+
     home = user_home()
     log_path = setup_logging(console=False)
     print(f"Binggo 运行模式: {runtime_label()}")

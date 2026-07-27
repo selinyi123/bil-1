@@ -48,6 +48,51 @@ _MIGRATIONS: dict[int, Callable[[Session], None]] = {
 }
 
 
+def _jobs_table_has_v2_columns(session: Session) -> bool:
+    conn = session.connection()
+    if conn.execute(
+        text("SELECT 1 FROM sqlite_master WHERE type='table' AND name='jobs'")
+    ).fetchone() is None:
+        return False
+    existing = {
+        str(row[1])
+        for row in conn.execute(text("PRAGMA table_info(jobs)")).fetchall()
+    }
+    return all(name in existing for name, _ in _JOB_V2_COLUMNS)
+
+
+def _database_matches_code_schema(session: Session) -> bool:
+    if SCHEMA_VERSION >= 2 and not _jobs_table_has_v2_columns(session):
+        return False
+    return True
+
+
+def _try_reconcile_schema_meta_version(session: Session, recorded: int) -> int | None:
+    """若 meta 版本被误标高于代码，但表结构已符合当前代码，则回写 meta（幂等）。"""
+    if recorded <= SCHEMA_VERSION:
+        return None
+    if not _database_matches_code_schema(session):
+        return None
+    meta = session.get(SchemaMeta, 1)
+    if meta is None:
+        return None
+    meta.version = SCHEMA_VERSION
+    session.commit()
+    return SCHEMA_VERSION
+
+
+def _schema_newer_than_code_error(recorded: int) -> RuntimeError:
+    from src.db.engine import db_path
+
+    db = db_path()
+    return RuntimeError(
+        f"数据库 schema_version={recorded} 高于本程序支持的 {SCHEMA_VERSION}，无法安全启动。\n\n"
+        f"数据库文件：{db}\n\n"
+        "请先安装最新版 Release，并完全退出 Binggo（任务管理器结束所有 Binggo.exe）后重试。\n"
+        "若仍失败：备份上述 data 文件夹后删除 binggo.db，再启动（会丢失本地活动库，Cookie 仍在 config）。"
+    )
+
+
 def init_db() -> None:
     """创建表结构并执行 schema_version 迁移。可重复调用。"""
     engine = get_engine()
@@ -60,9 +105,11 @@ def init_db() -> None:
             return
         current = int(row.version)
         if current > SCHEMA_VERSION:
-            raise RuntimeError(
-                f"数据库 schema_version={current} 高于代码支持的 {SCHEMA_VERSION}，请升级程序"
-            )
+            reconciled = _try_reconcile_schema_meta_version(session, current)
+            if reconciled is not None:
+                current = reconciled
+            else:
+                raise _schema_newer_than_code_error(current)
         while current < SCHEMA_VERSION:
             migrate = _MIGRATIONS.get(current)
             if migrate is None:

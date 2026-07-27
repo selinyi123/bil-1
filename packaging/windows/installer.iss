@@ -28,6 +28,9 @@ WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayIcon={app}\{#AppExeName}
 PrivilegesRequired=lowest
+AppMutex=Global\BilibiliBinggoDashboard
+CloseApplications=force
+RestartApplications=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -47,3 +50,26 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: deskto
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+function KillBinggoProcesses(): Boolean;
+var
+  ResultCode: Integer;
+begin
+  { 结束主进程与 --serve 子进程，避免覆盖 Binggo.exe 时拒绝访问 (Win32 error 5) }
+  Exec('taskkill.exe', '/F /IM {#AppExeName} /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Sleep(800);
+  Result := True;
+end;
+
+function InitializeSetup(): Boolean;
+begin
+  KillBinggoProcesses();
+  Result := True;
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  KillBinggoProcesses();
+  Result := '';
+end;

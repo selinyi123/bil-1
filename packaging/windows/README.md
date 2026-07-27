@@ -9,6 +9,8 @@
 
 安装包**未做商业代码签名**；首次运行若被 SmartScreen 拦截，请选择「仍要运行」。
 
+**覆盖安装前**请先完全退出 Binggo（任务管理器结束所有 `Binggo.exe`，含后台 `--serve` 进程），否则可能提示「拒绝访问」无法替换程序。安装程序会自动尝试结束相关进程。
+
 ## 开发者本地构建
 
 需要本机已安装 **Python 3.12+** 与 **Node.js 20+**（`npm`）。安装包 / 便携版用户不需要 Node；Node 仅用于从源码构建前端。可选安装 [Inno Setup 6](https://jrsoftware.org/isinfo.php) 以生成 Setup。
