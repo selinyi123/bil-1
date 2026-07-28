@@ -2761,6 +2761,137 @@ body.touch .hero-arrow {
   border-radius: 1px;
 }
 
+.foot-legal {
+  margin-top: 1.35rem;
+  padding-top: 1.35rem;
+  border-top: 1px solid rgba(250, 249, 245, 0.07);
+  display: grid;
+  gap: 1.1rem 2rem;
+}
+.foot-legal-head {
+  display: grid;
+  gap: 0.35rem 1rem;
+  align-items: start;
+}
+.foot-legal-kicker {
+  margin: 0;
+  font-family: var(--ui);
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(250, 249, 245, 0.38);
+}
+.foot-legal-title {
+  margin: 0;
+  font-family: var(--display-sc);
+  font-size: clamp(1.15rem, 2.2vw, 1.35rem);
+  font-weight: 500;
+  line-height: 1.25;
+  color: rgba(250, 249, 245, 0.88);
+}
+.foot-legal-badge {
+  margin: 0.15rem 0 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.22rem 0.55rem;
+  border: 1px solid rgba(217, 146, 112, 0.35);
+  border-radius: 999px;
+  font-family: var(--ui);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: rgba(217, 146, 112, 0.92);
+  background: rgba(217, 146, 112, 0.08);
+}
+.foot-legal-body {
+  display: grid;
+  gap: 1rem;
+}
+.foot-legal-lead {
+  margin: 0;
+  max-width: 52rem;
+  font-family: var(--display-sc);
+  font-size: clamp(0.86rem, 1.45vw, 0.95rem);
+  line-height: 1.62;
+  color: rgba(250, 249, 245, 0.55);
+}
+.foot-legal-lead strong {
+  color: rgba(250, 249, 245, 0.78);
+  font-weight: 500;
+}
+.foot-legal-cols {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem 2rem;
+  max-width: 56rem;
+}
+.foot-legal-col {
+  min-width: 0;
+}
+.foot-legal-label {
+  margin: 0 0 0.45rem;
+  font-family: var(--ui);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(250, 249, 245, 0.42);
+}
+.foot-legal-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.45rem;
+}
+.foot-legal-list li {
+  position: relative;
+  padding-left: 0.85rem;
+  font-family: var(--display-sc);
+  font-size: 0.86rem;
+  line-height: 1.55;
+  color: rgba(250, 249, 245, 0.52);
+}
+.foot-legal-list li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.55em;
+  width: 0.28rem;
+  height: 0.28rem;
+  border-radius: 50%;
+  background: rgba(217, 146, 112, 0.55);
+}
+.foot-legal-list strong {
+  color: rgba(250, 249, 245, 0.72);
+  font-weight: 500;
+}
+.foot-legal-note {
+  margin: 0;
+  font-family: var(--display-sc);
+  font-size: 0.86rem;
+  line-height: 1.62;
+  color: rgba(250, 249, 245, 0.52);
+}
+.foot-legal-note strong {
+  color: rgba(250, 249, 245, 0.72);
+  font-weight: 500;
+}
+
+@media (min-width: 900px) {
+  .foot-legal {
+    grid-template-columns: minmax(0, 11rem) minmax(0, 1fr);
+    align-items: start;
+  }
+  .foot-legal-head {
+    grid-column: 1;
+  }
+  .foot-legal-body {
+    grid-column: 2;
+  }
+}
+
 @media (max-width: 640px) {
   .foot-shell {
     flex-direction: column;
@@ -2774,6 +2905,9 @@ body.touch .hero-arrow {
   .foot-lead {
     text-align: start;
     max-width: none;
+  }
+  .foot-legal-cols {
+    grid-template-columns: 1fr;
   }
 }
 
