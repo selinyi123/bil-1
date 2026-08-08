@@ -354,7 +354,10 @@ def lottery_time_text(item: dict) -> str:
     """返回统一格式的开奖时间，无法解析时返回空字符串。"""
     lottery_time = item.get("lottery_time")
     if lottery_time:
-        formatted = format_timestamp(int(lottery_time))
+        try:
+            formatted = format_timestamp(int(lottery_time))
+        except (TypeError, ValueError):
+            formatted = ""
         if is_standard_lottery_time_display(formatted):
             return formatted
 

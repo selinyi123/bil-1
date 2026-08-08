@@ -88,6 +88,7 @@ def sync_watch_forwards(
 
     window_links: list[str] = []
     user_results: list[WatchUserScanResult] = []
+    failed: list[dict] = []
 
     with BilibiliClient(timeout=30.0) as client:
         for index, user in enumerate(watch_users, start=1):
@@ -114,11 +115,27 @@ def sync_watch_forwards(
                 window_links.extend(links)
             except Exception as exc:
                 message = str(exc).strip() or "扫描失败"
-                raise RuntimeError(f"扫描用户 {user.name}（{user.mid}）失败：{message}") from exc
+                user_results.append(
+                    WatchUserScanResult(
+                        mid=user.mid,
+                        name=user.name,
+                        ok=False,
+                        link_count=0,
+                        forward_count=0,
+                        message=f"失败：{message}",
+                    )
+                )
+                failed.append({"mid": user.mid, "name": user.name, "message": message})
             if index < total:
                 time.sleep(USER_REQUEST_DELAY)
 
     activity_links = _dedupe_activity_links(window_links)
+    users_ok = len([u for u in user_results if u.ok])
+
+    if not activity_links and failed:
+        raise RuntimeError(
+            f"全部 {total} 个监控用户扫描均失败，无可用链接"
+        )
 
     return WatchSyncResult(
         source_id=WATCH_SOURCE_ID,
@@ -127,8 +144,8 @@ def sync_watch_forwards(
         window_end=window_end,
         activity_links=activity_links,
         users_total=total,
-        users_ok=total,
-        users_failed=[],
+        users_ok=users_ok,
+        users_failed=failed,
         user_results=[item.to_dict() for item in user_results],
         link_count=len(activity_links),
     )
