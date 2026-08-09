@@ -5,6 +5,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Callable, Literal
 
 from src.activity_store import append_activities, known_activity_ids
+from src.app_logging import get_logger
 from src.bilibili_client import BilibiliClient
 from src.lottery_enricher import (
     ENRICH_SKIP_REASON,
@@ -20,6 +21,12 @@ from src.pipeline.status_step import apply_initial_status
 from src.sources.common import CheckResult, normalize_activity_id
 
 ProgressCallback = Callable[[int, int, str], None]
+
+logger = get_logger(__name__)
+
+# 单条动态处理失败时计入 skip_reasons 的归类名称（不阻塞其余动态入库）
+CLASSIFY_FAILED_REASON = "分类失败"
+ENRICH_FAILED_REASON = "详情拉取失败"
 
 
 @dataclass
@@ -94,7 +101,17 @@ def run_new_links_pipeline(
     with BilibiliClient() as shared_client:
         done = 0
         for dynamic_id in dynamic_ids:
-            outcome = classify_new_link(shared_client, dynamic_id)
+            try:
+                outcome = classify_new_link(shared_client, dynamic_id)
+            except Exception as exc:
+                skip_reasons[CLASSIFY_FAILED_REASON] = (
+                    skip_reasons.get(CLASSIFY_FAILED_REASON, 0) + 1
+                )
+                logger.warning("活动 %s 分类失败（已跳过）: %s", dynamic_id, exc)
+                done += 1
+                if on_progress:
+                    on_progress(done, total, "分类进度")
+                continue
             done += 1
             if outcome.skipped:
                 reason = outcome.skip_reason or "skipped"
@@ -159,6 +176,7 @@ def run_new_links_pipeline(
             }
             done = 0
             for future in as_completed(futures):
+                dynamic_id = futures[future]
                 try:
                     activity = future.result()
                 except EnrichSkippedError:
@@ -167,14 +185,16 @@ def run_new_links_pipeline(
                     if on_progress:
                         on_progress(done, enrich_total, "详情进度")
                     continue
-                except RuntimeError as exc:
+                except Exception as exc:
                     if is_enrich_detail_skip_error(exc):
                         skip_reasons[ENRICH_SKIP_REASON] = skip_reasons.get(ENRICH_SKIP_REASON, 0) + 1
-                        done += 1
-                        if on_progress:
-                            on_progress(done, enrich_total, "详情进度")
-                        continue
-                    raise
+                    else:
+                        skip_reasons[ENRICH_FAILED_REASON] = skip_reasons.get(ENRICH_FAILED_REASON, 0) + 1
+                        logger.warning("活动 %s 详情拉取失败（已跳过）: %s", dynamic_id, exc)
+                    done += 1
+                    if on_progress:
+                        on_progress(done, enrich_total, "详情进度")
+                    continue
                 if activity.skipped:
                     raise RuntimeError(f"活动 {activity.dynamic_id} 不应为 skipped")
                 row = apply_initial_status(activity.to_dict())
