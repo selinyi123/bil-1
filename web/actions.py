@@ -421,7 +421,17 @@ def run_action(
                 try:
                     ds_payloads.append(future.result())
                 except Exception as exc:
-                    raise RuntimeError(f"{source_id} 检查失败：{exc}") from exc
+                    logger.warning("%s 检查失败，跳过该源: %s", source_id, exc)
+                    ds_results.append(
+                        {
+                            "source_id": source_id,
+                            "updated": False,
+                            "link_count": 0,
+                            "saved": False,
+                            "error": str(exc),
+                        }
+                    )
+                    log_lines.append(f"【{source_id}】检查失败已跳过：{exc}")
 
         ds_payloads.sort(key=lambda item: item[0])
         ds_check_results: list[CheckResult] = []
