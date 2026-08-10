@@ -1,4 +1,3 @@
-// @ts-nocheck
 /* eslint-disable */
 /** Migrated from web/static/app.js — logic preserved. */
 
@@ -11,26 +10,63 @@ import { switchSection } from "../shell/nav";
 import { showToast } from "../shell/toast";
 import { formatAccountStat } from "../utils/format";
 import { prefersReducedMotion } from "../utils/motion";
-import { escapeHtml, sanitizeUserText } from "../utils/text";
+import { escapeHtml, safeUrl, sanitizeUserText } from "../utils/text";
 import { renderWatchUsersPanel, updateWatchUserFormState } from "../watch/index";
+import type { WatchData } from "../watch/index";
+
+interface AtAlert {
+  increased?: boolean;
+  delta?: number | string | null;
+  current?: number | string | null;
+  previous?: number | string | null;
+  [key: string]: unknown;
+}
+
+interface AccountData {
+  logged_in?: boolean;
+  expired?: boolean;
+  network_error?: boolean;
+  cookie_saved?: boolean;
+  mid?: number | string | null;
+  uname?: string;
+  face?: string;
+  message?: string;
+  at_alert?: AtAlert | null;
+  at_notify_url?: string;
+  unread_at?: number | string | null;
+  unread_messages?: number | string | null;
+  following?: number | string | null;
+  dynamic_count?: number | string | null;
+  extras_loading?: boolean;
+  [key: string]: unknown;
+}
+
+interface OnboardingCompletion {
+  login: boolean;
+  llm_save: boolean;
+  llm_test: boolean;
+  try: boolean;
+}
 
 export function isLoggedIn() {
   return Boolean(state.account?.logged_in && !state.account?.expired);
 }
 
 export function isLlmConfigured() {
-  return Boolean(state.settings?.llm?.configured);
+  const llm = (state.settings as { llm?: { configured?: unknown } } | null)?.llm;
+  return Boolean(llm?.configured);
 }
 
 export function isLlmTested() {
-  return Boolean(state.settings?.llm?.test_passed);
+  const llm = (state.settings as { llm?: { test_passed?: unknown } } | null)?.llm;
+  return Boolean(llm?.test_passed);
 }
 
 export function isSetupComplete() {
   return isLoggedIn() && isLlmConfigured() && isLlmTested();
 }
 
-export function requireSetup(action) {
+export function requireSetup(action: string) {
   if (action === "login") return true;
   if (!LOGIN_REQUIRED_ACTIONS.has(action)) return true;
   if (!isLoggedIn()) {
@@ -61,7 +97,7 @@ export function renderSetupChecklist() {
     </div>`;
 }
 
-export function getAccountHeroTone(account) {
+export function getAccountHeroTone(account: AccountData | null | undefined): "offline" | "warn" | "ready" {
   if (!account?.logged_in) {
     return account?.network_error && account?.cookie_saved ? "offline" : "warn";
   }
@@ -69,15 +105,15 @@ export function getAccountHeroTone(account) {
   return "warn";
 }
 
-export function renderAccountAvatar(account, { large = false } = {}) {
+export function renderAccountAvatar(account: AccountData | null | undefined, { large = false }: { large?: boolean } = {}) {
   const sizeClass = large ? " account-avatar-lg" : "";
   if (account?.face) {
-    return `<img class="account-avatar${sizeClass}" src="${escapeHtml(account.face)}" alt="头像" referrerpolicy="no-referrer" crossorigin="anonymous" />`;
+    return `<img class="account-avatar${sizeClass}" src="${escapeHtml(safeUrl(account.face))}" alt="头像" referrerpolicy="no-referrer" crossorigin="anonymous" />`;
   }
   return `<div class="account-avatar account-avatar-fallback${sizeClass}"></div>`;
 }
 
-export function renderAccountAvatarWrap(account, { large = false } = {}) {
+export function renderAccountAvatarWrap(account: AccountData | null | undefined, { large = false }: { large?: boolean } = {}) {
   const tone = getAccountHeroTone(account);
   const sizeClass = large ? " is-lg" : " is-sm";
   return `
@@ -87,7 +123,7 @@ export function renderAccountAvatarWrap(account, { large = false } = {}) {
     </div>`;
 }
 
-export function renderAccountStatusLabel(account) {
+export function renderAccountStatusLabel(account: AccountData) {
   if (isSetupComplete()) return "已就绪";
   if (account.expired) return "需重新扫码登录";
   if (!isLlmConfigured()) return "请完成 LLM 配置";
@@ -113,7 +149,7 @@ export function dismissOnboarding() {
   renderOnboardingPanel();
 }
 
-export function getOnboardingCompletion() {
+export function getOnboardingCompletion(): OnboardingCompletion {
   return {
     login: isLoggedIn(),
     llm_save: isLlmConfigured(),
@@ -122,7 +158,7 @@ export function getOnboardingCompletion() {
   };
 }
 
-export function countOnboardingDone(completion) {
+export function countOnboardingDone(completion: OnboardingCompletion) {
   let done = 0;
   if (completion.login) done += 1;
   if (completion.llm_save) done += 1;
@@ -130,14 +166,14 @@ export function countOnboardingDone(completion) {
   return done;
 }
 
-export function getOnboardingCurrentIndex(completion) {
+export function getOnboardingCurrentIndex(completion: OnboardingCompletion) {
   if (!completion.login) return 0;
   if (!completion.llm_save) return 1;
   if (!completion.llm_test) return 2;
   return 3;
 }
 
-export function scrollToLlmSettings({ focusTest = false } = {}) {
+export function scrollToLlmSettings({ focusTest = false }: { focusTest?: boolean } = {}) {
   switchSection("overview");
   const panel = document.getElementById("llm-settings-panel");
   panel?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
@@ -149,7 +185,7 @@ export function scrollToLlmSettings({ focusTest = false } = {}) {
   }, prefersReducedMotion() ? 0 : 280);
 }
 
-export function runOnboardingStepAction(stepId) {
+export function runOnboardingStepAction(stepId: string) {
   if (stepId === "login") {
     sidebarLoginBtn?.click();
     return;
@@ -263,17 +299,17 @@ export function bindOnboardingPanel() {
     runOnboardingStepAction(step.id);
   });
   onboardingStepsEl?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-onboarding-action]");
+    const button = (event.target as Element).closest<HTMLButtonElement>("[data-onboarding-action]");
     if (!button || button.disabled) return;
-    runOnboardingStepAction(button.dataset.onboardingAction);
+    runOnboardingStepAction(button.dataset.onboardingAction ?? "");
   });
 }
 
-export function renderAtAlertBanner(account) {
+export function renderAtAlertBanner(account: AccountData) {
   const alert = account.at_alert;
   if (!alert?.increased) return "";
   const delta = Number(alert.delta) || Math.max(Number(alert.current) - Number(alert.previous), 0);
-  const notifyUrl = account.at_notify_url || "https://message.bilibili.com/#/notify/at";
+  const notifyUrl = safeUrl(account.at_notify_url) || "https://message.bilibili.com/#/notify/at";
   return `
     <div class="account-at-alert" id="account-at-alert">
       <div class="account-at-alert-copy">
@@ -287,7 +323,7 @@ export function renderAtAlertBanner(account) {
     </div>`;
 }
 
-export function maybeShowAtUnreadAlert(account) {
+export function maybeShowAtUnreadAlert(account: AccountData | null | undefined) {
   const alert = account?.at_alert;
   if (!alert?.increased) return;
   const key = `${alert.previous}->${alert.current}`;
@@ -301,7 +337,7 @@ export function maybeShowAtUnreadAlert(account) {
   );
 }
 
-export async function acknowledgeAtUnread(current) {
+export async function acknowledgeAtUnread(current: number | string | null | undefined) {
   await fetchJSON("/api/account/ack-at-unread", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -312,18 +348,22 @@ export async function acknowledgeAtUnread(current) {
   return loadAccount();
 }
 
-export function bindAtAlertActions(account) {
+export function bindAtAlertActions(account: AccountData) {
   document.getElementById("account-at-ack-btn")?.addEventListener("click", async () => {
     try {
       await acknowledgeAtUnread(account.unread_at ?? 0);
       showToast("已记录当前 @ 未读数", "success");
     } catch (error) {
-      showToast(String(error.message || error), "error");
+      showToast(String((error as { message?: unknown })?.message || error), "error");
     }
   });
 }
 
-export function renderAccountViews(account) {
+export function renderAccountViews(account: Record<string, unknown>) {
+  renderAccountViewsInner(account as AccountData);
+}
+
+function renderAccountViewsInner(account: AccountData) {
   state.account = account;
   const loggedIn = Boolean(account.logged_in);
 
@@ -369,14 +409,14 @@ export function renderAccountViews(account) {
         </div>`;
     }
     updateWatchUserFormState();
-    if (state.watchUsers) renderWatchUsersPanel(state.watchUsers);
+    if (state.watchUsers) renderWatchUsersPanel(state.watchUsers as WatchData | null);
     renderOnboardingPanel();
     return;
   }
 
   const tone = getAccountHeroTone(account);
   const ready = tone === "ready";
-  const atNotifyUrl = account.at_notify_url || "https://message.bilibili.com/#/notify/at";
+  const atNotifyUrl = safeUrl(account.at_notify_url) || "https://message.bilibili.com/#/notify/at";
   const extrasLoading = Boolean(account.extras_loading);
   const atUnread = Number(formatAccountStat(account.unread_at, loggedIn, extrasLoading)) || 0;
   const heroHtml = `
@@ -429,17 +469,17 @@ export function renderAccountViews(account) {
       </div>`;
   }
   updateWatchUserFormState();
-  if (state.watchUsers) renderWatchUsersPanel(state.watchUsers);
+  if (state.watchUsers) renderWatchUsersPanel(state.watchUsers as WatchData | null);
   renderOnboardingPanel();
 }
 
 export async function loadAccount() {
   try {
-    const account = await fetchJSON("/api/account", { timeoutMs: 12000 });
+    const account = await fetchJSON<AccountData>("/api/account", { timeoutMs: 12000 });
     renderAccountViews(account);
     return account;
   } catch (error) {
-    const message = sanitizeUserText(error.message || error) || "账号信息加载失败，请稍后重试";
+    const message = sanitizeUserText((error as { message?: unknown })?.message || error) || "账号信息加载失败，请稍后重试";
     const account = {
       logged_in: false,
       expired: true,
@@ -461,7 +501,7 @@ export async function loadAccount() {
 export async function loadAccountExtras() {
   if (!state.account?.logged_in) return null;
   try {
-    const extras = await fetchJSON("/api/account/extras", { timeoutMs: 15000 });
+    const extras = await fetchJSON<AccountData>("/api/account/extras", { timeoutMs: 15000 });
     const merged = { ...state.account, ...extras };
     renderAccountViews(merged);
     maybeShowAtUnreadAlert(merged);
@@ -519,7 +559,7 @@ export async function syncProjectState() {
   try {
     await loadSettings();
   } catch (error) {
-    showToast(sanitizeUserText(error.message || error) || "设置加载失败", "error");
+    showToast(sanitizeUserText((error as { message?: unknown })?.message || error) || "设置加载失败", "error");
   }
   if (state.account) renderAccountViews(state.account);
   return account;

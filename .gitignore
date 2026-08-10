@@ -65,3 +65,14 @@ web/frontend/playwright/.cache/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Reasonix 会话存档
+.reasonix/
+
+# 账号池与运行期生成的真实配置（模板见对应 *.example）
+config/accounts/
+config/api_sources.txt
+config/manual_dyids.txt
+config/topic_tags.txt
+config/participate_enhance.json
+config/notify.json

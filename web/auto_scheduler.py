@@ -522,6 +522,23 @@ def _is_hard_failure(exc: BaseException) -> bool:
     return any(m in text for m in hard_markers)
 
 
+def get_upcoming_slots(count: int = 3) -> list[dict[str, Any]]:
+    """返回接下来最近的 count 个调度槽（供 Web API 展示用，只读）。"""
+    slots: list[dict[str, Any]] = []
+    seen: set[tuple[str, str | None]] = set()
+    cursor = datetime.now(CN_TZ)
+    guard = 0
+    while len(slots) < count and guard < 24 * 60 * 2:
+        guard += 1
+        slot = _next_slot(cursor)
+        key = (str(slot.get("kind")), str(slot.get("at")))
+        if slot.get("kind") != "none" and key not in seen:
+            seen.add(key)
+            slots.append(slot)
+        cursor = cursor + timedelta(minutes=1)
+    return slots
+
+
 def _now_iso() -> str:
     return datetime.now(CN_TZ).strftime("%Y-%m-%d %H:%M:%S")
 

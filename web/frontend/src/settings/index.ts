@@ -1,4 +1,3 @@
-// @ts-nocheck
 /* eslint-disable */
 /** Migrated from web/static/app.js — logic preserved. */
 
@@ -9,9 +8,47 @@ import { llmActionFeedback, participateTextFeedback } from "../dom";
 import { setInlineFeedback, showToast } from "../shell/toast";
 import { clearSaveDirty, flashButtonSuccess, markSaveDirty, prefersReducedMotion, setButtonLoading } from "../utils/motion";
 
+interface LlmSettings {
+  base_url?: string;
+  model_name?: string;
+  configured?: boolean;
+  test_passed?: boolean;
+  api_key_hint?: string;
+  [key: string]: unknown;
+}
+
+interface SettingsData {
+  llm?: LlmSettings;
+  setup_complete?: boolean;
+  participate_text?: string;
+  participate_fallback_text?: string;
+  participate_text_mode?: string;
+  default_participate_text?: string;
+  default_participate_fallback_text?: string;
+  default_participate_text_mode?: string;
+  [key: string]: unknown;
+}
+
+interface ParticipateTextResult {
+  participate_text_mode?: string;
+  participate_text?: string;
+  participate_fallback_text?: string;
+}
+
+interface LlmSettingsResult {
+  llm?: LlmSettings;
+  setup_complete?: boolean;
+  message?: string;
+}
+
+/** 与 String(error.message || error) 语义一致的 unknown 收窄写法。 */
+function errorMessage(error: unknown): string {
+  return error instanceof Error && error.message ? error.message : String(error);
+}
+
 export function toggleLlmApiKeyVisibility() {
-  const input = document.getElementById("llm-api-key-input");
-  const toggle = document.getElementById("llm-api-key-toggle");
+  const input = document.getElementById("llm-api-key-input") as HTMLInputElement | null;
+  const toggle = document.getElementById("llm-api-key-toggle") as HTMLButtonElement | null;
   if (!input || !toggle) return;
   const showPlain = input.type === "password";
   input.type = showPlain ? "text" : "password";
@@ -32,29 +69,29 @@ export function bindLlmApiKeyToggle() {
 }
 
 export async function loadSettings() {
-  const settings = await fetchJSON("/api/settings");
+  const settings = await fetchJSON<SettingsData>("/api/settings");
   state.settings = settings;
   renderParticipateSettings(settings);
   renderLlmSettingsForm(settings);
   return settings;
 }
 
-export function getParticipateTextDefaults(settings) {
+export function getParticipateTextDefaults(settings: SettingsData | null | undefined) {
   return {
     custom: settings?.default_participate_text || "好运连连！",
     fallback: settings?.default_participate_fallback_text || settings?.default_participate_text || "好运连连！",
   };
 }
 
-export function getParticipateTextForMode(settings, mode) {
-  const defaults = getParticipateTextDefaults(settings || {});
+export function getParticipateTextForMode(settings: SettingsData | null | undefined, mode: string) {
+  const defaults = getParticipateTextDefaults(settings);
   if (mode === "random_comment") {
     return settings?.participate_fallback_text || defaults.fallback;
   }
   return settings?.participate_text || defaults.custom;
 }
 
-export function updateParticipateTextUI(mode) {
+export function updateParticipateTextUI(mode: string) {
   const isRandom = mode === "random_comment";
   const label = document.getElementById("participate-text-label");
   const hint = document.getElementById("participate-text-hint");
@@ -78,17 +115,17 @@ export function updateParticipateTextUI(mode) {
   }
 }
 
-export function renderParticipateSettings(settings) {
+export function renderParticipateSettings(settings: SettingsData | null | undefined) {
   const mode =
     settings?.participate_text_mode || settings?.default_participate_text_mode || "custom";
   const defaults = getParticipateTextDefaults(settings);
-  const input = document.getElementById("participate-text-input");
+  const input = document.getElementById("participate-text-input") as HTMLInputElement | null;
   if (input) {
     input.value = getParticipateTextForMode(settings, mode);
     input.placeholder =
       mode === "random_comment" ? defaults.fallback : defaults.custom;
   }
-  document.querySelectorAll("[data-participate-mode]").forEach((button) => {
+  document.querySelectorAll<HTMLElement>("[data-participate-mode]").forEach((button) => {
     const active = button.dataset.participateMode === mode;
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", active ? "true" : "false");
@@ -96,12 +133,12 @@ export function renderParticipateSettings(settings) {
   updateParticipateTextUI(mode);
 }
 
-export async function saveParticipateTextMode(mode) {
+export async function saveParticipateTextMode(mode: string) {
   if (!isLoggedIn()) {
     showToast("请先扫码登录", "info", "登录后才能修改参与文案模式");
     return false;
   }
-  const result = await fetchJSON("/api/settings/participate-text", {
+  const result = await fetchJSON<ParticipateTextResult>("/api/settings/participate-text", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ participate_text_mode: mode }),
@@ -117,7 +154,9 @@ export async function saveParticipateTextMode(mode) {
       state.settings.participate_fallback_text = result.participate_fallback_text;
     }
   }
-  renderParticipateSettings(state.settings || { participate_text_mode: result.participate_text_mode || mode });
+  renderParticipateSettings(
+    (state.settings || { participate_text_mode: result.participate_text_mode || mode }) as SettingsData
+  );
   clearSaveDirty(document.getElementById("save-participate-text"));
   const label = mode === "random_comment" ? "随机借用评论" : "自定义文案";
   setInlineFeedback(participateTextFeedback, `已切换为「${label}」`, "success");
@@ -125,7 +164,7 @@ export async function saveParticipateTextMode(mode) {
 }
 
 export function bindParticipateSettings() {
-  document.querySelectorAll("[data-participate-mode]").forEach((button) => {
+  document.querySelectorAll<HTMLButtonElement>("[data-participate-mode]").forEach((button) => {
     if (button.dataset.bound === "true") return;
     button.dataset.bound = "true";
     button.addEventListener("click", async () => {
@@ -144,7 +183,7 @@ export function bindParticipateSettings() {
           window.setTimeout(() => active?.classList.remove("is-just-switched"), 720);
         }
       } catch (error) {
-        setInlineFeedback(participateTextFeedback, String(error.message || error), "error");
+        setInlineFeedback(participateTextFeedback, errorMessage(error), "error");
       } finally {
         group?.classList.remove("is-switching");
         button.classList.remove("is-pending");
@@ -173,17 +212,17 @@ export function bindSettingsDirtyTracking() {
 
 export function getLlmFormValues() {
   return {
-    api_key: document.getElementById("llm-api-key-input")?.value || "",
-    base_url: document.getElementById("llm-base-url-input")?.value || "",
-    model_name: document.getElementById("llm-model-name-input")?.value || "",
+    api_key: (document.getElementById("llm-api-key-input") as HTMLInputElement | null)?.value || "",
+    base_url: (document.getElementById("llm-base-url-input") as HTMLInputElement | null)?.value || "",
+    model_name: (document.getElementById("llm-model-name-input") as HTMLInputElement | null)?.value || "",
   };
 }
 
-export function renderLlmSettingsForm(settings) {
-  const llm = settings?.llm || {};
-  const baseInput = document.getElementById("llm-base-url-input");
-  const modelInput = document.getElementById("llm-model-name-input");
-  const keyInput = document.getElementById("llm-api-key-input");
+export function renderLlmSettingsForm(settings: SettingsData | null | undefined) {
+  const llm: LlmSettings = settings?.llm || ({} as LlmSettings);
+  const baseInput = document.getElementById("llm-base-url-input") as HTMLInputElement | null;
+  const modelInput = document.getElementById("llm-model-name-input") as HTMLInputElement | null;
+  const keyInput = document.getElementById("llm-api-key-input") as HTMLInputElement | null;
   const keyHint = document.getElementById("llm-api-key-hint");
   const baseHint = document.getElementById("llm-base-url-hint");
   const status = document.getElementById("llm-settings-status");
@@ -215,20 +254,20 @@ export function renderLlmSettingsForm(settings) {
 }
 
 export async function refreshLlmSettings() {
-  const button = document.getElementById("refresh-llm-settings");
+  const button = document.getElementById("refresh-llm-settings") as HTMLButtonElement | null;
   setButtonLoading(button, true, { label: "刷新中…" });
   setInlineFeedback(llmActionFeedback, "", "info");
   try {
-    const result = await fetchJSON("/api/settings/llm");
-    state.settings = { ...(state.settings || {}), llm: result.llm, setup_complete: result.setup_complete };
-    renderLlmSettingsForm(state.settings);
+    const result = await fetchJSON<LlmSettingsResult>("/api/settings/llm");
+    state.settings = { ...(state.settings || ({} as Record<string, unknown>)), llm: result.llm, setup_complete: result.setup_complete };
+    renderLlmSettingsForm(state.settings as SettingsData | null);
     if (state.account) renderAccountViews(state.account);
     const detail = result.llm?.configured
       ? `${result.llm.model_name || "已配置"} · ${result.llm.api_key_hint || ""}`
       : "本地配置文件为空或未完整填写";
     setInlineFeedback(llmActionFeedback, `配置已刷新 · ${detail}`, "success");
   } catch (error) {
-    setInlineFeedback(llmActionFeedback, String(error.message || error), "error");
+    setInlineFeedback(llmActionFeedback, errorMessage(error), "error");
     throw error;
   } finally {
     setButtonLoading(button, false);
@@ -240,21 +279,21 @@ export async function saveLlmSettings() {
     setInlineFeedback(llmActionFeedback, "请先扫码登录后再保存", "info", { autoHide: false });
     return;
   }
-  const button = document.getElementById("save-llm-settings");
+  const button = document.getElementById("save-llm-settings") as HTMLButtonElement | null;
   setButtonLoading(button, true, { label: "保存中…" });
   setInlineFeedback(llmActionFeedback, "", "info");
   try {
-    const result = await fetchJSON("/api/settings/llm", {
+    const result = await fetchJSON<LlmSettingsResult>("/api/settings/llm", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(getLlmFormValues()),
     });
-    state.settings = { ...(state.settings || {}), llm: result.llm, setup_complete: result.setup_complete };
-    renderLlmSettingsForm(state.settings);
+    state.settings = { ...(state.settings || ({} as Record<string, unknown>)), llm: result.llm, setup_complete: result.setup_complete };
+    renderLlmSettingsForm(state.settings as SettingsData | null);
     if (state.account) renderAccountViews(state.account);
     setInlineFeedback(
       llmActionFeedback,
-      `已保存 · ${result.llm.model_name || "已配置"} · ${result.llm.api_key_hint || ""}`,
+      `已保存 · ${result.llm!.model_name || "已配置"} · ${result.llm!.api_key_hint || ""}`,
       "success"
     );
     setButtonLoading(button, false);
@@ -262,7 +301,7 @@ export async function saveLlmSettings() {
     flashButtonSuccess(button);
   } catch (error) {
     setButtonLoading(button, false);
-    setInlineFeedback(llmActionFeedback, String(error.message || error), "error");
+    setInlineFeedback(llmActionFeedback, errorMessage(error), "error");
     throw error;
   }
 }
@@ -272,26 +311,26 @@ export async function testLlmSettings() {
     setInlineFeedback(llmActionFeedback, "请先扫码登录后再测试", "info", { autoHide: false });
     return;
   }
-  const button = document.getElementById("test-llm-settings");
+  const button = document.getElementById("test-llm-settings") as HTMLButtonElement | null;
   setButtonLoading(button, true, { label: "测试中…" });
   setInlineFeedback(llmActionFeedback, "正在测试连接…", "info", { autoHide: false });
   try {
-    const result = await fetchJSON("/api/settings/llm/test", {
+    const result = await fetchJSON<LlmSettingsResult>("/api/settings/llm/test", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(getLlmFormValues()),
       timeoutMs: 60000,
     });
     state.settings = {
-      ...(state.settings || {}),
+      ...(state.settings || ({} as Record<string, unknown>)),
       llm: result.llm,
       setup_complete: result.setup_complete,
     };
-    renderLlmSettingsForm(state.settings);
+    renderLlmSettingsForm(state.settings as SettingsData | null);
     if (state.account) renderAccountViews(state.account);
     setInlineFeedback(llmActionFeedback, result.message || "LLM 连接正常", "success");
   } catch (error) {
-    setInlineFeedback(llmActionFeedback, String(error.message || error), "error");
+    setInlineFeedback(llmActionFeedback, errorMessage(error), "error");
     throw error;
   } finally {
     setButtonLoading(button, false);
@@ -303,18 +342,18 @@ export async function saveParticipateText() {
     setInlineFeedback(participateTextFeedback, "请先扫码登录后再保存", "info", { autoHide: false });
     return;
   }
-  const input = document.getElementById("participate-text-input");
-  const button = document.getElementById("save-participate-text");
+  const input = document.getElementById("participate-text-input") as HTMLInputElement | null;
+  const button = document.getElementById("save-participate-text") as HTMLButtonElement | null;
   const value = input?.value?.trim() || "";
   setButtonLoading(button, true, { label: "保存中…" });
-  const mode = state.settings?.participate_text_mode || "custom";
+  const mode = (state.settings?.participate_text_mode as string | undefined) || "custom";
   const payload =
     mode === "random_comment"
       ? { participate_fallback_text: value }
       : { participate_text: value };
   setInlineFeedback(participateTextFeedback, "", "info");
   try {
-    const result = await fetchJSON("/api/settings/participate-text", {
+    const result = await fetchJSON<ParticipateTextResult>("/api/settings/participate-text", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -325,7 +364,7 @@ export async function saveParticipateText() {
           ...(state.settings || {}),
           participate_text: result.participate_text,
           participate_fallback_text: result.participate_fallback_text,
-        },
+        } as SettingsData,
         mode
       );
     }
@@ -349,7 +388,7 @@ export async function saveParticipateText() {
     flashButtonSuccess(button);
   } catch (error) {
     setButtonLoading(button, false);
-    setInlineFeedback(participateTextFeedback, String(error.message || error), "error");
+    setInlineFeedback(participateTextFeedback, errorMessage(error), "error");
     throw error;
   }
 }
@@ -359,27 +398,27 @@ export async function resetParticipateText() {
     setInlineFeedback(participateTextFeedback, "请先扫码登录后再恢复", "info", { autoHide: false });
     return;
   }
-  const mode = state.settings?.participate_text_mode || "custom";
-  const defaults = getParticipateTextDefaults(state.settings || {});
+  const mode = (state.settings?.participate_text_mode as string | undefined) || "custom";
+  const defaults = getParticipateTextDefaults((state.settings || {}) as SettingsData);
   const payload =
     mode === "random_comment"
       ? { participate_fallback_text: defaults.fallback }
       : { participate_text: defaults.custom };
   setInlineFeedback(participateTextFeedback, "", "info");
   try {
-    const result = await fetchJSON("/api/settings/participate-text", {
+    const result = await fetchJSON<ParticipateTextResult>("/api/settings/participate-text", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    const input = document.getElementById("participate-text-input");
+    const input = document.getElementById("participate-text-input") as HTMLInputElement | null;
     if (input) {
       input.value = getParticipateTextForMode(
         {
           ...(state.settings || {}),
           participate_text: result.participate_text,
           participate_fallback_text: result.participate_fallback_text,
-        },
+        } as SettingsData,
         mode
       );
     }
@@ -399,7 +438,7 @@ export async function resetParticipateText() {
       "success"
     );
   } catch (error) {
-    setInlineFeedback(participateTextFeedback, String(error.message || error), "error");
+    setInlineFeedback(participateTextFeedback, errorMessage(error), "error");
     throw error;
   }
 }

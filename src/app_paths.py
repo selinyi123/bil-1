@@ -81,6 +81,21 @@ def cookie_file() -> Path:
     return config_dir() / "cookies.txt"
 
 
+def accounts_dir() -> Path:
+    """多账号池目录：config/accounts/{uid}.txt（cookie）+ active（活跃 uid）。"""
+    return config_dir() / "accounts"
+
+
+def account_cookie_file(uid: int | str) -> Path:
+    """某个账号的 cookie 文件路径。"""
+    return accounts_dir() / f"{int(uid)}.txt"
+
+
+def active_uid_file() -> Path:
+    """记录当前活跃账号 uid 的文件路径（内容为纯数字或空）。"""
+    return accounts_dir() / "active"
+
+
 def llm_env_file() -> Path:
     """动态解析 llm.env（尊重当前 BINGGO_HOME）。"""
     return config_dir() / "llm.env"

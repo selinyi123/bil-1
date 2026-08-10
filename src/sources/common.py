@@ -74,6 +74,22 @@ def normalize_activity_id(url: str) -> str | None:
     return None
 
 
+def normalize_dynamic_id(token: str) -> str | None:
+    """从链接或纯数字串中提取规范动态 ID（P1 新增源通用）。
+
+    先按活动链接解析，失败则接受 18–19 位纯数字串。
+    """
+    token = str(token or "").strip()
+    if not token:
+        return None
+    dynamic_id = normalize_activity_id(token)
+    if dynamic_id:
+        return dynamic_id
+    if is_valid_dynamic_id(token):
+        return token
+    return None
+
+
 def normalize_activity_url(url: str) -> str | None:
     activity_id = normalize_activity_id(url)
     if activity_id:

@@ -141,20 +141,19 @@ def _profile_from_network_error(exc: RuntimeError) -> dict[str, Any]:
 
 def clear_login_cookie() -> None:
     from src import app_paths
+    from src.account_pool import clear_active
     from src.secure_files import harden_file_permissions
 
     path = app_paths.cookie_file()
     path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists():
-        try:
-            path.unlink()
-            return
-        except OSError:
-            path.write_text("", encoding="utf-8")
-            harden_file_permissions(path)
-    else:
+    try:
+        path.unlink()
+    except OSError:
         path.write_text("", encoding="utf-8")
         harden_file_permissions(path)
+    finally:
+        # 同时清除活跃标记；账号池内其他账号保留
+        clear_active()
 
 
 def has_login_cookie() -> bool:

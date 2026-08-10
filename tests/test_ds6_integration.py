@@ -12,10 +12,13 @@ def test_all_registries_include_latest_ds_and_watch() -> None:
 
     assert handler_ids == merge_ids[: len(handler_ids)]
     assert "DS-7" in handler_ids
+    assert "DS-8" in handler_ids
+    assert "DS-9" in handler_ids
+    assert "DS-10" in handler_ids
     assert "WATCH" in merge_ids
     assert "WATCH" in output_ids
-    assert len(handler_ids) == 7
-    assert len(merge_ids) == 8
+    assert len(handler_ids) == 10
+    assert len(merge_ids) == 11
 
 
 def test_refresh_all_total_matches_handlers() -> None:

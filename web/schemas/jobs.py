@@ -13,6 +13,8 @@ ALLOWED_JOB_ACTIONS = frozenset(
         "refresh_status",
         "participate",
         "participate_triple",
+        "check_prize",
+        "clear_follows",
     }
 )
 

@@ -1,10 +1,9 @@
-// @ts-nocheck
 /* eslint-disable */
 
 import { fetchJSON } from "../api/client";
 import { showToast } from "../shell/toast";
 import { setButtonLoading } from "../utils/motion";
-import { sanitizeUserText } from "../utils/text";
+import { safeUrl, sanitizeUserText } from "../utils/text";
 
 const RELEASES_URL = "https://github.com/luovicter-collab/bilibinggo/releases";
 
@@ -17,7 +16,7 @@ export async function loadRuntimeInfo() {
     return;
   }
   try {
-    const data = await fetchJSON("/api/runtime", { timeoutMs: 8000 });
+    const data = await fetchJSON<Record<string, any>>("/api/runtime", { timeoutMs: 8000 });
     const version = String(data?.version || "—");
     const runtime = String(data?.runtime || "—");
     const dataDir = String(data?.data_dir || "—");
@@ -49,7 +48,7 @@ export async function loadRuntimeInfo() {
 }
 
 export function bindCheckUpdates() {
-  const button = document.getElementById("check-updates");
+  const button = document.getElementById("check-updates") as HTMLButtonElement | null;
   if (!button || button.dataset.bound === "1") {
     return;
   }
@@ -59,16 +58,17 @@ export function bindCheckUpdates() {
   });
 }
 
-function openUpdateUrl(data) {
+function openUpdateUrl(data: Record<string, any>) {
   const downloadUrl = String(data?.download_url || "").trim();
   const releaseUrl = String(data?.release_url || RELEASES_URL).trim() || RELEASES_URL;
-  window.open(downloadUrl || releaseUrl, "_blank", "noopener");
+  const target = safeUrl(downloadUrl) || safeUrl(releaseUrl);
+  if (target) window.open(target, "_blank", "noopener");
 }
 
-async function checkForUpdates(button) {
+async function checkForUpdates(button: HTMLButtonElement) {
   setButtonLoading(button, true, { label: "检查中…" });
   try {
-    const data = await fetchJSON("/api/updates/check", {
+    const data = await fetchJSON<Record<string, any>>("/api/updates/check", {
       method: "POST",
       timeoutMs: 12000,
     });
@@ -80,7 +80,10 @@ async function checkForUpdates(button) {
       showToast(message, "error", hint, [
         {
           label: "打开 Releases",
-          onClick: () => window.open(releaseUrl, "_blank", "noopener"),
+          onClick: () => {
+            const target = safeUrl(releaseUrl);
+            if (target) window.open(target, "_blank", "noopener");
+          },
         },
       ]);
       return;
@@ -97,7 +100,7 @@ async function checkForUpdates(button) {
     }
 
     showToast(message, "success", hint);
-  } catch (error) {
+  } catch (error: any) {
     showToast(sanitizeUserText(error?.message || error) || "检查更新失败", "error");
   } finally {
     setButtonLoading(button, false);

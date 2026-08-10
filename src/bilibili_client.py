@@ -60,6 +60,20 @@ def _load_cookie_string() -> str | None:
     return None
 
 
+def _load_csrf_token() -> str | None:
+    """从当前 Cookie 提取 bili_jct（写操作 CSRF）。"""
+    from src.bilibili_auth import get_csrf_token
+
+    return get_csrf_token()
+
+
+def _load_login_uid() -> int:
+    """从当前 Cookie 提取登录 uid；无登录返回 0。"""
+    from src.bilibili_auth import get_login_uid
+
+    return get_login_uid() or 0
+
+
 def _mixin_key(img_key: str, sub_key: str) -> str:
     material = img_key + sub_key
     return "".join(material[i] for i in MIXIN_KEY_ENC_TAB)[:32]
@@ -74,15 +88,26 @@ def wbi_sign(params: dict, img_key: str, sub_key: str) -> dict:
 
 
 class BilibiliClient:
-    def __init__(self, timeout: float = 25.0, *, warmup: bool = True) -> None:
+    def __init__(
+        self,
+        timeout: float = 25.0,
+        *,
+        warmup: bool = True,
+        proxy: str | None = None,
+    ) -> None:
         headers = dict(DEFAULT_HEADERS)
         cookie = _load_cookie_string()
         if cookie:
             headers["Cookie"] = cookie
+        if proxy is None:
+            from src.proxy_config import get_proxy_url
+
+            proxy = get_proxy_url()
         self._client = httpx.Client(
             headers=headers,
             timeout=timeout,
             follow_redirects=True,
+            proxy=proxy,
             limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
         )
         self._img_key: str | None = None
@@ -452,3 +477,224 @@ class BilibiliClient:
         if not detail:
             raise RuntimeError(f"无法获取专栏详情: cv{cv_id}")
         return detail
+
+    def get_tag_id(self, tag_name: str) -> int | None:
+        """按话题名查询 tag_id（P1-3 话题源）；失败返回 None。"""
+        try:
+            data = self.request_json(
+                "https://api.bilibili.com/x/tag/info",
+                params={"tag_name": tag_name},
+                referer="https://t.bilibili.com/",
+            )
+        except RuntimeError:
+            return None
+        if api_code(data) != 0:
+            return None
+        tag_id = (data.get("data") or {}).get("tag_id")
+        try:
+            return int(tag_id) if tag_id else None
+        except (TypeError, ValueError):
+            return None
+
+    def get_topic_new(self, topic_name: str) -> dict | None:
+        """拉取话题热门动态页（topic/new，含一条最新），失败返回 None。"""
+        try:
+            data = self.request_json(
+                "https://api.vc.bilibili.com/topic_svr/v1/topic_svr/topic_new",
+                params={"topic_name": topic_name},
+                referer="https://t.bilibili.com/",
+            )
+        except RuntimeError:
+            return None
+        if api_code(data) != 0:
+            return None
+        return data.get("data") or {}
+
+    def get_topic_history(
+        self,
+        topic_name: str,
+        *,
+        offset_dynamic_id: str = "",
+        page_size: int = 20,
+    ) -> dict | None:
+        """拉取话题历史动态页（topic/history），失败返回 None。"""
+        params: dict[str, object] = {"topic_name": topic_name, "page_size": page_size}
+        if offset_dynamic_id:
+            params["offset_dynamic_id"] = offset_dynamic_id
+        try:
+            data = self.request_json(
+                "https://api.vc.bilibili.com/topic_svr/v1/topic_svr/topic_history",
+                params=params,
+                referer="https://t.bilibili.com/",
+            )
+        except RuntimeError:
+            return None
+        if api_code(data) != 0:
+            return None
+        return data.get("data") or {}
+
+    # ------------------------------------------------------------------
+    # Line 多线路容灾（源自 LAS）
+    # ------------------------------------------------------------------
+
+    def get_user_followers(self, uid: int) -> int | None:
+        """查询用户粉丝数：card → relation/stat 两线自动切换（Line 容灾）。
+
+        返回粉丝数，全部失败返回 None。
+        """
+        from src.line import Line
+
+        def _via_card() -> int | None:
+            data = self.request_json(
+                "https://api.bilibili.com/x/web-interface/card",
+                params={"mid": uid},
+                referer="https://space.bilibili.com/",
+            )
+            card = (data.get("data") or {}).get("card") or {}
+            try:
+                fans = int(card.get("fans"))
+                return fans or None
+            except (TypeError, ValueError):
+                return None
+
+        def _via_stat() -> int | None:
+            data = self.request_json(
+                "https://api.bilibili.com/x/relation/stat",
+                params={"vmid": uid},
+                referer="https://space.bilibili.com/",
+            )
+            stat = data.get("data") or {}
+            try:
+                fans = int(stat.get("follower"))
+                return fans or None
+            except (TypeError, ValueError):
+                return None
+
+        return Line("get_user_followers", [_via_card, _via_stat], fallback=None).run()
+
+    # ------------------------------------------------------------------
+    # 关注分区管理（源自 LAS partition 机制）
+    # ------------------------------------------------------------------
+
+    def get_relation_tags(self) -> list[dict]:
+        """获取全部关注分区列表（[{tagid, name, count}]）。"""
+        try:
+            data = self.request_json(
+                "https://api.bilibili.com/x/relation/tags",
+                referer="https://space.bilibili.com/",
+            )
+        except RuntimeError:
+            return []
+        tags = data.get("data")
+        return tags if isinstance(tags, list) else []
+
+    def create_relation_tag(self, name: str) -> int | None:
+        """创建关注分区，返回 tagid；失败返回 None。"""
+        csrf = _load_csrf_token()
+        if not csrf:
+            return None
+        try:
+            payload = self.post_form(
+                "https://api.bilibili.com/x/relation/tag/create",
+                {"tag": name, "csrf": csrf},
+                referer="https://space.bilibili.com/",
+                raise_on_code=False,
+            )
+        except RuntimeError:
+            return None
+        data = payload.get("data") or {}
+        try:
+            return int(data.get("tagid"))
+        except (TypeError, ValueError):
+            return None
+
+    def move_to_relation_tag(self, uid: int, tagid: int) -> bool:
+        """把用户移入关注分区。返回是否成功（已在该分区也视为成功）。"""
+        csrf = _load_csrf_token()
+        if not csrf:
+            return False
+        try:
+            payload = self.post_form(
+                "https://api.bilibili.com/x/relation/tags/addUsers",
+                {"tag_id": tagid, "uids": uid, "csrf": csrf},
+                referer="https://space.bilibili.com/",
+                raise_on_code=False,
+            )
+        except RuntimeError:
+            return False
+        return api_code(payload) == 0
+
+    def get_partition_uids(self, tagid: int, *, pn: int = 1, ps: int = 50) -> list[int]:
+        """分页读取分区内用户 uid 列表。"""
+        try:
+            data = self.request_json(
+                "https://api.bilibili.com/x/relation/tag",
+                params={"tagid": tagid, "pn": pn, "ps": ps},
+                referer="https://space.bilibili.com/",
+            )
+        except RuntimeError:
+            return []
+        data = data.get("data") or {}
+        items = data.get("items") if isinstance(data, dict) else []
+        uids: list[int] = []
+        for item in items if isinstance(items, list) else []:
+            if not isinstance(item, dict):
+                continue
+            try:
+                uids.append(int(item.get("mid")))
+            except (TypeError, ValueError):
+                continue
+        return uids
+
+    # ------------------------------------------------------------------
+    # 清理（源自 LAS clear）
+    # ------------------------------------------------------------------
+
+    def get_my_space_feed(self, offset: str = "") -> dict | None:
+        """分页读取自己的空间动态（feed/space），失败返回 None。"""
+        params: dict[str, object] = {"host_mid": _load_login_uid(), "timezone_offset": -480}
+        if offset:
+            params["offset"] = offset
+        try:
+            data = self.get_json(
+                "https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space",
+                params=params,
+                wbi=True,
+                referer="https://space.bilibili.com/",
+                retries=2,
+            )
+        except RuntimeError:
+            return None
+        return data.get("data") if isinstance(data, dict) else None
+
+    def delete_dynamic(self, dynamic_id: str) -> bool:
+        """删除自己的动态。返回是否成功。"""
+        csrf = _load_csrf_token()
+        if not csrf:
+            return False
+        try:
+            payload = self.post_form(
+                "https://api.vc.bilibili.com/dynamic_svr/v1/dynamic_svr/rm_dynamic",
+                {"dynamic_id": dynamic_id, "csrf": csrf},
+                referer="https://space.bilibili.com/",
+                raise_on_code=False,
+            )
+        except RuntimeError:
+            return False
+        return api_code(payload) == 0
+
+    def cancel_attention(self, uid: int) -> bool:
+        """取关用户（relation/modify act=2）。返回是否成功。"""
+        csrf = _load_csrf_token()
+        if not csrf:
+            return False
+        try:
+            payload = self.post_form(
+                "https://api.bilibili.com/x/relation/modify",
+                {"fid": uid, "act": 2, "csrf": csrf},
+                referer="https://space.bilibili.com/",
+                raise_on_code=False,
+            )
+        except RuntimeError:
+            return False
+        return api_code(payload) == 0

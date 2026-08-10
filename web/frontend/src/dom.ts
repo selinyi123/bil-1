@@ -1,4 +1,3 @@
-// @ts-nocheck
 /* eslint-disable */
 /** Migrated from web/static/app.js — logic preserved. */
 
@@ -39,7 +38,7 @@ export const sidebarAccountCard = document.getElementById("sidebar-account-card"
 
 export const sidebarLoginBtn = document.getElementById("sidebar-login");
 
-export const sidebarLogoutBtn = document.getElementById("sidebar-logout");
+export const sidebarLogoutBtn = document.getElementById("sidebar-logout") as HTMLButtonElement | null;
 
 export const appConfirmModal = document.getElementById("app-confirm-modal");
 
@@ -73,7 +72,7 @@ export const onboardingPrimaryBtn = document.getElementById("onboarding-primary"
 
 export const onboardingSkipBtn = document.getElementById("onboarding-skip");
 
-export const sidebarRefreshBtn = document.getElementById("sidebar-refresh-account");
+export const sidebarRefreshBtn = document.getElementById("sidebar-refresh-account") as HTMLButtonElement | null;
 
 export const activitiesBody = document.getElementById("activities-body");
 
@@ -119,7 +118,7 @@ export const progressFillGlow = document.getElementById("progress-fill-glow");
 
 export const progressPercent = document.getElementById("progress-percent");
 
-export const progressPercentSuffix = document.querySelector(".progress-percent-suffix");
+export const progressPercentSuffix = document.querySelector<HTMLElement>(".progress-percent-suffix");
 
 export const progressRing = document.getElementById("progress-ring");
 
@@ -278,6 +277,8 @@ export const LOGIN_REQUIRED_ACTIONS = new Set([
   "refresh_status",
   "participate",
   "participate_triple",
+  "check_prize",
+  "clear_follows",
 ]);
 
 export const LLM_REQUIRED_ACTIONS = new Set([

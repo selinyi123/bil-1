@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextvars
 import io
+import random
 import re
 import threading
 import time
@@ -28,6 +29,9 @@ from src.sources import (
     ds5_hudong,
     ds6_nuomi,
     ds7_dajinli,
+    ds8_manual,
+    ds9_tags,
+    ds10_api,
 )
 from src.sources.common import CheckResult, commit_source_checkpoint, is_valid_dynamic_id
 from src.state_store import set_last_pipeline_persisted, set_watch_last_synced_at
@@ -180,6 +184,9 @@ DS_HANDLERS: list[tuple[str, Callable[..., Any], Callable[[Any], Any]]] = [
     ("DS-5", ds5_hudong.check_update, ds5_hudong.save_result),
     ("DS-6", ds6_nuomi.check_update, ds6_nuomi.save_result),
     ("DS-7", ds7_dajinli.check_update, ds7_dajinli.save_result),
+    ("DS-8", ds8_manual.check_update, ds8_manual.save_result),
+    ("DS-9", ds9_tags.check_update, ds9_tags.save_result),
+    ("DS-10", ds10_api.check_update, ds10_api.save_result),
 ]
 DS_HANDLER_BY_ID: dict[str, tuple[Callable[..., Any], Callable[[Any], Any]]] = {
     source_id: (check_update, save_result)
@@ -264,6 +271,15 @@ def _make_refresh_watch_pipeline_progress(
 
 def _noop_progress(**_kwargs: Any) -> None:
     return None
+
+
+def _parse_bool(value: Any, default: bool = False) -> bool:
+    """宽松布尔解析：支持 bool / "true"/"false"/"1"/"0"/"yes"/"no" 字符串。"""
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
 
 
 def _capture_output(func: Callable[..., Any], *args: Any, **kwargs: Any) -> tuple[Any, str]:
@@ -375,7 +391,7 @@ def run_action(
             )
 
         progress(step=1, total=1, message="正在生成登录二维码…", login_phase="waiting")
-        _, log = _capture_output(
+        result, log = _capture_output(
             login_with_qrcode,
             open_image=False,
             auto_refresh_on_expire=False,
@@ -383,12 +399,22 @@ def run_action(
             on_qrcode_ready=on_qrcode_ready,
             on_status_change=on_login_status,
         )
-        progress(step=1, total=1, message="登录成功，账号已就绪", login_phase="success")
+        # 登记到账号池（config/accounts/{uid}.txt + 活跃标记）；登录失败时 result 为空
+        from src.account_pool import register_login_cookie
+
+        registered_uid = register_login_cookie(result) if result else None
+        progress(
+            step=1,
+            total=1,
+            message="登录成功，账号已就绪",
+            login_phase="success",
+            result_patch={"registered_uid": registered_uid},
+        )
         return {
             "ok": True,
             "message": "登录成功，账号已就绪",
             "log": sanitize_log(log) or "登录成功",
-            "result": {"login_phase": "success"},
+            "result": {"login_phase": "success", "registered_uid": registered_uid},
         }
 
     if action == "refresh_all":
@@ -823,6 +849,11 @@ def run_action(
         filters = _list_filter_params(params)
         targets = pick_triple_participate_targets(**filters)
         from_auto = bool(params.get("from_auto"))
+        # 乱序参与（源自 LAS）：防固定顺序被开奖机过滤，缺省开启
+        from src.participate_enhance import load_participate_enhance
+
+        if load_participate_enhance().get("shuffle_targets", True) and len(targets) > 1:
+            random.shuffle(targets)
         if not targets:
             return {
                 "ok": True,
@@ -1032,6 +1063,64 @@ def run_action(
                 "joined": len(results),
             },
             "log": "\n\n".join(log_blocks).strip(),
+        }
+
+    if action == "check_prize":
+        # 中奖深检（@/回复/私信 + 关键词 + 标记已读 + 推送）
+        from src.draw_check import _build_desp, check_prize_draw
+
+        def on_step(step: int, total: int, message: str, **_kwargs: Any) -> None:
+            progress(step=step, total=total, message=message)
+
+        progress(step=1, total=2, message="正在深检未读消息…")
+        with BilibiliClient() as client:
+            result = check_prize_draw(client, push=bool(params.get("push", True)))
+        total_hits = result["total"]
+        pushed = result["pushed"]
+        message = f"中奖深检完成：命中 {total_hits} 条" + ("，已推送通知" if pushed else "")
+        progress(step=2, total=2, message=message)
+        logger.info("中奖深检 done total=%s pushed=%s", total_hits, pushed)
+        return {
+            "ok": True,
+            "message": message,
+            "result": {
+                "total": total_hits,
+                "pushed": pushed,
+                "at_count": len(result.get("at") or []),
+                "reply_count": len(result.get("reply") or []),
+                "dm_count": len(result.get("dm") or []),
+                "send_result": result.get("send_result") or {},
+            },
+            "log": _build_desp(result).strip() or f"中奖深检完成：命中 {total_hits} 条",
+        }
+
+    if action == "clear_follows":
+        # 清理动态 + 取关（源自 LAS clear）
+        from src.clear_follows import clear_follows
+
+        def on_step(step: int, total: int, message: str, **_kwargs: Any) -> None:
+            progress(step=step, total=total, message=message)
+
+        progress(step=1, total=1, message="正在清理动态与关注…")
+        with BilibiliClient() as client:
+            result = clear_follows(
+                client,
+                max_days=int(params.get("max_days") or 30),
+                delete_dynamic=_parse_bool(params.get("delete_dynamic", True)),
+                white_list=str(params.get("white_list") or ""),
+                dry_run=_parse_bool(params.get("dry_run", False)),
+            )
+        message = (
+            f"清理完成：删除动态 {result['deleted']} 条，取关 {result['unfollowed']} 人"
+            + ("（预演，未实际执行）" if _parse_bool(params.get("dry_run", False)) else "")
+        )
+        progress(step=1, total=1, message=message)
+        logger.info("清理完成 deleted=%s unfollowed=%s", result["deleted"], result["unfollowed"])
+        return {
+            "ok": True,
+            "message": message,
+            "result": result,
+            "log": message,
         }
 
     raise ValueError(f"未知操作: {action}")

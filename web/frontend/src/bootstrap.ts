@@ -1,8 +1,8 @@
-// @ts-nocheck
 /* eslint-disable */
 /** Migrated from web/static/app.js — logic preserved. */
 
 import { state } from "./state";
+import type { JobStatus } from "./types";
 import { bindOnboardingPanel, loadAccount, loadAccountExtras, logoutAccount, requestLogoutConfirm, syncProjectState } from "./account/index";
 import { bindFilterPills, loadActivities, loadSummary } from "./activities/index";
 import { bindAutoDock, fetchAutoStatus, setAutoDockOpen } from "./auto/index";
@@ -18,6 +18,7 @@ import { sanitizeUserText } from "./utils/text";
 import { bindDiagnosticsExport } from "./diagnostics/index";
 import { bindCheckUpdates, loadRuntimeInfo } from "./runtime/index";
 import { bindWatchUsers, loadWatchUsers } from "./watch/index";
+import { mountExtraPanels, renderAccountPool } from "./extra/index";
 
 export async function init() {
   initSystemPreferences();
@@ -25,6 +26,10 @@ export async function init() {
   setAutoDockOpen(false);
   bindNavigation();
   bindAutoDock();
+  window.addEventListener("binggo:auth-expired", () => {
+    // 登录失效：刷新账号状态（loadAccount 自带未登录兜底渲染）
+    loadAccount().catch(() => {});
+  });
   bindFilterPills();
   bindParticipateSettings();
   bindSettingsDirtyTracking();
@@ -35,17 +40,20 @@ export async function init() {
   bindDiagnosticsExport();
   bindCheckUpdates();
   loadRuntimeInfo().catch(() => {});
+  mountExtraPanels().catch(() => {});
   await syncProjectState();
+  renderAccountPool().catch(() => {});
   try {
     const job = await loadSummary();
-    if (job) state.currentJob = job;
+    if (job) state.currentJob = job as JobStatus;
     await fetchAutoStatus().catch(() => {});
     loadWatchUsers().catch(() => {});
     await loadActivities();
     startRealtime();
     if (job?.state === "running") startPolling();
   } catch (error) {
-    showToast(sanitizeUserText(error.message || error) || "数据加载失败", "error");
+    const message = error instanceof Error ? error.message || error : String(error);
+    showToast(sanitizeUserText(message) || "数据加载失败", "error");
   }
   playOverviewEnter();
 }
@@ -76,11 +84,11 @@ sidebarRefreshBtn?.addEventListener("click", async () => {
     const account = await loadAccount();
     const merged = (await loadAccountExtras()) || account;
     await loadSettings();
-    if (!merged?.at_alert?.increased) {
+    if (!(merged as any)?.at_alert?.increased) {
       showToast("状态已同步", "success");
     }
   } catch (error) {
-    showToast(String(error.message || error), "error");
+    showToast(String(error instanceof Error ? error.message || error : error), "error");
   } finally {
     setButtonLoading(sidebarRefreshBtn, false);
   }
@@ -89,13 +97,13 @@ sidebarRefreshBtn?.addEventListener("click", async () => {
 sidebarLogoutBtn?.addEventListener("click", async () => {
   const confirmed = await requestLogoutConfirm();
   if (!confirmed) return;
-  sidebarLogoutBtn.disabled = true;
+  sidebarLogoutBtn!.disabled = true;
   try {
     await logoutAccount();
   } catch (error) {
-    showToast(String(error.message || error), "error");
+    showToast(String(error instanceof Error ? error.message || error : error), "error");
   } finally {
-    sidebarLogoutBtn.disabled = false;
+    sidebarLogoutBtn!.disabled = false;
   }
 });
 
@@ -103,6 +111,6 @@ sidebarLogoutBtn?.addEventListener("click", async () => {
 window.addEventListener("pageshow", (event) => {
   if (!event.persisted) return;
   syncProjectState().catch((error) => {
-    showToast(String(error.message || error), "error");
+    showToast(String(error instanceof Error ? error.message || error : error), "error");
   });
 });

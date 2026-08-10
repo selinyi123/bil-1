@@ -23,6 +23,9 @@ DS_OUTPUTS = {
     "DS-5": DATA_DIR / "output" / "ds5_latest.json",
     "DS-6": DATA_DIR / "output" / "ds6_latest.json",
     "DS-7": DATA_DIR / "output" / "ds7_latest.json",
+    "DS-8": DATA_DIR / "output" / "ds8_latest.json",
+    "DS-9": DATA_DIR / "output" / "ds9_latest.json",
+    "DS-10": DATA_DIR / "output" / "ds10_latest.json",
     "WATCH": WATCH_OUTPUT_PATH,
 }
 SOURCE_LABELS = {
@@ -33,6 +36,9 @@ SOURCE_LABELS = {
     "DS-5": "互动抽奖娘",
     "DS-6": "糯米是个背包",
     "DS-7": "大锦鲤",
+    "DS-8": "手动清单",
+    "DS-9": "话题源",
+    "DS-10": "外部API源",
     "WATCH": "监控用户",
 }
 SOURCE_SPACE_URLS = {
@@ -43,6 +49,9 @@ SOURCE_SPACE_URLS = {
     "DS-5": "https://space.bilibili.com/3546776042736296/upload/opus",
     "DS-6": "https://space.bilibili.com/492426375/upload/opus",
     "DS-7": "https://space.bilibili.com/226257459/upload/opus",
+    "DS-8": "",
+    "DS-9": "",
+    "DS-10": "",
     "WATCH": "",
 }
 

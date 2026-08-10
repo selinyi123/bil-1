@@ -1,0 +1,21 @@
+{
+  "enabled": true,
+  "keywords": ["~预约成功|预约主题|预约已成功", "中奖|恭喜|获得|幸运|抽中|奖品|填写地址|核对信息"],
+  "channels": {
+    "serverchan": {"sckey": ""},
+    "sct": {"sendkey": ""},
+    "coolpush": {"key": "", "mode": "send"},
+    "bark": {"push": "", "sound": ""},
+    "pushdeer": {"url": "", "pushkey": ""},
+    "telegram": {"bot_token": "", "chat_id": ""},
+    "dingtalk": {"token": "", "secret": ""},
+    "qywx_app": {"corpid": "", "secret": "", "agentid": "", "touser": "@all"},
+    "qywx_bot": {"key": ""},
+    "igot": {"key": ""},
+    "pushplus": {"token": "", "topic": ""},
+    "qmsg": {"key": "", "qq": "", "socket": ""},
+    "email": {"host": "", "port": 465, "user": "", "pass": "", "to": ""},
+    "gotify": {"url": "", "appkey": ""},
+    "feishu": {"webhook": "", "secret": ""}
+  }
+}

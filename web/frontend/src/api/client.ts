@@ -8,8 +8,7 @@ export type FetchJSONOptions = RequestInit & {
 export function parseApiErrorPayload(
   text: string,
   statusText: string,
-): { message: string; code: string; detail: unknown } {
-  let message = text || statusText;
+): { message: string; code: string; detail: unknown } {  let message = text || statusText;
   let code = "";
   let detail: unknown = null;
   try {
@@ -29,6 +28,18 @@ export function parseApiErrorPayload(
     // 非 JSON 响应，保留原始文本
   }
   return { message, code, detail };
+}
+
+let lastAuthExpiredAt = 0;
+
+/** 401/403：广播登录失效事件（去抖 5s），由 account 层刷新登录态。 */
+function notifyAuthExpired(status: number): void {
+  const now = Date.now();
+  if (now - lastAuthExpiredAt < 5000) return;
+  lastAuthExpiredAt = now;
+  window.dispatchEvent(
+    new CustomEvent("binggo:auth-expired", { detail: { status } }),
+  );
 }
 
 export async function fetchJSON<T = unknown>(
@@ -51,6 +62,9 @@ export async function fetchJSON<T = unknown>(
       error.code = code;
       error.httpStatus = response.status;
       error.detail = detail;
+      if (response.status === 401 || response.status === 403) {
+        notifyAuthExpired(response.status);
+      }
       throw error;
     }
     // 204 / 空 body：避免 response.json() 抛 SyntaxError

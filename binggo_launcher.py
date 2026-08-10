@@ -148,12 +148,22 @@ def _wait_for_server(timeout_sec: float = STARTUP_TIMEOUT_SEC) -> bool:
 
 
 def _spawn_server_process() -> subprocess.Popen[bytes]:
-    from src.app_paths import bundle_root
+    from src.app_paths import bundle_root, data_dir
 
     args = [sys.executable, SERVE_FLAG]
     kwargs: dict = {"cwd": str(bundle_root())}
     if sys.platform == "win32":
         kwargs["creationflags"] = CREATE_NO_WINDOW
+        # 子进程 stderr/stdout 重定向到数据目录，便于排查启动失败
+        logs_dir = data_dir() / "logs"
+        try:
+            logs_dir.mkdir(parents=True, exist_ok=True)
+            err_file = (logs_dir / "server-stderr.log").open("ab", buffering=0)
+            out_file = (logs_dir / "server-stdout.log").open("ab", buffering=0)
+            kwargs["stdout"] = out_file
+            kwargs["stderr"] = err_file
+        except OSError:
+            pass
     return subprocess.Popen(args, **kwargs)
 
 

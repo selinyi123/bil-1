@@ -1,4 +1,3 @@
-// @ts-nocheck
 /* eslint-disable */
 
 import { fetchJSON } from "../api/client";
@@ -7,7 +6,7 @@ import { showToast } from "../shell/toast";
 import { setButtonLoading } from "../utils/motion";
 import { sanitizeUserText } from "../utils/text";
 
-function downloadTextFile(filename, text) {
+function downloadTextFile(filename: string, text: string) {
   const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
@@ -20,13 +19,13 @@ function downloadTextFile(filename, text) {
 }
 
 export async function exportDiagnosticsBundle() {
-  const button = document.getElementById("export-diagnostics");
+  const button = document.getElementById("export-diagnostics") as HTMLButtonElement | null;
   setButtonLoading(button, true, { label: "导出中…" });
   try {
     const rawId = state.currentJob?.id;
     const jobId = Number.isFinite(Number(rawId)) && Number(rawId) > 0 ? Number(rawId) : null;
     const query = jobId ? `?job_id=${encodeURIComponent(String(jobId))}` : "";
-    const result = await fetchJSON(`/api/diagnostics/bundle${query}`, { timeoutMs: 30000 });
+    const result = await fetchJSON<Record<string, any>>(`/api/diagnostics/bundle${query}`, { timeoutMs: 30000 });
     const text = String(result?.text || "");
     const filename = String(result?.filename || "binggo-diagnostics.txt");
     if (!text) {
@@ -47,7 +46,7 @@ export async function exportDiagnosticsBundle() {
       "success",
       copied ? "可直接粘贴到聊天或邮件" : "当前环境无法写入剪贴板，已保存文件",
     );
-  } catch (error) {
+  } catch (error: any) {
     showToast(sanitizeUserText(error?.message || error) || "导出诊断包失败", "error");
   } finally {
     setButtonLoading(button, false);

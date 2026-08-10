@@ -1,8 +1,8 @@
-// @ts-nocheck
 /* eslint-disable */
 /** Migrated from web/static/app.js — logic preserved. */
 
 import { state } from "../state";
+import type { JobStatus } from "../types";
 import { fetchJSON } from "../api/client";
 import { isLlmConfigured, requireSetup, scrollToLlmSettings, syncProjectState } from "../account/index";
 import { buildActivityFilterJobParams, loadActivities, loadSummary, renderTripleParticipateBar } from "../activities/index";
@@ -16,19 +16,58 @@ import { clearActionButtonLoading, flashActivityRows, flashSourceRow, prefersRed
 import { escapeHtml, sanitizeUserText, truncateText } from "../utils/text";
 import { loadWatchUsers } from "../watch/index";
 
-let qrcodeLastFocus = null;
+interface FailureAction {
+  id: string;
+  label: string;
+}
 
-export function isRefreshPipelineAction(action) {
+interface FailureLike {
+  kind?: string;
+  severity?: string;
+  title?: string;
+  message?: string;
+  hint?: string;
+  actions?: FailureAction[];
+  retryable?: boolean;
+}
+
+interface ActionResult {
+  action?: string;
+  ok?: boolean | null;
+  detail?: string;
+  [key: string]: unknown;
+}
+
+interface TripleLane {
+  idPart: string;
+  status: string;
+}
+
+interface TripleTarget {
+  activity_title?: string;
+  dynamic_id?: string | number;
+  lottery_type?: string;
+  [key: string]: unknown;
+}
+
+interface JobLike {
+  action?: string;
+  [key: string]: any;
+}
+
+let qrcodeLastFocus: HTMLElement | null = null;
+
+export function isRefreshPipelineAction(action: string | undefined) {
   return action === "refresh_all" || action === "refresh_source";
 }
 
-export function buildFailureContext(message, action, log = "") {
+export function buildFailureContext(message: string | undefined, action: string | undefined, log = "") {
   const parts = [message, log].map((item) => sanitizeUserText(String(item || ""))).filter(Boolean);
   const text = parts.join("\n");
   return { text, lowered: text.toLowerCase(), action: String(action || "") };
 }
 
-export function classifyFailureText(message, action, log = "") {
+export function classifyFailureText(message: string | undefined, action: string | undefined, log = "") {
   const { text, lowered, action: actionName } = buildFailureContext(message, action, log);
   const displayMessage = sanitizeUserText(message) || sanitizeUserText(log) || "操作失败，请稍后重试";
 
@@ -146,11 +185,11 @@ export function classifyFailureText(message, action, log = "") {
   };
 }
 
-export function classifyJobFailure(job) {
+export function classifyJobFailure(job: JobStatus) {
   return classifyFailureText(job?.message, job?.action, job?.log);
 }
 
-export function notifyJobStartError(error, action, params = {}) {
+export function notifyJobStartError(error: any, action: string, params: Record<string, any> = {}) {
   const message = sanitizeUserText(error?.message || error);
   const code = String(error?.code || "");
   if (code === "AUTH_REQUIRED" || message.includes("请先扫码登录")) {
@@ -174,7 +213,7 @@ export function notifyJobStartError(error, action, params = {}) {
   }
 }
 
-export async function executeFailureAction(actionId) {
+export async function executeFailureAction(actionId: string | undefined) {
   switch (actionId) {
     case "login":
       sidebarLoginBtn?.click();
@@ -185,9 +224,9 @@ export async function executeFailureAction(actionId) {
     case "retry":
       if (state.lastJobAttempt?.action) {
         try {
-          await startJob(state.lastJobAttempt.action, { ...(state.lastJobAttempt.params || {}) });
+          await startJob(state.lastJobAttempt.action as string, { ...(state.lastJobAttempt.params || {}) });
         } catch (error) {
-          notifyJobStartError(error, state.lastJobAttempt.action, state.lastJobAttempt.params || {});
+          notifyJobStartError(error, state.lastJobAttempt.action as string, state.lastJobAttempt.params || {});
         }
       }
       break;
@@ -202,7 +241,7 @@ export async function executeFailureAction(actionId) {
   }
 }
 
-export function renderFailureActions(container, failure, job) {
+export function renderFailureActions(container: HTMLElement | null, failure: FailureLike | null, job: JobLike | null) {
   if (!container) return;
   const actions = failure?.actions || [];
   if (!actions.length) {
@@ -217,7 +256,7 @@ export function renderFailureActions(container, failure, job) {
         `<button type="button" class="btn btn-secondary btn-compact btn-pill" data-failure-action="${escapeHtml(action.id)}">${escapeHtml(action.label)}</button>`
     )
     .join("");
-  container.querySelectorAll("[data-failure-action]").forEach((button) => {
+  container.querySelectorAll<HTMLElement>("[data-failure-action]").forEach((button) => {
     button.addEventListener("click", () => {
       if (job?.action) {
         state.lastJobAttempt = {
@@ -230,7 +269,7 @@ export function renderFailureActions(container, failure, job) {
   });
 }
 
-export function showFailureToast(failure, job) {
+export function showFailureToast(failure: FailureLike | null, job: JobLike | null) {
   if (!failure || failure.severity === "info") {
     showToast(failure?.message || "提示", "info", failure?.hint || "");
     return;
@@ -245,17 +284,17 @@ export function showFailureToast(failure, job) {
     label: action.label,
     onClick: () => executeFailureAction(action.id),
   }));
-  showToast(failure.message, "error", failure.hint || formatToastDetail(job), actions);
+  showToast(failure.message || "", "error", failure.hint || formatToastDetail(job) || "", actions);
 }
 
-export function getQrcodeFocusable() {
+export function getQrcodeFocusable(): HTMLElement[] {
   const panel = qrcodeModal?.querySelector(".qrcode-panel");
   if (!panel) return [];
-  return [...panel.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
+  return [...panel.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
     .filter((el) => !el.hidden && el.getAttribute("aria-hidden") !== "true");
 }
 
-export function trapQrcodeFocus(event) {
+export function trapQrcodeFocus(event: KeyboardEvent) {
   if (!qrcodeModal || qrcodeModal.hidden || event.key !== "Tab") return;
   const items = getQrcodeFocusable();
   if (!items.length) return;
@@ -272,22 +311,23 @@ export function trapQrcodeFocus(event) {
 
 export function ensureQrcodeModalVisible() {
   if (!qrcodeModal || state.qrcodeDismissed) return;
-  qrcodeLastFocus = document.activeElement;
+  qrcodeLastFocus = document.activeElement as HTMLElement | null;
   qrcodeModal.hidden = false;
   document.body.classList.add("modal-open");
   window.requestAnimationFrame(() => qrcodeClose?.focus());
 }
 
-export function loadQrcodeImage(refreshedAt) {
+export function loadQrcodeImage(refreshedAt: number) {
   if (!qrcodeImg || !refreshedAt) return;
+  const img = qrcodeImg as HTMLImageElement;
   const url = `/api/login/qrcode?t=${refreshedAt}`;
-  qrcodeImg.onerror = () => {
+  img.onerror = () => {
     window.setTimeout(() => {
-      if (!qrcodeImg.src.includes(`t=${refreshedAt}`)) return;
-      qrcodeImg.src = `${url}&retry=1`;
+      if (!img.src.includes(`t=${refreshedAt}`)) return;
+      img.src = `${url}&retry=1`;
     }, 400);
   };
-  qrcodeImg.src = url;
+  img.src = url;
 }
 
 export function openQrcodeModalFresh() {
@@ -296,7 +336,7 @@ export function openQrcodeModalFresh() {
   renderQrcodeLoginState({ result: { login_phase: "waiting" }, message: "正在生成登录二维码…" });
 }
 
-export function resolveLoginPhase(job) {
+export function resolveLoginPhase(job: JobStatus) {
   const fromResult = job?.result?.login_phase;
   if (fromResult) return String(fromResult);
   const msg = String(job?.message || "");
@@ -308,10 +348,10 @@ export function resolveLoginPhase(job) {
   return "waiting";
 }
 
-export function renderQrcodeLoginState(job) {
+export function renderQrcodeLoginState(job: JobStatus) {
   const phase = resolveLoginPhase(job);
   const message = sanitizeUserText(job?.message) || "等待扫码…";
-  const titles = {
+  const titles: Record<string, string> = {
     waiting: "使用哔哩哔哩 App 扫码",
     scanned: "请在手机上确认登录",
     confirming: "正在登录…",
@@ -331,7 +371,7 @@ export function renderQrcodeLoginState(job) {
   const showOverlay = phase === "scanned" || phase === "confirming" || phase === "success" || phase === "error";
   if (qrcodeOverlay) qrcodeOverlay.hidden = !showOverlay;
   if (qrcodeOverlayText) {
-    const overlayText = {
+    const overlayText: Record<string, string> = {
       scanned: "等待手机确认",
       confirming: "正在写入登录信息",
       success: "即将进入控制台",
@@ -366,7 +406,7 @@ export function hideQrcodeModal(manual = false) {
 
 export async function cancelLoginJob() {
   try {
-    const job = await fetchJSON("/api/jobs/current");
+    const job = await fetchJSON<JobStatus>("/api/jobs/current");
     if (job.state === "running" && job.action === "login") {
       await fetchJSON("/api/jobs/cancel", { method: "POST" });
       stopJobPolling();
@@ -375,11 +415,11 @@ export async function cancelLoginJob() {
       showToast("已取消扫码登录", "info");
     }
   } catch (error) {
-    showToast(sanitizeUserText(error.message || error), "error");
+    showToast(sanitizeUserText((error as { message?: string }).message || error), "error");
   }
 }
 
-export function syncLogDockTone(job) {
+export function syncLogDockTone(job: JobStatus) {
   if (!logDock) return;
   const jobState = job?.state || "idle";
   let tone = "idle";
@@ -395,7 +435,7 @@ export function syncLogDockTone(job) {
 
   const statusEl = document.getElementById("log-dock-status");
   if (statusEl) {
-    const labels = { idle: "空闲", running: "运行中", success: "已完成", error: "失败" };
+    const labels: Record<string, string> = { idle: "空闲", running: "运行中", success: "已完成", error: "失败" };
     statusEl.textContent = labels[tone] || "空闲";
     statusEl.className = `log-dock-status is-${tone}`;
   }
@@ -422,7 +462,7 @@ export function scrollJobLogToBottom({ showHint = false } = {}) {
   }
 }
 
-export function setLogDockOpen(open) {
+export function setLogDockOpen(open: boolean) {
   state.logDockOpen = open;
   if (!logDockPanel || !logDockToggle) return;
   logDockPanel.classList.toggle("is-open", open);
@@ -445,16 +485,16 @@ export function setLogDockOpen(open) {
   }
 }
 
-export function toggleLogDock(forceOpen) {
+export function toggleLogDock(forceOpen?: boolean) {
   const next = typeof forceOpen === "boolean" ? forceOpen : !state.logDockOpen;
   setLogDockOpen(next);
 }
 
-export function participateStepLabelsForType(lotteryType) {
+export function participateStepLabelsForType(lotteryType: string) {
   return lotteryType === "预约抽奖" ? [...RESERVE_STEP_LABELS] : [...PARTICIPATE_STEP_LABELS];
 }
 
-export function participateProgressLabels(total) {
+export function participateProgressLabels(total: number) {
   const count = Number(total) || 0;
   if (count === 1) return ["预约"];
   if (count === 2) return [...RESERVE_STEP_LABELS];
@@ -464,13 +504,13 @@ export function participateProgressLabels(total) {
   return [...PARTICIPATE_STEP_LABELS];
 }
 
-export function tripleTargetsForJob(job) {
+export function tripleTargetsForJob(job: JobStatus): TripleTarget[] {
   const fromJob = job?.result?.targets;
-  if (Array.isArray(fromJob) && fromJob.length) return fromJob;
-  return state.tripleTargets?.items || [];
+  if (Array.isArray(fromJob) && fromJob.length) return fromJob as TripleTarget[];
+  return (state.tripleTargets?.items || []) as TripleTarget[];
 }
 
-export function inferLotteryTypeFromLaneStatus(status) {
+export function inferLotteryTypeFromLaneStatus(status: string) {
   const text = String(status || "");
   const stepMatch = text.match(/（\s*\d+\s*\/\s*(\d+)\s*）/);
   if (stepMatch) {
@@ -484,14 +524,14 @@ export function inferLotteryTypeFromLaneStatus(status) {
   return "";
 }
 
-export function resolveTripleLaneLotteryType(lane, job, laneIndex = -1) {
+export function resolveTripleLaneLotteryType(lane: TripleLane, job: JobStatus, laneIndex = -1) {
   const target = findTripleTargetForLane(lane, job, laneIndex);
   const fromTarget = String(target?.lottery_type || "").trim();
   if (fromTarget) return fromTarget;
   return inferLotteryTypeFromLaneStatus(lane?.status);
 }
 
-export function findTripleTargetForLane(lane, job, laneIndex = -1) {
+export function findTripleTargetForLane(lane: TripleLane, job: JobStatus, laneIndex = -1) {
   const targets = tripleTargetsForJob(job);
   if (laneIndex >= 0 && laneIndex < targets.length) {
     return targets[laneIndex];
@@ -513,7 +553,7 @@ export function findTripleTargetForLane(lane, job, laneIndex = -1) {
   );
 }
 
-export function participateActiveStepIndex(status, labelCount, labels = PARTICIPATE_STEP_LABELS) {
+export function participateActiveStepIndex(status: string, labelCount: number, labels: string[] = PARTICIPATE_STEP_LABELS) {
   const text = String(status || "");
   const scopedLabels = labels.length ? labels : PARTICIPATE_STEP_LABELS.slice(0, labelCount);
   if (PARTICIPATE_DONE_KEYWORDS.some((keyword) => text.includes(keyword))) {
@@ -540,7 +580,7 @@ export function participateActiveStepIndex(status, labelCount, labels = PARTICIP
   return -1;
 }
 
-export function buildPipelineStepsHtml(labels, activeIndex, options = {}) {
+export function buildPipelineStepsHtml(labels: string[], activeIndex: number, options: { failed?: boolean } = {}) {
   const failed = Boolean(options.failed);
   return labels
     .map((label, index) => {
@@ -569,18 +609,18 @@ export function buildPipelineStepsHtml(labels, activeIndex, options = {}) {
     .join("");
 }
 
-export function renderPipelineSteps(labels, activeIndex) {
+export function renderPipelineSteps(labels: string[], activeIndex: number) {
   if (!progressSteps) return;
   progressSteps.hidden = false;
   progressSteps.classList.remove("is-triple");
   progressSteps.innerHTML = buildPipelineStepsHtml(labels, activeIndex);
 }
 
-export function buildJobKey(job) {
+export function buildJobKey(job: JobStatus) {
   return `${job?.action || ""}:${job?.started_at || ""}`;
 }
 
-export function resetJobProgressTracking(job) {
+export function resetJobProgressTracking(job: JobStatus) {
   const nextKey = buildJobKey(job);
   if (state.activeJobKey !== nextKey) {
     state.activeJobKey = nextKey;
@@ -589,7 +629,7 @@ export function resetJobProgressTracking(job) {
   }
 }
 
-export function parseTripleProgressLanes(message) {
+export function parseTripleProgressLanes(message: string | undefined) {
   return String(message || "")
     .split("|")
     .map((part) => part.trim())
@@ -602,13 +642,13 @@ export function parseTripleProgressLanes(message) {
     });
 }
 
-export function commentFailureOptional(action) {
+export function commentFailureOptional(action: ActionResult) {
   if (!action || action.action !== "comment" || action.ok) return false;
   const detail = String(action.detail || "");
   return COMMENT_OPTIONAL_PATTERNS.some((pattern) => pattern.test(detail));
 }
 
-export function participationSucceeded(actions, lotteryType) {
+export function participationSucceeded(actions: ActionResult[], lotteryType: string) {
   const actionMap = new Map((actions || []).map((item) => [item?.action, item]));
   if (lotteryType === "预约抽奖") {
     return RESERVE_REQUIRED_ACTIONS.every((name) => actionMap.get(name)?.ok === true);
@@ -625,14 +665,14 @@ export function participationSucceeded(actions, lotteryType) {
   return (actions || []).every((item) => item?.ok !== false);
 }
 
-export function payloadJoinedSuccess(payload) {
+export function payloadJoinedSuccess(payload: Record<string, any> | null | undefined) {
   if (payload?.status !== "joined") return false;
   const actions = payload?.actions || [];
   if (!actions.length) return false;
   return participationSucceeded(actions, payload?.lottery_type || "");
 }
 
-export function summarizeTripleResult(result) {
+export function summarizeTripleResult(result: Record<string, any>) {
   const items = result?.items || [];
   let joined = 0;
   let failed = 0;
@@ -643,13 +683,13 @@ export function summarizeTripleResult(result) {
   return { joined, failed, total: items.length };
 }
 
-export function renderActionChips(actions) {
+export function renderActionChips(actions: ActionResult[]) {
   if (!actions?.length) return "";
   return `
     <div class="participation-result-steps">
       ${actions
         .map((item) => {
-          const label = ACTION_LABELS[item?.action] || item?.action || "步骤";
+          const label = (ACTION_LABELS as Record<string, string>)[item?.action || ""] || item?.action || "步骤";
           let stepState = "skipped";
           let icon = "○";
           if (item?.ok === true) {
@@ -665,7 +705,7 @@ export function renderActionChips(actions) {
     </div>`;
 }
 
-export function classifyLaneStatus(status) {
+export function classifyLaneStatus(status: string) {
   const text = String(status || "");
   if (PARTICIPATE_FAIL_KEYWORDS.some((keyword) => text.includes(keyword))) return "failed";
   if (PARTICIPATE_DONE_KEYWORDS.some((keyword) => text.includes(keyword))) return "done";
@@ -674,7 +714,7 @@ export function classifyLaneStatus(status) {
   return "pending";
 }
 
-export function summarizeTripleProgressLanes(lanes) {
+export function summarizeTripleProgressLanes(lanes: TripleLane[]) {
   const doneCount = lanes.filter((lane) => classifyLaneStatus(lane.status) === "done").length;
   const activeLanes = lanes.filter((lane) => classifyLaneStatus(lane.status) === "active");
   const failedCount = lanes.filter((lane) => classifyLaneStatus(lane.status) === "failed").length;
@@ -682,6 +722,7 @@ export function summarizeTripleProgressLanes(lanes) {
 }
 
 export function hideParticipationResult(immediate = false) {
+  if (!jobResultBanner) return;
   if (state.jobResultTimer) {
     window.clearTimeout(state.jobResultTimer);
     state.jobResultTimer = null;
@@ -705,6 +746,7 @@ export function hideParticipationResult(immediate = false) {
   jobResultBanner.classList.add("is-hiding");
   jobResultBanner.classList.remove("is-visible");
   state.jobResultTimer = window.setTimeout(() => {
+    if (!jobResultBanner) return;
     jobResultBanner.hidden = true;
     jobResultBanner.classList.remove("is-hiding");
     state.jobResultTimer = null;
@@ -725,7 +767,7 @@ export function restartParticipationResultProgress() {
   jobResultProgress.style.animation = "";
 }
 
-export function renderParticipationStepResults(result) {
+export function renderParticipationStepResults(result: Record<string, any>) {
   const actions = result?.actions || [];
   if (!actions.length) {
     const message = sanitizeUserText(result?.message || "");
@@ -739,9 +781,9 @@ export function renderParticipationStepResults(result) {
   return renderActionChips(actions);
 }
 
-export function renderTripleParticipationResults(result) {
-  const targets = result?.targets || [];
-  const items = result?.items || [];
+export function renderTripleParticipationResults(result: Record<string, any>) {
+  const targets: any[] = result?.targets || [];
+  const items: any[] = result?.items || [];
   const itemMap = new Map(items.map((item) => [String(item?.dynamic_id || ""), item]));
   const rows = (targets.length ? targets : items).map((entry) => {
     const dynamicId = String(entry?.dynamic_id || "");
@@ -775,12 +817,12 @@ export function renderTripleParticipationResults(result) {
   return `<div class="participation-result-list">${rows.join("")}</div>`;
 }
 
-export function showParticipationResult(job) {
+export function showParticipationResult(job: JobStatus) {
   if (!jobResultBanner || (job.action !== "participate" && job.action !== "participate_triple")) return;
   if (job.result?.skipped) return;
   hideParticipationResult(true);
 
-  const result = job.result || {};
+  const result = (job.result || {}) as Record<string, any>;
   const isTriple = job.action === "participate_triple";
   let joined = 0;
   let failed = 0;
@@ -851,7 +893,7 @@ export function showParticipationResult(job) {
   scheduleParticipationResultDismiss();
 }
 
-export function renderTripleParticipateProgress(job) {
+export function renderTripleParticipateProgress(job: JobStatus) {
   if (!progressSteps) return;
   progressSteps.hidden = false;
   progressSteps.classList.add("is-triple");
@@ -889,7 +931,7 @@ export function renderTripleParticipateProgress(job) {
     </div>`;
 }
 
-export function renderParticipateSteps(job) {
+export function renderParticipateSteps(job: JobStatus) {
   if (!progressSteps) return;
   if (job.state === "running" && job.action === "participate_triple") {
     renderTripleParticipateProgress(job);
@@ -916,12 +958,12 @@ export function renderParticipateSteps(job) {
   renderPipelineSteps(labels, activeIndex);
 }
 
-export function refreshAllDataSourceCount(job) {
+export function refreshAllDataSourceCount(job: JobStatus) {
   const total = Number(job.progress_total) || REFRESH_ALL_DS_COUNT + REFRESH_ALL_PIPELINE_SUBSTEPS;
   return Math.max(1, total - REFRESH_ALL_PIPELINE_SUBSTEPS);
 }
 
-export function refreshAllPipelinePhaseFromMessage(message) {
+export function refreshAllPipelinePhaseFromMessage(message: string) {
   const text = String(message || "");
   if (/跳过.*流水线|均无新专栏|无新专栏/.test(text)) return 3;
   if (/入库|落库|写入活动库/.test(text)) return 3;
@@ -930,13 +972,13 @@ export function refreshAllPipelinePhaseFromMessage(message) {
   return null;
 }
 
-export function refreshAllSubprogressRatio(message) {
+export function refreshAllSubprogressRatio(message: string) {
   const match = String(message || "").match(/\((\d+)\s*\/\s*(\d+)\)/);
   if (!match) return null;
   return Number(match[1]) / Math.max(1, Number(match[2]));
 }
 
-export function refreshAllPipelinePhase(step, dsCount, message) {
+export function refreshAllPipelinePhase(step: number, dsCount: number, message: string) {
   if (step > dsCount) {
     const fromMessage = refreshAllPipelinePhaseFromMessage(message);
     if (fromMessage !== null) return fromMessage;
@@ -947,7 +989,7 @@ export function refreshAllPipelinePhase(step, dsCount, message) {
   return 3;
 }
 
-export function renderRefreshAllPipeline(job) {
+export function renderRefreshAllPipeline(job: JobStatus) {
   if (!progressSteps) return;
   const step = Number(job.progress_step) || 0;
   const dsCount = refreshAllDataSourceCount(job);
@@ -955,7 +997,7 @@ export function renderRefreshAllPipeline(job) {
   renderPipelineSteps(REFRESH_ALL_PIPELINE, refreshAllPipelinePhase(step, dsCount, message));
 }
 
-export function renderRefreshWatchPipeline(job) {
+export function renderRefreshWatchPipeline(job: JobStatus) {
   if (!progressSteps) return;
   progressSteps.hidden = false;
   const step = Number(job.progress_step) || 0;
@@ -967,7 +1009,7 @@ export function renderRefreshWatchPipeline(job) {
   renderPipelineSteps(REFRESH_WATCH_PIPELINE, phase);
 }
 
-export function calcJobProgressPercent(job) {
+export function calcJobProgressPercent(job: JobStatus) {
   const total = Number(job.progress_total) || 0;
   const step = Number(job.progress_step) || 0;
   if (total <= 0) return 8;
@@ -1026,13 +1068,18 @@ export function calcJobProgressPercent(job) {
   return Math.max(0, Math.min(100, Math.round((step / total) * 100)));
 }
 
-export function setButtonsDisabled(disabled) {
-  document.querySelectorAll("[data-action]").forEach((button) => {
-    button.disabled = disabled;
+export function setButtonsDisabled(disabled: boolean) {
+  document.querySelectorAll("[data-action], [data-extra-tool]").forEach((button) => {
+    const el = button as HTMLElement & { disabled: boolean };
+    el.disabled = disabled;
+    el.setAttribute("aria-disabled", String(disabled));
+    if (disabled) {
+      el.title = el.dataset.originalTitle || el.title || "任务运行中，暂不可用";
+    }
   });
 }
 
-export function setProgressAria(percent, labelText) {
+export function setProgressAria(percent: number, labelText?: string) {
   if (!progressTrack) return;
   const rounded = Math.max(0, Math.min(100, Math.round(percent)));
   progressTrack.setAttribute("aria-valuenow", String(rounded));
@@ -1041,12 +1088,12 @@ export function setProgressAria(percent, labelText) {
   }
 }
 
-export function updateProgressUI(job) {
+export function updateProgressUI(job: JobStatus) {
   const running = job.state === "running";
   document.body.classList.toggle("job-running", running);
-  progressBanner.hidden = !running;
+  progressBanner!.hidden = !running;
   if (!running) {
-    progressFill.style.width = "0%";
+    progressFill!.style.width = "0%";
     if (progressFillGlow) progressFillGlow.style.width = "0%";
     const shine = document.getElementById("progress-fill-shine");
     if (shine) shine.style.left = "0%";
@@ -1068,12 +1115,12 @@ export function updateProgressUI(job) {
   const display = formatJobProgressDisplay(job);
   const percent = Math.max(state.smoothJobPercent, display.percent);
   state.smoothJobPercent = percent;
-  const prev = Number(progressBanner.dataset.percent || "0");
-  progressBanner.dataset.percent = String(percent);
-  if (percent > prev) progressBanner.classList.add("progress-tick");
-  else progressBanner.classList.remove("progress-tick");
-  window.setTimeout(() => progressBanner.classList.remove("progress-tick"), 420);
-  progressFill.style.width = `${percent}%`;
+  const prev = Number(progressBanner!.dataset.percent || "0");
+  progressBanner!.dataset.percent = String(percent);
+  if (percent > prev) progressBanner!.classList.add("progress-tick");
+  else progressBanner!.classList.remove("progress-tick");
+  window.setTimeout(() => progressBanner!.classList.remove("progress-tick"), 420);
+  progressFill!.style.width = `${percent}%`;
   if (progressFillGlow) progressFillGlow.style.width = `${percent}%`;
   const shine = document.getElementById("progress-fill-shine");
   if (shine) shine.style.left = `${Math.max(0, percent - 6)}%`;
@@ -1088,7 +1135,7 @@ export function updateProgressUI(job) {
   }
   setProgressAria(percent, `${display.showPercentSuffix ? `${Math.round(percent)}%` : display.value}${display.suffix || ""}`.trim());
   if (progressChip) {
-    const chipMap = {
+    const chipMap: Record<string, string> = {
       participate: "参与任务",
       participate_triple: "三连参与",
       refresh_all: "同步任务",
@@ -1096,9 +1143,9 @@ export function updateProgressUI(job) {
       refresh_watch: "监控扫描",
       login: "登录任务",
     };
-    progressChip.textContent = chipMap[job.action] || "任务进行中";
+    progressChip.textContent = chipMap[job.action || ""] || "任务进行中";
   }
-  progressLabel.textContent = formatProgressTitle(job);
+  progressLabel!.textContent = formatProgressTitle(job);
   if (progressDetail) {
     progressDetail.textContent = formatProgressDetail(job);
     progressDetail.hidden = job.action === "participate";
@@ -1106,9 +1153,9 @@ export function updateProgressUI(job) {
   renderParticipateSteps(job);
 }
 
-export function updateJobUI(job) {
-  jobMessage.textContent = sanitizeUserText(job.message) || "暂无任务";
-  jobLog.textContent = sanitizeUserText(job.log) || "";
+export function updateJobUI(job: JobStatus) {
+  jobMessage!.textContent = sanitizeUserText(job.message) || "暂无任务";
+  jobLog!.textContent = sanitizeUserText(job.log) || "";
   syncLogDockTone(job);
   if (job.state === "running") {
     toggleLogDock(true);
@@ -1120,12 +1167,18 @@ export function updateJobUI(job) {
   updateProgressUI(job);
 }
 
-export async function startJob(action, params = {}) {
+export async function startJob(action: string, params: Record<string, any> = {}) {
   if (!requireSetup(action)) return;
+  if (jobStarting) {
+    showToast("上一个任务正在启动中，请稍候", "warning");
+    return;
+  }
+  jobStarting = true;
+  try {
   state.lastJobAttempt = { action, params: { ...params } };
   if (action === "login") {
     try {
-      const current = await fetchJSON("/api/jobs/current");
+      const current = await fetchJSON<JobStatus>("/api/jobs/current");
       if (current.state === "running" && current.action === "login") {
         state.qrcodeDismissed = false;
         ensureQrcodeModalVisible();
@@ -1160,16 +1213,21 @@ export async function startJob(action, params = {}) {
     state.lastQrcodeRefresh = 0;
     openQrcodeModalFresh();
   }
-  const current = await fetchJSON("/api/jobs/current");
+  const current = await fetchJSON<JobStatus>("/api/jobs/current");
   state.currentJob = current;
   updateJobUI(current);
   startRealtime();
   startPolling();
+  } finally {
+    jobStarting = false;
+  }
 }
 
-export function collectFinishedDynamicIds(job) {
+let jobStarting = false;
+
+export function collectFinishedDynamicIds(job: JobStatus) {
   if (job.action === "participate_triple") {
-    return (job.result?.items || []).map((item) => item?.dynamic_id).filter(Boolean);
+    return ((job.result?.items as any[]) || []).map((item) => item?.dynamic_id).filter(Boolean);
   }
   if (job.action === "participate" && job.result?.dynamic_id) {
     return [job.result.dynamic_id];
@@ -1177,7 +1235,7 @@ export function collectFinishedDynamicIds(job) {
   return [];
 }
 
-export async function handleJobCompletion(job) {
+export async function handleJobCompletion(job: JobStatus) {
   dismissRunningToasts();
 
   const isParticipation = job.action === "participate" || job.action === "participate_triple";
@@ -1199,7 +1257,7 @@ export async function handleJobCompletion(job) {
       showParticipationResult(job);
     }
   } else if (job.state === "success") {
-    if (SYNC_TOAST_ACTIONS.has(job.action)) {
+    if (job.action && SYNC_TOAST_ACTIONS.has(job.action)) {
       const detail = formatToastDetail(job);
       showToast(sanitizeUserText(job.message) || "任务完成", "success", detail);
     }
@@ -1232,11 +1290,11 @@ export async function handleJobCompletion(job) {
       if (job.state === "success") pulseWatchSyncCard();
     }
     if (job.action === "refresh_source" && job.state === "success") {
-      const sourceId = state.lastJobAttempt?.params?.source_id;
+      const sourceId = (state.lastJobAttempt?.params as Record<string, any> | undefined)?.source_id;
       flashSourceRow(sourceId);
     }
   } catch (error) {
-    showToast(String(error.message || error), "error");
+    showToast(String((error as { message?: string }).message || error), "error");
   }
   clearActionButtonLoading();
   if (job.action === "participate_triple") {
@@ -1247,12 +1305,12 @@ export async function handleJobCompletion(job) {
 }
 
 export function bindActionButtons() {
-  document.querySelectorAll("[data-action]").forEach((button) => {
+  document.querySelectorAll<HTMLButtonElement>("[data-action]").forEach((button) => {
     if (button.dataset.bound === "true") return;
     button.dataset.bound = "true";
     button.addEventListener("click", async () => {
-      const action = button.dataset.action;
-      const params = {};
+      const action = button.dataset.action || "";
+      const params: Record<string, any> = {};
       if (button.dataset.dynamicId) params.dynamic_id = button.dataset.dynamicId;
       if (button.dataset.sourceId) params.source_id = button.dataset.sourceId;
       if (action === "participate_triple") {
@@ -1267,6 +1325,9 @@ export function bindActionButtons() {
       if (action === "refresh_source") {
         setButtonLoading(button, true, { label: "更新中…" });
         setSourceRowUpdating(params.source_id, true);
+      }
+      if (action === "refresh_all" || action === "refresh_watch" || action === "refresh_status") {
+        setButtonLoading(button, true, { label: "启动中…" });
       }
       try {
         if (action === "refresh_all") {
@@ -1289,9 +1350,11 @@ export function bindActionButtons() {
       }
     });
   });
+  // 重渲染后恢复任务运行中的全局锁定（新 DOM 默认启用）
+  setButtonsDisabled(state.currentJob?.state === "running");
 }
 
-export function resolveJobPollIntervalMs(action) {
+export function resolveJobPollIntervalMs(action: string) {
   if (action === "login") return 500;
   if (action === "participate" || action === "participate_triple") return 400;
   return 1000;
@@ -1304,7 +1367,7 @@ export function stopJobPolling() {
   }
 }
 
-export function applyRunningJobView(job) {
+export function applyRunningJobView(job: JobStatus) {
   state.currentJob = job;
   updateJobUI(job);
   if (job.state === "running" && job.action === "login" && !state.qrcodeDismissed) {
@@ -1318,7 +1381,7 @@ export function applyRunningJobView(job) {
   }
 }
 
-export async function finishJobOnce(job) {
+export async function finishJobOnce(job: JobStatus) {
   const key = `${job.id || ""}:${job.action || ""}:${job.state || ""}:${job.finished_at || ""}`;
   if (key && key === state.lastFinishedJobKey) return;
   state.lastFinishedJobKey = key;
@@ -1342,8 +1405,8 @@ export async function finishJobOnce(job) {
   }
 }
 
-export function mergeJobProgress(payload) {
-  const base = state.currentJob || {};
+export function mergeJobProgress(payload: Record<string, any>) {
+  const base: JobStatus = state.currentJob || {};
   return {
     ...base,
     id: payload.id ?? base.id,
@@ -1360,12 +1423,13 @@ export function mergeJobProgress(payload) {
   };
 }
 
-export function appendJobLogChunk(chunk) {
+export function appendJobLogChunk(chunk: string) {
   const base = state.currentJob || { state: "running", log: "" };
   const current = String(base.log || "").trim();
   const next = current ? `${current}\n${chunk}` : chunk;
-  state.currentJob = { ...base, log: next, state: base.state || "running" };
-  updateJobUI(state.currentJob);
+  const nextJob: JobStatus = { ...base, log: next, state: base.state || "running" };
+  state.currentJob = nextJob;
+  updateJobUI(nextJob);
 }
 
 export function startPolling() {
@@ -1378,7 +1442,7 @@ export function startPolling() {
       return;
     }
     try {
-      const job = await fetchJSON("/api/jobs/current");
+      const job = await fetchJSON<JobStatus>("/api/jobs/current");
       state.currentJob = job;
       updateJobUI(job);
       if (job.state === "running") {
@@ -1391,7 +1455,7 @@ export function startPolling() {
             loadQrcodeImage(refreshedAt);
           }
         }
-        state.polling = window.setTimeout(poll, resolveJobPollIntervalMs(job.action));
+        state.polling = window.setTimeout(poll, resolveJobPollIntervalMs(job.action || ""));
         return;
       }
       stopJobPolling();

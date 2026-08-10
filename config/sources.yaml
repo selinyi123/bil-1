@@ -46,3 +46,22 @@ DS-7:
   mid: 226257459
   kind: opus_post
   space_url: https://space.bilibili.com/226257459/upload/opus
+
+# P1 新增源（无固定 mid，kind 区分采集方式）
+DS-8:
+  id: DS-8
+  name: 手动清单
+  kind: manual
+  space_url: ""
+
+DS-9:
+  id: DS-9
+  name: 话题源
+  kind: tag
+  space_url: ""
+
+DS-10:
+  id: DS-10
+  name: 外部API源
+  kind: api
+  space_url: ""

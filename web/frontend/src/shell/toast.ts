@@ -1,4 +1,3 @@
-// @ts-nocheck
 /* eslint-disable */
 /** Migrated from web/static/app.js — logic preserved. */
 
@@ -13,9 +12,14 @@ export const TOAST_META = {
   running: { title: "执行中", icon: "…" },
 };
 
-export function showToast(message, type = "info", detail = "", actions = []) {
+export interface ToastAction {
+  label: string;
+  onClick?: () => void;
+}
+
+export function showToast(message: string, type = "info", detail = "", actions: ToastAction[] = []) {
   if (!toastStack || !message) return;
-  const meta = TOAST_META[type] || TOAST_META.info;
+  const meta = TOAST_META[type as keyof typeof TOAST_META] || TOAST_META.info;
   const toast = document.createElement("div");
   toast.className = `toast toast-${type}`;
   const actionHtml = actions.length
@@ -36,6 +40,8 @@ export function showToast(message, type = "info", detail = "", actions = []) {
     </div>
     <button type="button" class="toast-close" aria-label="关闭">×</button>
     <div class="toast-progress" aria-hidden="true"></div>`;
+  // 错误类 toast 用 alert 角色即时播报，其余用 status（容器本身已 aria-live=polite）
+  toast.setAttribute("role", type === "error" ? "alert" : "status");
   const duration =
     actions.length > 0
       ? Math.max(type === "error" ? 8000 : 4200, 10000)
@@ -44,10 +50,10 @@ export function showToast(message, type = "info", detail = "", actions = []) {
         : type === "running"
           ? 2400
           : 4200;
-  const progress = toast.querySelector(".toast-progress");
+  const progress = toast.querySelector<HTMLElement>(".toast-progress");
   if (progress) progress.style.animationDuration = `${duration}ms`;
   toast.querySelector(".toast-close")?.addEventListener("click", () => toast.remove());
-  toast.querySelectorAll("[data-toast-action]").forEach((button) => {
+  toast.querySelectorAll<HTMLElement>("[data-toast-action]").forEach((button) => {
     button.addEventListener("click", () => {
       const action = actions[Number(button.dataset.toastAction)];
       toast.remove();
@@ -66,7 +72,7 @@ export function dismissRunningToasts() {
   toastStack.querySelectorAll(".toast-running").forEach((toast) => toast.remove());
 }
 
-export function setInlineFeedback(element, message, type = "info", { autoHide = true } = {}) {
+export function setInlineFeedback(element: HTMLElement | null, message: string, type = "info", { autoHide = true }: { autoHide?: boolean } = {}) {
   if (!element) return;
   const existing = inlineFeedbackTimers.get(element);
   if (existing) window.clearTimeout(existing);

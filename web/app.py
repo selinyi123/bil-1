@@ -50,6 +50,7 @@ from web.auto_scheduler import auto_scheduler
 from web.job_runner import runner
 from web.schemas import (
     ALLOWED_JOB_ACTIONS,
+    AccountSwitchRequest,
     AckAtUnreadRequest,
     DiagnosticsBundleOut,
     DiagnosticsLogsOut,
@@ -192,6 +193,44 @@ def api_remove_watch_user(mid: int) -> OkResponse:
 @app.get("/api/account", tags=["stable"])
 def api_account() -> dict[str, Any]:
     return get_account_profile()
+
+
+@app.get("/api/accounts", tags=["account"])
+def api_accounts() -> dict[str, Any]:
+    from src.account_pool import ensure_legacy_account, get_active_uid, list_accounts
+
+    ensure_legacy_account()  # 旧版本单账号自动收养（幂等）
+    return {
+        "ok": True,
+        "accounts": list_accounts(),
+        "active_uid": get_active_uid(),
+    }
+
+
+def _reject_when_job_running() -> None:
+    """切号/删号与运行中任务互斥：运行中拒绝操作，避免 csrf/uid 中途变化。"""
+    if runner.is_running():
+        raise AppError(ErrorCode.VALIDATION_ERROR, "有任务正在运行，请等待任务结束后再切换账号")
+
+
+@app.post("/api/accounts/switch", tags=["account"])
+def api_switch_account(request: AccountSwitchRequest) -> dict[str, Any]:
+    from src.account_pool import set_active
+
+    _reject_when_job_running()
+    if not set_active(request.uid):
+        raise AppError(ErrorCode.NOT_FOUND, f"账号 {request.uid} 不存在")
+    return {"ok": True, "active_uid": request.uid}
+
+
+@app.delete("/api/accounts/{uid}", tags=["account"])
+def api_remove_account(uid: int) -> dict[str, Any]:
+    from src.account_pool import remove_account
+
+    _reject_when_job_running()
+    if not remove_account(uid):
+        raise AppError(ErrorCode.NOT_FOUND, f"账号 {uid} 不存在")
+    return {"ok": True}
 
 
 @app.get("/api/account/extras", tags=["stable"])
@@ -398,6 +437,14 @@ def api_auto_stop() -> dict[str, Any]:
     return auto_scheduler.stop(reason="用户在监视面板停止")
 
 
+@app.get("/api/auto/schedule", tags=["auto"])
+def api_auto_schedule() -> dict[str, Any]:
+    """返回接下来最近的定时计划（只读展示，供前端 auto 面板）。"""
+    from web.auto_scheduler import get_upcoming_slots
+
+    return {"ok": True, "slots": get_upcoming_slots(count=3)}
+
+
 def _build_settings_payload() -> dict[str, Any]:
     account = get_account_profile()
     llm = get_llm_settings_public()
@@ -428,6 +475,45 @@ def api_get_llm_settings() -> dict[str, Any]:
         "llm": llm,
         "setup_complete": logged_in and bool(llm.get("ready")),
     }
+
+
+@app.get("/api/settings/enhance", tags=["settings"])
+def api_get_enhance_settings() -> dict[str, Any]:
+    from src.config_files import load_config_json
+    from src.participate_enhance import merge_participate_defaults
+
+    raw = load_config_json("participate_enhance.json")
+    return {"ok": True, "config": merge_participate_defaults(raw)}
+
+
+@app.put("/api/settings/enhance", tags=["settings"])
+def api_update_enhance_settings(request: dict[str, Any]) -> dict[str, Any]:
+    from src.config_files import save_config_json
+    from src.participate_enhance import merge_participate_defaults, reset_participate_enhance_cache
+
+    merged = merge_participate_defaults(request)
+    save_config_json("participate_enhance.json", merged)
+    reset_participate_enhance_cache()
+    return {"ok": True, "config": merged}
+
+
+@app.get("/api/settings/notify", tags=["settings"])
+def api_get_notify_settings() -> dict[str, Any]:
+    from src.config_files import load_config_json, sanitize_config_secrets
+
+    return {"ok": True, "config": sanitize_config_secrets(load_config_json("notify.json"))}
+
+
+@app.put("/api/settings/notify", tags=["settings"])
+def api_update_notify_settings(request: dict[str, Any]) -> dict[str, Any]:
+    from src.config_files import load_config_json, restore_config_secrets, save_config_json
+    from src.notify import reset_notify_config_cache
+
+    # 占位符恢复真实值；防止任意非 dict 结构（外层由 FastAPI dict 校验保证）
+    restored = restore_config_secrets(load_config_json("notify.json"), request)
+    save_config_json("notify.json", restored)
+    reset_notify_config_cache()
+    return {"ok": True, "config": restored}
 
 
 @app.post("/api/settings/llm/test", tags=["stable"])

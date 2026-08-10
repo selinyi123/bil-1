@@ -63,7 +63,7 @@
       </div>
     </div>
   </div>
-  <div class="job-result-banner" id="job-result-banner" hidden>
+  <div class="job-result-banner" id="job-result-banner" role="status" aria-live="polite" aria-atomic="true" hidden>
     <div class="job-result-shell">
       <div class="job-result-head">
         <div class="job-result-icon" id="job-result-icon" aria-hidden="true">✓</div>
@@ -523,7 +523,7 @@
                     </div>
                     <button type="submit" class="btn btn-secondary btn-pill watch-add-btn" id="watch-add-btn">添加用户</button>
                   </form>
-                  <div class="watch-user-grid" id="watch-user-grid">
+                  <div class="watch-user-grid" id="watch-user-grid" aria-live="polite">
                     <p class="caption watch-user-empty">加载监控名单中…</p>
                   </div>
                 </div>
@@ -539,7 +539,7 @@
                 </div>
                 <button type="button" class="btn btn-secondary btn-pill" data-action="refresh_all">一键更新</button>
               </div>
-              <div class="source-list" id="source-grid"></div>
+              <div class="source-list" id="source-grid" aria-live="polite"></div>
             </div>
           </div>
         </section>
@@ -568,7 +568,7 @@
               </button>
             </div>
             <div class="filters activities-filters">
-              <input type="search" id="filter-q" class="input filter-search" placeholder="搜索奖品名称…" />
+              <input type="search" id="filter-q" class="input filter-search" placeholder="搜索奖品名称…" aria-label="搜索活动" />
               <div class="filter-groups">
               <div class="filter-group" id="filter-type-group" role="group" aria-label="活动类型">
                 <button type="button" class="filter-pill active" data-filter-type="">全部类型</button>
@@ -592,9 +592,9 @@
               </div>
               </div>
             </div>
-            <p class="filter-summary" id="filter-result-summary" hidden></p>
+            <p class="filter-summary" id="filter-result-summary" aria-live="polite" hidden></p>
             <p class="filter-hint" id="filter-draw-window-hint" hidden>仅筛选你已参加、且 3 天内即将开奖的活动</p>
-            <div class="activity-list-mobile" id="activities-cards" aria-label="活动列表"></div>
+            <div class="activity-list-mobile" id="activities-cards" aria-label="活动列表" aria-live="polite"></div>
             <div class="table-wrap activity-list-desktop">
               <table class="data-table activity-table">
                 <thead>

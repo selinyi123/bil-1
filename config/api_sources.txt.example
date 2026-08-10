@@ -1,0 +1,10 @@
+# DS-10 外部 API 源配置模板
+# 每行一个 URL 或 file:// 本地 JSON 路径，复制为 api_sources.txt 后生效。
+# 兼容结构（任选其一）：
+#   {"lottery_info": [{"dyid": "1224962472871460885"}], ...}
+#   {"dynamic_ids": ["1224962472871460885"]}
+#   {"links": ["https://www.bilibili.com/opus/1224962472871460885"]}
+#   纯数组 ["1224962472871460885", ...]
+# 示例：
+# https://example.com/my-lottery-feed.json
+# file://C:/Users/me/data/lottery_info_1.json

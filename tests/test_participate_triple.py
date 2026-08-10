@@ -364,6 +364,7 @@ def test_run_action_participate_triple_emits_targets_in_initial_progress() -> No
 
     with (
         patch("web.actions.pick_triple_participate_targets", return_value=targets),
+        patch("src.participate_enhance.load_participate_enhance", return_value={"shuffle_targets": False}),
         patch("web.actions.resolve_participate_lottery_type", side_effect=lambda dynamic_id, **_: "预约抽奖" if dynamic_id == _id(1) else "互动抽奖"),
         patch("web.actions.ensure_activity_participatable"),
         patch("web.actions._execute_participate", side_effect=fake_execute),

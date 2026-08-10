@@ -11,7 +11,7 @@ from web.app import app
 
 def test_refresh_source_total_is_four() -> None:
     assert REFRESH_SOURCE_TOTAL == 4
-    assert len(DS_HANDLER_BY_ID) == 7
+    assert len(DS_HANDLER_BY_ID) == 10
 
 
 def test_refresh_source_rejects_unknown_id() -> None:

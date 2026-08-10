@@ -19,7 +19,8 @@ export default defineConfig({
     outDir: path.resolve(rootDir, "../static/dist"),
     emptyOutDir: true,
     assetsDir: "assets",
-    sourcemap: true,
+    // 生产构建不产出 sourcemap，减小体积且避免源码泄露
+    sourcemap: false,
   },
   server: {
     port: 5173,

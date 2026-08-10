@@ -20,6 +20,7 @@ except ImportError:  # pragma: no cover
 logger = get_logger("login")
 
 from src.app_paths import COOKIE_PATH, QR_IMAGE_PATH, ensure_user_dirs
+from src.proxy_config import get_proxy_url
 
 PASSPORT_HEADERS = {
     "User-Agent": (
@@ -235,7 +236,12 @@ def login_with_qrcode(
     on_qrcode_ready: Callable[[], None] | None = None,
     on_status_change: Callable[[str, str], None] | None = None,
 ) -> str:
-    client = httpx.Client(headers=PASSPORT_HEADERS, follow_redirects=True, timeout=20.0)
+    client = httpx.Client(
+        headers=PASSPORT_HEADERS,
+        follow_redirects=True,
+        timeout=20.0,
+        proxy=get_proxy_url(),
+    )
 
     def _check_cancelled() -> None:
         if cancel_event and cancel_event.is_set():

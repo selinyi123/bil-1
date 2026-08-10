@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import os
+import random
 import time
 from dataclasses import dataclass
 from typing import Callable, Literal
@@ -39,6 +42,40 @@ ACTION_LABELS: dict[ActionName, str] = {
     "reserve": "预约",
 }
 PARTICIPATION_STEPS: tuple[ActionName, ...] = ("like", "follow", "favorite", "repost", "comment")
+
+# 评论验证码 OCR（可选）：评论接口返回 12015（需要验证码）且 data.url 为验证码图片时，
+# 若配置了本地 OCR 服务（BINGGO_CAPTCHA_OCR_URL），识别后带 code 重发；未配置则按失败跳过。
+CAPTCHA_REQUIRED_CODE = 12015
+CAPTCHA_WRONG_CODE = 12073
+CAPTCHA_OCR_URL_ENV = "BINGGO_CAPTCHA_OCR_URL"
+DEFAULT_CAPTCHA_OCR_URL = "http://127.0.0.1:9898/ocr/url/text"
+CAPTCHA_MAX_ATTEMPTS = 3
+
+
+def _ocr_recognize(captcha_url: str) -> str | None:
+    """调用本地 OCR 服务识别验证码图片，返回验证码文本；未配置/失败返回 None。"""
+    endpoint = os.environ.get(CAPTCHA_OCR_URL_ENV, "").strip() or DEFAULT_CAPTCHA_OCR_URL
+    try:
+        import httpx
+
+        response = httpx.post(endpoint, json={"url": captcha_url}, timeout=10.0)
+        if response.status_code != 200:
+            return None
+        try:
+            data = response.json()
+        except Exception:
+            data = None
+        text = ""
+        if isinstance(data, dict):
+            text = str(data.get("text") or data.get("code") or "")
+        elif isinstance(data, str):
+            text = data
+        else:
+            text = response.text or ""
+        text = text.strip()
+        return text or None
+    except Exception:
+        return None
 
 
 @dataclass
@@ -389,6 +426,42 @@ def favorite_dynamic(
     return ActionResult("favorite", False, f"code={code} {message}".strip())
 
 
+def assemble_repost_content(
+    base_text: str,
+    *,
+    at_users: list[dict] | None = None,
+    topic: str = "",
+    max_len: int = 233,
+) -> tuple[str, str]:
+    """组装转发内容 + @ctrl（B 站 ctrl 定位 JSON）。
+
+    返回 (content, ctrl_json)：内容为 base_text + 可选话题 + 可选 @好友；
+    ctrl 记录每个 @ 在截断后 content 中的定位（type=1 表示 @ 用户）。
+    """
+    parts = [base_text]
+    if topic:
+        parts.append(str(topic).strip())
+    content = " ".join(part.strip() for part in parts if str(part).strip())
+    # 先对 base_text + topic 截断，再逐条追加 @（避免 233 截断出残缺 @）
+    if len(content) > max_len:
+        content = content[:max_len]
+
+    ctrl: list[dict] = []
+    cursor = len(content)
+    for user in at_users or []:
+        name = str(user.get("name") or "").strip()
+        uid = user.get("uid")
+        if not name or uid is None:
+            continue
+        candidate = f" @{name}"
+        if cursor + len(candidate) > max_len:
+            break  # 剩余空间不足：跳过后续 @，绝不写残缺 @
+        content += candidate
+        ctrl.append({"location": cursor + 1, "length": len(name) + 1, "type": 1, "data": str(uid)})
+        cursor += len(candidate)
+    return content, json.dumps(ctrl, ensure_ascii=False, separators=(",", ":"))
+
+
 def repost_dynamic(
     client: BilibiliClient,
     *,
@@ -397,6 +470,7 @@ def repost_dynamic(
     csrf: str,
     referer: str,
     content: str,
+    ctrl: str = "[]",
 ) -> ActionResult:
     payload = client.post_form(
         REPOST_URL,
@@ -404,7 +478,7 @@ def repost_dynamic(
             "uid": str(my_uid),
             "dynamic_id": dynamic_id,
             "content": content[:233],
-            "ctrl": "[]",
+            "ctrl": ctrl,
             "csrf": csrf,
         },
         referer=referer,
@@ -428,18 +502,52 @@ def comment_dynamic(
     csrf: str,
     referer: str,
 ) -> ActionResult:
-    payload = client.post_form(
-        COMMENT_URL,
-        {"oid": rid, "type": comment_type, "message": message, "csrf": csrf},
-        referer=referer,
-        raise_on_code=False,
-    )
-    code = _api_code(payload)
+    def _post(extra: dict[str, object] | None = None) -> tuple[int, dict]:
+        payload = client.post_form(
+            COMMENT_URL,
+            {"oid": rid, "type": comment_type, "message": message, "csrf": csrf, **(extra or {})},
+            referer=referer,
+            raise_on_code=False,
+        )
+        return _api_code(payload), payload
+
+    code, payload = _post()
     if code == 0:
         return ActionResult("comment", True, message[:80])
     if code == 12051:
         return ActionResult("comment", True, "已有相同评论")
+
+    # 需要验证码：若配置 OCR 服务则识别后带 code 重发
+    if code == CAPTCHA_REQUIRED_CODE:
+        captcha_url = str((payload.get("data") or {}).get("url") or "").strip()
+        if captcha_url:
+            for _ in range(CAPTCHA_MAX_ATTEMPTS):
+                code_text = _ocr_recognize(captcha_url)
+                if not code_text:
+                    return ActionResult("comment", False, "评论需要验证码，OCR 未识别")
+                code2, _ = _post({"code": code_text})
+                if code2 == 0:
+                    return ActionResult("comment", True, message[:80])
+                if code2 == 12051:
+                    return ActionResult("comment", True, "已有相同评论")
+                if code2 != CAPTCHA_WRONG_CODE:
+                    break
+            return ActionResult("comment", False, "评论验证码重试失败")
+
     return ActionResult("comment", False, f"code={code} {_api_message(payload)}".strip())
+
+
+def _ensure_participate_partition(client: BilibiliClient, name: str) -> int | None:
+    """查找或创建指定关注分区，返回 tagid；失败返回 None。"""
+    for tag in client.get_relation_tags() or []:
+        if not isinstance(tag, dict):
+            continue
+        if str(tag.get("name")) == name:
+            try:
+                return int(tag.get("tagid"))
+            except (TypeError, ValueError):
+                continue
+    return client.create_relation_tag(name)
 
 
 def execute_full_participation(
@@ -492,19 +600,45 @@ def execute_full_participation(
     csrf, my_uid = require_login()
     actions: list[ActionResult] = []
 
+    # 参与增强配置（抄热评由 participate_text 层处理；这里管 @好友/话题/随机间隔）
+    from src.participate_enhance import load_participate_enhance
+
+    enhance = load_participate_enhance()
+    interval_cfg = enhance.get("action_interval_sec") or {}
+    try:
+        _interval_min = float(interval_cfg.get("min") or ACTION_INTERVAL_SEC * 0.5)
+        _interval_max = float(interval_cfg.get("max") or ACTION_INTERVAL_SEC * 1.5)
+    except (TypeError, ValueError):
+        _interval_min, _interval_max = ACTION_INTERVAL_SEC * 0.5, ACTION_INTERVAL_SEC * 1.5
+
+    def _action_sleep() -> None:
+        low, high = min(_interval_min, _interval_max), max(_interval_min, _interval_max)
+        time.sleep(max(0.0, random.uniform(low, high)))
+
     report_step(1, "like")
     if context.liked:
         actions.append(ActionResult("like", True, "已点赞，跳过"))
     else:
         actions.append(like_dynamic(client, dynamic_id=dynamic_id, csrf=csrf, referer=context.referer))
-    time.sleep(ACTION_INTERVAL_SEC)
+    _action_sleep()
 
     report_step(2, "follow")
     if context.followed:
         actions.append(ActionResult("follow", True, f"uid={context.sender_uid} 已关注，跳过"))
     else:
         actions.append(follow_user(client, uid=context.sender_uid, csrf=csrf, referer=context.referer))
-    time.sleep(ACTION_INTERVAL_SEC)
+        # 关注后自动移入"抽奖临时关注"分区（源自 LAS partition 机制，失败静默）
+        partition_cfg = enhance.get("partition") or {}
+        if partition_cfg.get("enabled", False) and context.sender_uid:
+            try:
+                tagid = _ensure_participate_partition(
+                    client, str(partition_cfg.get("name") or "抽奖临时关注")
+                )
+                if tagid:
+                    client.move_to_relation_tag(context.sender_uid, tagid)
+            except RuntimeError:
+                pass
+    _action_sleep()
 
     report_step(3, "favorite")
     if not context.favorite_available:
@@ -515,12 +649,17 @@ def execute_full_participation(
         actions.append(
             favorite_dynamic(client, dynamic_id=dynamic_id, csrf=csrf, referer=context.referer)
         )
-    time.sleep(ACTION_INTERVAL_SEC)
+    _action_sleep()
 
     report_step(4, "repost")
     if context.reposted:
         actions.append(ActionResult("repost", True, "已转发，跳过"))
     else:
+        repost_content, repost_ctrl = assemble_repost_content(
+            text,
+            at_users=enhance.get("at_users") or [],
+            topic=enhance.get("topic") or "",
+        )
         actions.append(
             repost_dynamic(
                 client,
@@ -528,10 +667,11 @@ def execute_full_participation(
                 my_uid=my_uid,
                 csrf=csrf,
                 referer=context.referer,
-                content=text,
+                content=repost_content,
+                ctrl=repost_ctrl,
             )
         )
-    time.sleep(ACTION_INTERVAL_SEC)
+    _action_sleep()
 
     report_step(5, "comment")
     if context.commented:

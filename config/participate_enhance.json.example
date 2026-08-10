@@ -1,0 +1,8 @@
+{
+  "copy_chat": {"enabled": false, "blockwords": [], "exclude_author": true},
+  "at_users": [{"uid": 0, "name": ""}],
+  "topic": "",
+  "shuffle_targets": true,
+  "action_interval_sec": {"min": 0.75, "max": 2.25},
+  "partition": {"enabled": false, "name": "抽奖临时关注"}
+}

@@ -18,6 +18,7 @@ SINGLE_UNREAD_URL = "https://api.vc.bilibili.com/session_svr/v1/session_svr/sing
 MSGFEED_UNREAD_URL = "https://api.vc.bilibili.com/x/im/web/msgfeed/unread"
 GET_SESSIONS_URL = "https://api.vc.bilibili.com/session_svr/v1/session_svr/get_sessions"
 FETCH_SESSION_MSGS_URL = "https://api.vc.bilibili.com/svr_sync/v1/svr_sync/fetch_session_msgs"
+UPDATE_ACK_URL = "https://api.vc.bilibili.com/session_svr/v1/session_svr/update_ack"
 
 MSGFEED_BASE_URL = "https://api.bilibili.com/x/msgfeed"
 
@@ -190,6 +191,30 @@ def list_feed(
     items = [normalize_feed_item(msg_type, item) for item in data.get("items") or [] if isinstance(item, dict)]
     cursor = data.get("cursor") or {}
     return items, cursor if isinstance(cursor, dict) else {}
+
+
+def mark_dm_read(
+    client: BilibiliClient,
+    talker_id: int,
+    *,
+    session_type: int = 1,
+    seqno: int = 0,
+) -> bool:
+    """把私信会话标记为已读（中奖深检后避免重复提醒）。
+
+    返回是否成功（网络/业务错误返回 False 不抛）。
+    """
+    params: dict[str, Any] = {
+        **_WEB_PARAMS,
+        "talker_id": talker_id,
+        "session_type": session_type,
+        "ack_seqno": seqno,
+    }
+    try:
+        payload = client.post_form(UPDATE_ACK_URL, params, referer=MESSAGE_REFERER, raise_on_code=False)
+        return _api_code(payload) == 0
+    except RuntimeError:
+        return False
 
 
 def list_system_notices(

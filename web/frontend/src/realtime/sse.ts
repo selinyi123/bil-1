@@ -1,7 +1,7 @@
-// @ts-nocheck
 /* eslint-disable */
 /** Migrated from web/static/app.js — logic preserved. */
 
+import type { JobStatus } from "../types";
 import { state } from "../state";
 import { ensureAutoCountdown, ensureAutoPolling, mergeAutoLogs, renderAutoDock } from "../auto/index";
 import { appendJobLogChunk, applyRunningJobView, finishJobOnce, mergeJobProgress, startPolling, stopJobPolling, updateJobUI } from "../jobs/index";
@@ -45,7 +45,7 @@ export function closeEventSource() {
   state.sseHealthy = false;
 }
 
-export function fallbackToPolling(reason) {
+export function fallbackToPolling(reason: string) {
   closeEventSource();
   // 浏览器不支持 EventSource 时不要循环重连
   if (reason !== "no-eventsource") {
@@ -64,12 +64,12 @@ export function fallbackToPolling(reason) {
   }
 }
 
-export function handleSseMessage(eventName, payload) {
+export function handleSseMessage(eventName: string, payload: Record<string, any>) {
   markSseActive();
   if (eventName === "heartbeat") return;
 
   if (eventName === "job.snapshot" || eventName === "job.created") {
-    const job = {
+    const job: JobStatus = {
       ...(state.currentJob || {}),
       ...payload,
       state: payload.state || (eventName === "job.created" ? "running" : payload.state),
@@ -104,7 +104,7 @@ export function handleSseMessage(eventName, payload) {
   }
 
   if (eventName === "job.terminal") {
-    const job = {
+    const job: JobStatus = {
       ...(state.currentJob || {}),
       ...payload,
       state: payload.state,
@@ -148,10 +148,10 @@ export function startRealtime() {
   try {
     const es = new EventSource("/api/events");
     state.eventSource = es;
-    const bind = (name) => {
-      es.addEventListener(name, (ev) => {
+    const bind = (name: string) => {
+      es.addEventListener(name, (ev: Event) => {
         try {
-          const payload = JSON.parse(ev.data || "{}");
+          const payload = JSON.parse((ev as MessageEvent).data || "{}");
           state.sseHealthy = true;
           handleSseMessage(name, payload);
           // SSE 恢复后停掉 Job REST 轮询；Auto 倒计时保留
