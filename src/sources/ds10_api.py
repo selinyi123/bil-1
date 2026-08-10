@@ -8,9 +8,17 @@
 - `{"dynamic_ids": ["..."]}`
 - `{"links": ["https://www.bilibili.com/opus/..."]}`
 - 纯数组 `["<dyid 或链接>", ...]`
+
+增量语义（P2 #11）：按源 URL 分别保存 fingerprint（复用 `SourceCheckpointRow.cv_id`
+列存 JSON dict {url: {fp, etag, lm, mtime}}）。HTTP 源优先用 ETag / Last-Modified
+条件请求（304 → 未变化）；无条件头支持时回退到内容 sha256。file:// 源用内容
+sha256（主判据）+ mtime（记录）。全部源均未变化 → updated=False 且不触发流水线；
+任一源变化 → updated=True，activity_links 只含变化源的链接（未变化源的链接
+已在库/已处理，无需重复提交）。
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from pathlib import Path
@@ -18,7 +26,7 @@ from pathlib import Path
 from src.app_paths import config_dir
 from src.sources.common import (
     CheckResult,
-    load_previous_output,
+    load_source_fingerprint,
     normalize_dynamic_id,
     opus_link,
     save_result as write_result,
@@ -45,34 +53,96 @@ def _read_sources() -> list[str]:
     return sources
 
 
-def _fetch_payload(source: str) -> object:
-    """拉取单个外部源，返回 JSON 对象（dict/list）；失败抛 RuntimeError。"""
+def _payload_fingerprint(payload: object) -> str:
+    """载荷内容指纹：规范化 JSON 文本的 sha256（键排序，稳定跨轮次）。"""
+    text = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _fetch_payload_with_meta(
+    source: str, prev_meta: dict | None
+) -> tuple[object | None, dict[str, str]]:
+    """拉取单个外部源，返回 (payload, meta)。
+
+    - payload 为 None 表示 HTTP 304（条件请求命中，内容未变化）；
+    - meta 记录用于下次条件请求的 ETag / Last-Modified（HTTP）或 mtime（file://）；
+    - 失败抛 RuntimeError。
+    """
+    prev_meta = prev_meta or {}
     if source.startswith("file://"):
-        # 兼容 file:///C:/path 与 file://C:/path 两种写法
+        # 兼容 file:///C:/path、file://C:/path 与 file:///abs/path 三种写法
         from urllib.parse import urlparse
 
         parsed = urlparse(source)
+        netloc = parsed.netloc
         raw_path = parsed.path
-        if len(raw_path) >= 3 and raw_path[0] == "/" and raw_path[2] == ":":
-            raw_path = raw_path[1:]  # /C:/... → C:/...
+        if len(netloc) == 2 and netloc[1] == ":":
+            # Windows: "file://C:/..." 的盘符被解析进 netloc → C:/...
+            raw_path = netloc + raw_path
+        elif len(raw_path) >= 3 and raw_path[0] == "/" and raw_path[2] == ":":
+            # Windows: "file:///C:/..." → C:/...
+            raw_path = raw_path[1:]
         path = Path(raw_path)
         if not path.exists():
             raise RuntimeError(f"外部源文件不存在: {path}")
         text = path.read_text(encoding="utf-8", errors="replace")
-    else:
-        import httpx
+        mtime = str(int(path.stat().st_mtime))
+        try:
+            payload = json.loads(text)
+        except (ValueError, TypeError) as exc:
+            raise RuntimeError(f"外部源 JSON 解析失败: {source}") from exc
+        return payload, {"mtime": mtime}
 
-        from src.proxy_config import get_proxy_url
+    import httpx
 
-        proxy = get_proxy_url()
-        response = httpx.get(source, timeout=20.0, follow_redirects=True, proxy=proxy)
-        if response.status_code != 200:
-            raise RuntimeError(f"外部源 HTTP {response.status_code}: {source}")
-        text = response.text
+    from src.proxy_config import get_proxy_url
+
+    proxy = get_proxy_url()
+    headers: dict[str, str] = {}
+    etag = prev_meta.get("etag") or ""
+    last_modified = prev_meta.get("lm") or ""
+    if etag:
+        headers["If-None-Match"] = etag
+    elif last_modified:
+        headers["If-Modified-Since"] = last_modified
+    response = httpx.get(
+        source,
+        timeout=20.0,
+        follow_redirects=True,
+        proxy=proxy,
+        headers=headers,
+    )
+    if response.status_code == 304:
+        # 条件请求命中：内容与上次相同
+        return None, {}
+    if response.status_code != 200:
+        raise RuntimeError(f"外部源 HTTP {response.status_code}: {source}")
     try:
-        return json.loads(text)
+        payload = json.loads(response.text)
     except (ValueError, TypeError) as exc:
         raise RuntimeError(f"外部源 JSON 解析失败: {source}") from exc
+    meta: dict[str, str] = {}
+    new_etag = response.headers.get("ETag") or ""
+    new_lm = response.headers.get("Last-Modified") or ""
+    if new_etag:
+        meta["etag"] = new_etag
+    if new_lm:
+        meta["lm"] = new_lm
+    return payload, meta
+
+
+def _load_prev_fp_map() -> dict[str, dict[str, str]]:
+    """解析上次提交的按源 fingerprint 映射（cv_id 列 JSON）。"""
+    raw = load_source_fingerprint(SOURCE_ID)
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except ValueError:
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    return {str(key): value for key, value in parsed.items() if isinstance(value, dict)}
 
 
 def _extract_dynamic_ids(payload: object) -> list[str]:
@@ -105,19 +175,48 @@ def _extract_dynamic_ids(payload: object) -> list[str]:
 
 def check_update(*, force: bool = False) -> CheckResult:
     sources = _read_sources()
+    now = int(time.time())
+
+    prev_map = _load_prev_fp_map()
+    # 以旧映射为基底：部分源失败时保留其旧 fingerprint/条件请求头（否则
+    # commit 会丢掉失败源的 meta，下次被迫全量拉取并重复触发流水线）
+    new_map: dict[str, dict[str, str]] = dict(prev_map)
     links: list[str] = []
     errors: list[str] = []
+    changed = False
     for source in sources:
         try:
-            payload = _fetch_payload(source)
+            # force 时不带上次条件头：必须拿到 200 全量内容，强制按"有变化"处理
+            prev_meta = None if force else prev_map.get(source)
+            payload, meta = _fetch_payload_with_meta(source, prev_meta)
         except RuntimeError as exc:
             errors.append(str(exc))
             continue
-        for did in _extract_dynamic_ids(payload):
-            links.append(opus_link(did))
+        if payload is None:
+            # HTTP 304：内容未变化，保留上次指纹与条件请求头
+            new_map[source] = dict(prev_map.get(source) or {})
+            continue
+        fp = _payload_fingerprint(payload)
+        entry: dict[str, str] = {"fp": fp}
+        entry.update(meta)
+        new_map[source] = entry
+        prev_entry = prev_map.get(source) or {}
+        # 变化判定：内容指纹变化，或条件请求头（etag/lm）轮换。
+        # mtime 不参与判定（file:// 源每次读取都会变，仅作记录）。
+        # 链接只在内容真正变化时收集；etag 轮换仅推进指纹避免重复全量拉取。
+        fp_changed = fp != prev_entry.get("fp")
+        if force or fp_changed or entry.get("etag") != prev_entry.get("etag") or entry.get("lm") != prev_entry.get("lm"):
+            changed = True
+        if fp_changed:
+            for did in _extract_dynamic_ids(payload):
+                links.append(opus_link(did))
 
-    if not links:
-        prev_output = load_previous_output(OUTPUT_PATH)
+    if sources and errors and len(errors) == len(sources):
+        # 全部源失败：显式抛错（由调用方计入失败），绝不静默伪装成"无更新"
+        raise RuntimeError("DS-10 全部外部源失败: " + "; ".join(errors))
+
+    if not links and not changed:
+        # 无新动态且内容/条件头均无变化：不触发流水线
         return CheckResult(
             source_id=SOURCE_ID,
             updated=False,
@@ -126,8 +225,24 @@ def check_update(*, force: bool = False) -> CheckResult:
             title="外部 API 源（无动态）",
             published_at=0,
             previous_container_url=CONTAINER_PLACEHOLDER,
-            activity_links=(prev_output or {}).get("activity_links") or [],
-            checked_at=int(time.time()),
+            activity_links=[],
+            checked_at=now,
+        )
+    if not links:
+        # 内容/条件头有变化但提取不到新动态（空批次）：
+        # updated=True 推进指纹（cv_id 随 commit 落库），避免下轮重复全量拉取；
+        # 空 activity_links 使调用方流水线自然跳过。
+        return CheckResult(
+            source_id=SOURCE_ID,
+            updated=True,
+            container_url=CONTAINER_PLACEHOLDER,
+            container_id="api",
+            title=f"外部 API 源（{len(sources)} 个来源，0 条动态）",
+            published_at=now,
+            previous_container_url=CONTAINER_PLACEHOLDER,
+            activity_links=[],
+            checked_at=now,
+            cv_id=json.dumps(new_map, sort_keys=True, ensure_ascii=False, separators=(",", ":")),
         )
     return CheckResult(
         source_id=SOURCE_ID,
@@ -135,10 +250,12 @@ def check_update(*, force: bool = False) -> CheckResult:
         container_url=CONTAINER_PLACEHOLDER,
         container_id="api",
         title=f"外部 API 源（{len(sources)} 个来源，{len(links)} 条动态）",
-        published_at=int(time.time()),
+        published_at=now,
         previous_container_url=CONTAINER_PLACEHOLDER,
         activity_links=links,
-        checked_at=int(time.time()),
+        checked_at=now,
+        # 复用 cv_id 承载按源 fingerprint JSON，由 commit_source_checkpoint 持久化
+        cv_id=json.dumps(new_map, sort_keys=True, ensure_ascii=False, separators=(",", ":")),
     )
 
 

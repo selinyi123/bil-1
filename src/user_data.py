@@ -3,7 +3,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from src.bilibili_auth import get_login_uid
+from src.bilibili_auth import resolve_effective_uid
 from src.state_store import DATA_DIR
 
 USERS_DIR = DATA_DIR / "users"
@@ -12,7 +12,8 @@ LEGACY_ACTIONS = DATA_DIR / "participation_actions.json"
 
 
 def get_active_uid() -> int | None:
-    return get_login_uid()
+    """业务侧生效身份：BILI_COOKIE env > 账号池活跃账号 > cookies.txt（P1 #3）。"""
+    return resolve_effective_uid()
 
 
 def user_dir(uid: int) -> Path:

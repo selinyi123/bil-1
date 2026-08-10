@@ -219,6 +219,15 @@ def api_switch_account(request: AccountSwitchRequest) -> dict[str, Any]:
 
     _reject_when_job_running()
     if not set_active(request.uid):
+        # set_active 返回 False 有两种原因：账号不存在，或 BILI_COOKIE env
+        # 覆盖身份拒绝切换（见 account_pool.set_active）
+        import os
+
+        if os.environ.get("BILI_COOKIE", "").strip():
+            raise AppError(
+                ErrorCode.VALIDATION_ERROR,
+                "检测到 BILI_COOKIE 环境变量覆盖账号身份，无法切换账号（请清除环境变量后重试）",
+            )
         raise AppError(ErrorCode.NOT_FOUND, f"账号 {request.uid} 不存在")
     return {"ok": True, "active_uid": request.uid}
 
@@ -480,18 +489,31 @@ def api_get_llm_settings() -> dict[str, Any]:
 @app.get("/api/settings/enhance", tags=["settings"])
 def api_get_enhance_settings() -> dict[str, Any]:
     from src.config_files import load_config_json
-    from src.participate_enhance import merge_participate_defaults
+    from src.participate_enhance import sanitize_participate_enhance
 
     raw = load_config_json("participate_enhance.json")
-    return {"ok": True, "config": merge_participate_defaults(raw)}
+    return {"ok": True, "config": sanitize_participate_enhance(raw)}
 
 
 @app.put("/api/settings/enhance", tags=["settings"])
 def api_update_enhance_settings(request: dict[str, Any]) -> dict[str, Any]:
-    from src.config_files import save_config_json
-    from src.participate_enhance import merge_participate_defaults, reset_participate_enhance_cache
+    from pydantic import ValidationError
 
-    merged = merge_participate_defaults(request)
+    from src.config_files import save_config_json
+    from src.participate_enhance import (
+        EnhanceSettingsModel,
+        format_enhance_validation_error,
+        reset_participate_enhance_cache,
+    )
+
+    try:
+        validated = EnhanceSettingsModel.model_validate(request)
+    except ValidationError as exc:
+        raise AppError(
+            ErrorCode.VALIDATION_ERROR,
+            f"参与增强配置无效：{format_enhance_validation_error(exc)}",
+        ) from exc
+    merged = validated.model_dump()
     save_config_json("participate_enhance.json", merged)
     reset_participate_enhance_cache()
     return {"ok": True, "config": merged}
@@ -506,14 +528,15 @@ def api_get_notify_settings() -> dict[str, Any]:
 
 @app.put("/api/settings/notify", tags=["settings"])
 def api_update_notify_settings(request: dict[str, Any]) -> dict[str, Any]:
-    from src.config_files import load_config_json, restore_config_secrets, save_config_json
+    from src.config_files import load_config_json, restore_config_secrets, sanitize_config_secrets, save_config_json
     from src.notify import reset_notify_config_cache
 
     # 占位符恢复真实值；防止任意非 dict 结构（外层由 FastAPI dict 校验保证）
     restored = restore_config_secrets(load_config_json("notify.json"), request)
     save_config_json("notify.json", restored)
     reset_notify_config_cache()
-    return {"ok": True, "config": restored}
+    # 响应再次脱敏：绝不把恢复后的真实凭据回显给前端
+    return {"ok": True, "config": sanitize_config_secrets(restored)}
 
 
 @app.post("/api/settings/llm/test", tags=["stable"])

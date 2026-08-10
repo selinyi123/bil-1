@@ -27,19 +27,60 @@ def test_init_db_idempotent(isolated_home: Path) -> None:
     assert db_path().parent == isolated_home / "data"
 
 
-def test_init_db_repairs_inflated_schema_meta(isolated_home: Path) -> None:
-    """开发版误标 schema_meta 高于代码时，表结构已齐则自动回写。"""
+def test_migrate_v2_to_v3_rekeys_account_profile_cache(isolated_home: Path) -> None:
+    """v3 迁移：account_profile_cache 从单例行重建为按 uid 主键（旧缓存丢弃可安全重建）。"""
+    from sqlalchemy import text as sql_text
+
+    from src.db.models import AccountProfileCacheRow
+
+    init_db()
+    with session_scope() as session:
+        meta = session.get(SchemaMeta, 1)
+        assert meta is not None
+        # 模拟 v2 库：单例行缓存 + 版本号 2
+        session.execute(sql_text("DROP TABLE account_profile_cache"))
+        session.execute(
+            sql_text(
+                "CREATE TABLE account_profile_cache ("
+                "id INTEGER PRIMARY KEY, uname TEXT, face TEXT, mid INTEGER, "
+                "following INTEGER, dynamic_count INTEGER, updated_at INTEGER, raw_json TEXT)"
+            )
+        )
+        session.execute(
+            sql_text("INSERT INTO account_profile_cache (id, uname, mid) VALUES (1, 'old_user', 42)")
+        )
+        meta.version = 2
+        session.commit()
+
+    init_db()  # 触发 v2→v3 迁移 + create_all 重建
+
+    with session_scope() as session:
+        meta = session.get(SchemaMeta, 1)
+        assert int(meta.version) == SCHEMA_VERSION
+        # 旧单例行已随表重建清除；新表按 uid 主键工作
+        assert session.get(AccountProfileCacheRow, 1) is None
+        session.add(AccountProfileCacheRow(uid=7, uname="u7", raw_json="{}"))
+        session.add(AccountProfileCacheRow(uid=8, uname="u8", raw_json="{}"))
+        session.commit()
+        assert session.get(AccountProfileCacheRow, 7).uname == "u7"
+        assert session.get(AccountProfileCacheRow, 8).uname == "u8"
+
+
+def test_init_db_hard_fails_on_future_schema(isolated_home: Path) -> None:
+    """核心不变量：未来版本 DB 在任何写操作之前 hard fail，绝不自动降级回写。"""
     init_db()
     with session_scope() as session:
         meta = session.get(SchemaMeta, 1)
         assert meta is not None
         meta.version = SCHEMA_VERSION + 1
         session.commit()
-    init_db()
+    with pytest.raises(RuntimeError):
+        init_db()
+    # 版本号必须保持原样，且 init_db 失败前未产生任何结构性写入
     with session_scope() as session:
         meta = session.get(SchemaMeta, 1)
         assert meta is not None
-        assert int(meta.version) == SCHEMA_VERSION
+        assert int(meta.version) == SCHEMA_VERSION + 1
 
 
 def test_activity_codec_preserves_business_type_int(isolated_home: Path) -> None:

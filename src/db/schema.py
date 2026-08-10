@@ -11,7 +11,7 @@ from src.db.models import SchemaMeta
 # 确保全部表注册到 metadata
 from src.db import models as _models  # noqa: F401
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _JOB_V2_COLUMNS: tuple[tuple[str, str], ...] = (
     ("label", "TEXT NOT NULL DEFAULT ''"),
@@ -43,42 +43,20 @@ def migrate_v1_to_v2(session: Session) -> None:
     conn.execute(text("CREATE INDEX IF NOT EXISTS ix_jobs_created_at ON jobs(created_at)"))
 
 
+def migrate_v2_to_v3(session: Session) -> None:
+    """v3：account_profile_cache 由单例行改为按 uid 主键。
+
+    缓存内容可安全重建（网络失败时的回退展示），因此直接 drop 旧表，
+    新表结构由 init_db 末尾的 create_all 按当前模型重建。
+    """
+    conn = session.connection()
+    conn.execute(text("DROP TABLE IF EXISTS account_profile_cache"))
+
+
 _MIGRATIONS: dict[int, Callable[[Session], None]] = {
     1: migrate_v1_to_v2,
+    2: migrate_v2_to_v3,
 }
-
-
-def _jobs_table_has_v2_columns(session: Session) -> bool:
-    conn = session.connection()
-    if conn.execute(
-        text("SELECT 1 FROM sqlite_master WHERE type='table' AND name='jobs'")
-    ).fetchone() is None:
-        return False
-    existing = {
-        str(row[1])
-        for row in conn.execute(text("PRAGMA table_info(jobs)")).fetchall()
-    }
-    return all(name in existing for name, _ in _JOB_V2_COLUMNS)
-
-
-def _database_matches_code_schema(session: Session) -> bool:
-    if SCHEMA_VERSION >= 2 and not _jobs_table_has_v2_columns(session):
-        return False
-    return True
-
-
-def _try_reconcile_schema_meta_version(session: Session, recorded: int) -> int | None:
-    """若 meta 版本被误标高于代码，但表结构已符合当前代码，则回写 meta（幂等）。"""
-    if recorded <= SCHEMA_VERSION:
-        return None
-    if not _database_matches_code_schema(session):
-        return None
-    meta = session.get(SchemaMeta, 1)
-    if meta is None:
-        return None
-    meta.version = SCHEMA_VERSION
-    session.commit()
-    return SCHEMA_VERSION
 
 
 def _schema_newer_than_code_error(recorded: int) -> RuntimeError:
@@ -93,23 +71,48 @@ def _schema_newer_than_code_error(recorded: int) -> RuntimeError:
     )
 
 
+def _table_exists(engine, name: str) -> bool:
+    with engine.connect() as conn:
+        return (
+            conn.execute(
+                text("SELECT 1 FROM sqlite_master WHERE type='table' AND name=:name"),
+                {"name": name},
+            ).fetchone()
+            is not None
+        )
+
+
 def init_db() -> None:
-    """创建表结构并执行 schema_version 迁移。可重复调用。"""
+    """创建表结构并执行 schema_version 迁移。可重复调用。
+
+    顺序保证（forward-compat 不变量，P1）：
+    1. 原生 SQL 探测 schema_meta 表（不经过 ORM，此阶段零写）；
+    2. 表不存在 → 全新库：create_all + 写入当前版本；
+    3. meta 版本高于代码 → 直接 hard fail —— 在此之前不执行任何写操作，
+       也绝不把未来版本"纠正"回旧版本；
+    4. 版本低于代码 → 顺序执行迁移，逐级递增版本；
+    5. 末尾 create_all 幂等补建迁移未覆盖的缺失表/索引。
+    """
     engine = get_engine()
-    SQLModel.metadata.create_all(engine)
+    if not _table_exists(engine, "schema_meta"):
+        # 全新库：先建表再写版本号（此时无任何旧数据可破坏）
+        SQLModel.metadata.create_all(engine)
+        with Session(engine) as session:
+            session.add(SchemaMeta(id=1, version=SCHEMA_VERSION))
+            session.commit()
+        return
+
     with Session(engine) as session:
         row = session.get(SchemaMeta, 1)
         if row is None:
+            # 异常态：meta 表存在但无记录，按全新库补齐（不动其他表）
             session.add(SchemaMeta(id=1, version=SCHEMA_VERSION))
             session.commit()
             return
         current = int(row.version)
         if current > SCHEMA_VERSION:
-            reconciled = _try_reconcile_schema_meta_version(session, current)
-            if reconciled is not None:
-                current = reconciled
-            else:
-                raise _schema_newer_than_code_error(current)
+            # 未来版本：在任何写操作之前拒绝打开
+            raise _schema_newer_than_code_error(current)
         while current < SCHEMA_VERSION:
             migrate = _MIGRATIONS.get(current)
             if migrate is None:
@@ -122,3 +125,6 @@ def init_db() -> None:
             else:
                 meta.version = current
             session.commit()
+
+    # 迁移完成后补建缺失表/索引（幂等；对"刚迁移完"的库是安全的）
+    SQLModel.metadata.create_all(engine)

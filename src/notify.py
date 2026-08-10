@@ -54,6 +54,41 @@ _CACHE_MTIME: float | None = None
 _TIMEOUT = 10.0
 
 
+def _as_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _http_ok(response: Any, *, ok_codes: tuple[int, ...] = (0,)) -> bool:
+    """渠道响应确认：HTTP >= 400 或业务 JSON 明确报错视为失败（不产生假发送成功）。
+
+    - 成功码按渠道约定（多数为 0；bark/pushplus 为 200）；
+    - 2xx 但无法解析 JSON 的响应视为到达（部分渠道返回纯文本，不再额外惩罚）；
+    - 解析出的业务码不在 ok_codes 中 → 失败（如 telegram 401、钉钉 errcode!=0）。
+    """
+    if int(getattr(response, "status_code", 200) or 200) >= 400:
+        return False
+    try:
+        body = response.json()
+    except (ValueError, AttributeError):
+        return True
+    if not isinstance(body, dict):
+        return True
+    if "errcode" in body:
+        code = _as_int(body.get("errcode"))
+        return code is None or code in ok_codes
+    if "code" in body:
+        code = _as_int(body.get("code"))
+        return code is None or code in ok_codes
+    if "success" in body:
+        return body["success"] is True
+    if "ok" in body:
+        return body["ok"] is True
+    return True
+
+
 def _config_path() -> Path:
     return config_dir() / "notify.json"
 
@@ -104,7 +139,9 @@ def _serverchan(cfg: dict, title: str, desp: str) -> str | None:
     if not key:
         return None
     try:
-        httpx.get(f"https://sc.ftqq.com/{key}.send", params={"text": title, "desp": desp}, timeout=_TIMEOUT)
+        response = httpx.get(f"https://sc.ftqq.com/{key}.send", params={"text": title, "desp": desp}, timeout=_TIMEOUT)
+        if not _http_ok(response, ok_codes=(0,)):
+            return None
         return "serverchan"
     except httpx.HTTPError:
         return None
@@ -115,7 +152,9 @@ def _sct(cfg: dict, title: str, desp: str) -> str | None:
     if not key:
         return None
     try:
-        httpx.get(f"https://sctapi.ftqq.com/{key}.send", params={"title": title, "desp": desp}, timeout=_TIMEOUT)
+        response = httpx.get(f"https://sctapi.ftqq.com/{key}.send", params={"title": title, "desp": desp}, timeout=_TIMEOUT)
+        if not _http_ok(response, ok_codes=(0,)):
+            return None
         return "sct"
     except httpx.HTTPError:
         return None
@@ -127,11 +166,13 @@ def _coolpush(cfg: dict, title: str, desp: str) -> str | None:
         return None
     mode = str(cfg.get("mode") or "send").strip() or "send"
     try:
-        httpx.post(
+        response = httpx.post(
             f"https://push.xuthus.cc/{mode}/{key}",
             data={"c": title, "title": title, "d": desp},
             timeout=_TIMEOUT,
         )
+        if not _http_ok(response, ok_codes=(0,)):
+            return None
         return "coolpush"
     except httpx.HTTPError:
         return None
@@ -147,7 +188,10 @@ def _bark(cfg: dict, title: str, desp: str) -> str | None:
         params = {}
         if sound:
             params["sound"] = sound
-        httpx.get(url, params=params, timeout=_TIMEOUT)
+        response = httpx.get(url, params=params, timeout=_TIMEOUT)
+        # bark 成功响应 code=200，失败（如 key 无效）code!=200
+        if not _http_ok(response, ok_codes=(200,)):
+            return None
         return "bark"
     except httpx.HTTPError:
         return None
@@ -159,11 +203,13 @@ def _pushdeer(cfg: dict, title: str, desp: str) -> str | None:
         return None
     base = str(cfg.get("url") or "https://api2.pushdeer.com/message/push").strip().rstrip("/")
     try:
-        httpx.post(
+        response = httpx.post(
             base,
             data={"pushkey": key, "text": title, "desp": desp},
             timeout=_TIMEOUT,
         )
+        if not _http_ok(response, ok_codes=(0,)):
+            return None
         return "pushdeer"
     except httpx.HTTPError:
         return None
@@ -175,11 +221,14 @@ def _telegram(cfg: dict, title: str, desp: str) -> str | None:
     if not token or not chat_id:
         return None
     try:
-        httpx.post(
+        response = httpx.post(
             f"https://api.telegram.org/bot{token}/sendMessage",
             json={"chat_id": chat_id, "text": f"{title}\n{desp}"},
             timeout=_TIMEOUT,
         )
+        # telegram 明确返回 {"ok": false}（401/403 时 HTTP 层也会 >=400）
+        if not _http_ok(response, ok_codes=(0,)):
+            return None
         return "telegram"
     except httpx.HTTPError:
         return None
@@ -202,13 +251,16 @@ def _dingtalk(cfg: dict, title: str, desp: str) -> str | None:
         params["sign"] = signature
         headers["Content-Type"] = "application/json"
     try:
-        httpx.post(
+        response = httpx.post(
             "https://oapi.dingtalk.com/robot/send",
             params=params,
             headers=headers,
             json={"msgtype": "text", "text": {"content": f"{title}\n{desp}"}},
             timeout=_TIMEOUT,
         )
+        # 钉钉业务错误（errcode!=0，如 invalid token）不抛 HTTPError，必须显式检查
+        if not _http_ok(response, ok_codes=(0,)):
+            return None
         return "dingtalk"
     except httpx.HTTPError:
         return None
@@ -229,7 +281,7 @@ def _qywx_app(cfg: dict, title: str, desp: str) -> str | None:
         access_token = token_payload.get("access_token")
         if not access_token:
             return None
-        httpx.post(
+        response = httpx.post(
             "https://qyapi.weixin.qq.com/cgi-bin/message/send",
             params={"access_token": access_token},
             json={
@@ -240,6 +292,9 @@ def _qywx_app(cfg: dict, title: str, desp: str) -> str | None:
             },
             timeout=_TIMEOUT,
         )
+        # 发送结果 errcode=0 才算成功
+        if not _http_ok(response, ok_codes=(0,)):
+            return None
         return "qywx_app"
     except httpx.HTTPError:
         return None
@@ -250,11 +305,13 @@ def _qywx_bot(cfg: dict, title: str, desp: str) -> str | None:
     if not key:
         return None
     try:
-        httpx.post(
+        response = httpx.post(
             f"https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key={key}",
             json={"msgtype": "text", "text": {"content": f"{title}\n{desp}"}},
             timeout=_TIMEOUT,
         )
+        if not _http_ok(response, ok_codes=(0,)):
+            return None
         return "qywx_bot"
     except httpx.HTTPError:
         return None
@@ -265,7 +322,9 @@ def _igot(cfg: dict, title: str, desp: str) -> str | None:
     if not key:
         return None
     try:
-        httpx.post(f"https://push.hellyw.com/{key}", json={"title": title, "content": desp}, timeout=_TIMEOUT)
+        response = httpx.post(f"https://push.hellyw.com/{key}", json={"title": title, "content": desp}, timeout=_TIMEOUT)
+        if not _http_ok(response, ok_codes=(0,)):
+            return None
         return "igot"
     except httpx.HTTPError:
         return None
@@ -280,7 +339,10 @@ def _pushplus(cfg: dict, title: str, desp: str) -> str | None:
     if topic:
         payload["topic"] = topic
     try:
-        httpx.post("https://www.pushplus.plus/send", data=payload, timeout=_TIMEOUT)
+        response = httpx.post("https://www.pushplus.plus/send", data=payload, timeout=_TIMEOUT)
+        # pushplus 成功响应 code=200
+        if not _http_ok(response, ok_codes=(200,)):
+            return None
         return "pushplus"
     except httpx.HTTPError:
         return None
@@ -293,11 +355,14 @@ def _qmsg(cfg: dict, title: str, desp: str) -> str | None:
     socket = str(cfg.get("socket") or "qmsg.zendee.cn").strip().rstrip("/")
     qq = str(cfg.get("qq") or "").strip()
     try:
-        httpx.get(
+        response = httpx.get(
             f"https://{socket}/send/{key}",
             params={"msg": f"{title}\n{desp}"} | ({"qq": qq} if qq else {}),
             timeout=_TIMEOUT,
         )
+        # qmsg 返回 {"success": true} 或 {"success": false, ...}
+        if not _http_ok(response, ok_codes=(0,)):
+            return None
         return "qmsg"
     except httpx.HTTPError:
         return None
@@ -337,12 +402,15 @@ def _gotify(cfg: dict, title: str, desp: str) -> str | None:
     if not url or not appkey:
         return None
     try:
-        httpx.post(
+        response = httpx.post(
             f"{url}/message",
             params={"token": appkey},
             json={"title": title, "message": desp},
             timeout=_TIMEOUT,
         )
+        # gotify 认证失败返回 4xx；2xx 即确认入队
+        if not _http_ok(response, ok_codes=(0,)):
+            return None
         return "gotify"
     except httpx.HTTPError:
         return None

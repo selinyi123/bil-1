@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import asdict, dataclass, field
@@ -100,6 +101,31 @@ def normalize_activity_url(url: str) -> str | None:
 def is_valid_dynamic_id(dynamic_id: str) -> bool:
     """校验 B 站动态 ID 格式（18–19 位数字）。"""
     return bool(VALID_OPUS_ID_RE.fullmatch(str(dynamic_id or "").strip()))
+
+
+def fingerprint_of_text(text: str) -> str:
+    """规范化文本的 sha256 fingerprint（增量检查用）。"""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def load_source_fingerprint(source_id: str) -> str | None:
+    """读取已提交的增量 fingerprint（P2 #11：DS-8/9/10 复用 cv_id 列存储）。
+
+    仅由 commit_source_checkpoint 在「检查/流水线成功」后推进，
+    因此 fingerprint 语义 = 「上次已成功处理的批次的指纹」；
+    DB 无记录或不可用 → None（首次检查语义，强制 updated=True）。
+    """
+    try:
+        from src.db.models import SourceCheckpointRow
+        from src.db.session import session_scope
+
+        with session_scope() as session:
+            row = session.get(SourceCheckpointRow, source_id)
+            if row is None:
+                return None
+            return row.cv_id
+    except Exception:
+        return None
 
 
 def load_previous_output(path: Path) -> dict | None:

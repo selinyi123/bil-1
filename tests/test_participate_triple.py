@@ -440,3 +440,89 @@ def test_run_action_participate_triple_cancelled_before_start() -> None:
     with patch("web.actions.pick_triple_participate_targets", return_value=[_row(_id(1), can_participate=True)]):
         with pytest.raises(ValueError, match="已取消"):
             run_action("participate_triple", {}, cancel_event=cancel_event)
+
+
+def test_run_action_participate_triple_internal_failure_does_not_set_cancel_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """核心不变量：三连内部失败绝不能 set cancel_event（否则 JobRunner 误判为 cancelled）。
+
+    只有用户取消（外部 set cancel_event）才能产生 cancelled。
+    """
+    import threading
+
+    targets = [_row(_id(501), can_participate=True), _row(_id(502), can_participate=True)]
+    cancel_event = threading.Event()
+
+    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None) -> dict:
+        if dynamic_id == _id(502):
+            raise RuntimeError("评论 API 报错")
+        return {
+            "dynamic_id": dynamic_id,
+            "status": "joined",
+            "message": "完成",
+            "actions": _interact_actions(),
+            "lottery_type": "互动抽奖",
+        }
+
+    with (
+        patch("web.actions.pick_triple_participate_targets", return_value=targets),
+        patch("web.actions.resolve_participate_lottery_type", return_value="互动抽奖"),
+        patch("web.actions.ensure_activity_participatable"),
+        patch("web.actions._execute_participate", side_effect=fake_execute),
+        patch("web.actions.invalidate_activity_cache"),
+        patch("web.actions.mark_enriched_joined"),
+        patch("web.actions.refresh_local_activity_statuses"),
+        patch("web.actions.BilibiliClient"),
+    ):
+        with pytest.raises(RuntimeError, match="三连参与失败"):
+            run_action("participate_triple", {}, on_progress=lambda **_kwargs: None, cancel_event=cancel_event)
+
+    # 内部失败 ≠ 用户取消：cancel_event 必须保持未设置
+    assert not cancel_event.is_set()
+
+
+def test_run_action_participate_triple_partial_failure_carries_completed() -> None:
+    """partial_failure 语义：失败时异常携带已完成活动摘要（副作用不可回滚，必须可追溯）。"""
+    import time as time_mod
+
+    from web.actions import TripleParticipateFailed
+
+    targets = [_row(_id(601), can_participate=True), _row(_id(602), can_participate=True)]
+
+    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None) -> dict:
+        if dynamic_id == _id(601):
+            # 601 先完成，产生真实外部副作用
+            return {
+                "dynamic_id": dynamic_id,
+                "status": "joined",
+                "message": "完成",
+                "actions": _interact_actions(),
+                "lottery_type": "互动抽奖",
+            }
+        if dynamic_id == _id(602):
+            time_mod.sleep(0.3)  # 保证 601 先落进 results
+            raise RuntimeError("评论 API 报错")
+        raise AssertionError("unexpected dynamic_id")
+
+    with (
+        patch("web.actions.pick_triple_participate_targets", return_value=targets),
+        patch("web.actions.resolve_participate_lottery_type", return_value="互动抽奖"),
+        patch("web.actions.ensure_activity_participatable"),
+        patch("web.actions._execute_participate", side_effect=fake_execute),
+        patch("web.actions.invalidate_activity_cache"),
+        patch("web.actions.mark_enriched_joined"),
+        patch("web.actions.refresh_local_activity_statuses"),
+        patch("web.actions.BilibiliClient"),
+    ):
+        with pytest.raises(TripleParticipateFailed) as excinfo:
+            run_action("participate_triple", {}, on_progress=lambda **_kwargs: None)
+
+    exc = excinfo.value
+    assert exc.failed_dynamic_id == _id(602)
+    assert len(exc.completed) == 1
+    completed = exc.completed[0]
+    assert completed["dynamic_id"] == _id(601)
+    actions = completed["actions"]
+    assert {"action": "repost", "ok": True} in actions
+    assert {"action": "follow", "ok": True} in actions

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.bilibili_auth import get_login_uid
+from src.bilibili_auth import resolve_effective_uid
 from src.bilibili_client import BilibiliClient
 from src.message_api import get_unread_summary
 from src.message_watch import BILIBILI_AT_NOTIFY_URL, acknowledge_at_unread, evaluate_at_unread_alert
@@ -50,14 +50,17 @@ def _default_at_alert(current: int = 0) -> dict[str, Any]:
     }
 
 
-def _load_account_cache() -> dict[str, Any]:
+def _load_account_cache(uid: int | None) -> dict[str, Any]:
+    """按 uid 读取账号资料缓存；uid 缺失或异常时返回空（绝不串号）。"""
     from src.db.json_cols import loads_json
     from src.db.models import AccountProfileCacheRow
     from src.db.session import session_scope
 
+    if not uid:
+        return {}
     try:
         with session_scope() as session:
-            row = session.get(AccountProfileCacheRow, 1)
+            row = session.get(AccountProfileCacheRow, int(uid))
             if row is None:
                 return {}
             raw = loads_json(row.raw_json, default={})
@@ -72,11 +75,14 @@ def _load_account_cache() -> dict[str, Any]:
         return {}
 
 
-def _save_account_cache(profile: dict[str, Any]) -> None:
+def _save_account_cache(uid: int | None, profile: dict[str, Any]) -> None:
+    """按 uid 写入账号资料缓存；uid 缺失时不写（避免污染其他账号）。"""
     from src.db.json_cols import dumps_json
     from src.db.models import AccountProfileCacheRow
     from src.db.session import session_scope
 
+    if not uid:
+        return
     payload = {
         key: profile.get(key)
         for key in ("uname", "face", "mid", "following", "dynamic_count")
@@ -88,12 +94,12 @@ def _save_account_cache(profile: dict[str, Any]) -> None:
         import time
 
         with session_scope() as session:
-            row = session.get(AccountProfileCacheRow, 1)
+            row = session.get(AccountProfileCacheRow, int(uid))
             now = int(time.time())
             if row is None:
                 session.add(
                     AccountProfileCacheRow(
-                        id=1,
+                        uid=int(uid),
                         uname=payload.get("uname"),
                         face=payload.get("face"),
                         mid=int(payload["mid"]) if payload.get("mid") is not None else None,
@@ -129,10 +135,10 @@ def _profile_from_network_error(exc: RuntimeError) -> dict[str, Any]:
     profile = _empty_profile(friendly_network_error(str(exc)))
     profile["cookie_saved"] = True
     profile["network_error"] = True
-    uid = get_login_uid()
+    uid = resolve_effective_uid()
     if uid:
         profile["mid"] = uid
-    cached = _load_account_cache()
+    cached = _load_account_cache(uid)
     for key in ("uname", "face", "following", "dynamic_count", "mid"):
         if cached.get(key) is not None:
             profile[key] = cached[key]
@@ -157,6 +163,11 @@ def clear_login_cookie() -> None:
 
 
 def has_login_cookie() -> bool:
+    import os
+
+    # BILI_COOKIE 环境变量显式注入：有 env cookie 即视为已登录（P1 #3）
+    if os.environ.get("BILI_COOKIE", "").strip():
+        return True
     from src import app_paths
 
     path = app_paths.cookie_file()
@@ -218,7 +229,7 @@ def get_account_profile() -> dict[str, Any]:
             except RuntimeError:
                 pass
 
-            _save_account_cache(profile)
+            _save_account_cache(mid, profile)
             return profile
     except RuntimeError as exc:
         if has_login_cookie():
@@ -231,7 +242,7 @@ def get_account_extras() -> dict[str, Any]:
     if not has_login_cookie():
         raise RuntimeError("未登录，请先扫码登录")
 
-    uid = get_login_uid()
+    uid = resolve_effective_uid()
     extras: dict[str, Any] = {
         "unread_messages": 0,
         "unread_at": 0,
@@ -260,7 +271,7 @@ def get_account_extras() -> dict[str, Any]:
 
 
 def ack_at_unread_notice(current: int) -> dict[str, Any]:
-    uid = get_login_uid()
+    uid = resolve_effective_uid()
     if not uid:
         raise RuntimeError("未登录，请先扫码登录")
     baseline = acknowledge_at_unread(uid, current)

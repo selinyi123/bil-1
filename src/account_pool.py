@@ -10,12 +10,17 @@
 """
 from __future__ import annotations
 
+import json
+import os
 import re
 import threading
 from pathlib import Path
 
 from src import app_paths
+from src.app_logging import get_logger
 from src.secure_files import write_text_secret
+
+logger = get_logger("account_pool")
 
 _UID_RE = re.compile(r"DedeUserID=(\d+)")
 _lock = threading.RLock()
@@ -48,10 +53,13 @@ def _ensure_dir() -> None:
 
 
 def list_accounts() -> list[dict]:
-    """返回账号池列表：[{uid, active}]，按 uid 排序（纯读，无副作用）。"""
-    _ensure_dir()
+    """返回账号池列表：[{uid, active}]，按 uid 排序（纯读，无副作用，不创建目录）。
+
+    active 标记基于生效身份（`BILI_COOKIE` env > 活跃账号），保证 UI 账号列表
+    与顶部身份显示一致（P1 #3）。
+    """
     with _lock:
-        active_uid = _read_active_uid_locked()
+        effective_uid = get_active_uid()
         accounts: list[dict] = []
         for path in sorted(_accounts_dir().glob("*.txt")):
             uid_text = path.stem
@@ -59,17 +67,22 @@ def list_accounts() -> list[dict]:
                 uid = int(uid_text)
             except (TypeError, ValueError):
                 continue
-            accounts.append({"uid": uid, "active": uid == active_uid})
+            accounts.append({"uid": uid, "active": uid == effective_uid})
         return accounts
 
 
 def ensure_legacy_account() -> int | None:
     """旧版本单账号升级：池为空但 cookies.txt 可解析出 uid 时，自动登记为账号。
 
+    BILI_COOKIE env 生效时不收养：此时 cookies.txt 是影子身份（实际请求
+    用 env cookie），登记只会产生永远无法切换/使用的旧账号噪音。
+
     显式调用（GET /api/accounts 前），保证 list_accounts 保持纯读。
     返回登记的 uid；无需登记返回 None。
     """
     with _lock:
+        if os.environ.get("BILI_COOKIE", "").strip():
+            return None
         if list_accounts():
             return None
         cookie_text = _cookie_path().read_text(encoding="utf-8", errors="replace").strip() if _cookie_path().exists() else ""
@@ -99,9 +112,24 @@ def _read_active_uid_locked() -> int | None:
         return None
 
 
-def get_active_uid() -> int | None:
+def pool_active_uid() -> int | None:
+    """账号池活跃账号（config/accounts/active 文件）的 uid；无活跃账号返回 None。
+
+    仅反映池状态，不包含 BILI_COOKIE 环境变量覆盖（那是 effective 身份，见
+    `get_active_uid` / `src.bilibili_auth.resolve_effective_uid`）。
+    """
     with _lock:
         return _read_active_uid_locked()
+
+
+def get_active_uid() -> int | None:
+    """当前生效身份 uid（UI 展示与实际请求身份一致）：
+
+    `BILI_COOKIE` 环境变量 > 账号池活跃账号 > cookies.txt（P1 #3）。
+    """
+    from src.bilibili_auth import resolve_effective_uid
+
+    return resolve_effective_uid()
 
 
 def _write_active_locked(uid: int) -> None:
@@ -116,8 +144,18 @@ def _materialize_cookie(cookie_str: str) -> None:
 
 
 def set_active(uid: int) -> bool:
-    """切换活跃账号：账号不存在返回 False。"""
+    """切换活跃账号：账号不存在返回 False。
+
+    `BILI_COOKIE` 环境变量生效时拒绝切换（env 显式覆盖身份，避免 UI 显示与
+    实际请求身份再次分裂），返回 False 并记录警告。
+    """
     with _lock:
+        if os.environ.get("BILI_COOKIE", "").strip():
+            logger.warning(
+                "BILI_COOKIE 环境变量覆盖当前身份，拒绝切换账号到 %s（如需切换请先移除环境变量）",
+                uid,
+            )
+            return False
         account_path = _accounts_dir() / f"{int(uid)}.txt"
         if not account_path.exists():
             return False
@@ -130,15 +168,26 @@ def set_active(uid: int) -> bool:
 
 
 def register_login_cookie(cookie_str: str) -> int | None:
-    """把新登录的 cookie 存入账号池并设为活跃；解析不出 uid 返回 None。"""
+    """把新登录的 cookie 存入账号池并设为活跃；解析不出 uid 返回 None。
+
+    `BILI_COOKIE` 环境变量生效时仅登记账号（写入 {uid}.txt），不切换活跃、
+    不镜像 cookies.txt——env 显式覆盖身份，避免登录后 UI 显示与实际身份分裂。
+    """
     cookie_str = (cookie_str or "").strip()
     uid = _uid_from_cookie(cookie_str)
     if uid is None:
         return None
+    env_override = bool(os.environ.get("BILI_COOKIE", "").strip())
     with _lock:
         _ensure_dir()
         account_path = _accounts_dir() / f"{uid}.txt"
         write_text_secret(account_path, cookie_str)
+        if env_override:
+            logger.warning(
+                "BILI_COOKIE 环境变量覆盖当前身份，登录账号 %s 仅登记、不切换活跃",
+                uid,
+            )
+            return uid
         _materialize_cookie(cookie_str)
         _write_active_locked(uid)
         return uid
@@ -170,3 +219,57 @@ def clear_active() -> None:
 
 def account_count() -> int:
     return len(list_accounts())
+
+
+# ----------------------------------------------------------------------
+# 账号级代理（P1 #15）：config/accounts/{uid}.json，可选字段 {"proxy": "http://..."}
+# ----------------------------------------------------------------------
+
+
+def _account_meta_path(uid: int) -> Path:
+    return _accounts_dir() / f"{int(uid)}.json"
+
+
+def get_account_proxy(uid: int | None) -> str | None:
+    """读取账号级代理：config/accounts/{uid}.json 的 proxy 字段；未配置返回 None。
+
+    uid 为 None 时直接返回 None（无账号级概念）。
+    """
+    if uid is None:
+        return None
+    path = _account_meta_path(uid)
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    proxy = str(data.get("proxy") or "").strip()
+    return proxy or None
+
+
+def set_account_proxy(uid: int, proxy: str | None) -> bool:
+    """设置账号级代理（写入 config/accounts/{uid}.json 的 proxy 字段）。
+
+    proxy 为空或 None 表示清除（删除元数据文件）。账号不存在返回 False。
+    """
+    with _lock:
+        if not accounts_dir_has(uid):
+            return False
+        _ensure_dir()
+        path = _account_meta_path(uid)
+        proxy = str(proxy).strip() if proxy is not None else ""
+        if proxy:
+            write_text_secret(
+                path,
+                json.dumps({"proxy": proxy}, ensure_ascii=False, indent=2),
+            )
+        else:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                # 删除失败时写入空配置兜底，保证下次读取不再命中旧值
+                write_text_secret(path, json.dumps({"proxy": ""}, ensure_ascii=False))
+        return True

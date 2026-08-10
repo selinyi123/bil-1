@@ -181,7 +181,7 @@ class ForwardClassifyCacheRow(SQLModel, table=True):
 class AccountProfileCacheRow(SQLModel, table=True):
     __tablename__ = "account_profile_cache"
 
-    id: int = Field(default=1, primary_key=True)
+    uid: int = Field(primary_key=True)
     uname: Optional[str] = None
     face: Optional[str] = None
     mid: Optional[int] = None

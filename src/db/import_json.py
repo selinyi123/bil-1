@@ -719,12 +719,18 @@ def _import_account_cache(session: Session, report: ImportReport) -> Path | None
     if not isinstance(payload, dict):
         raise ImportError("account_profile.json 须为对象", EXIT_SOURCE)
     now = int(time.time())
-    row = session.get(AccountProfileCacheRow, 1)
     mid = payload.get("mid")
+    uid = int(mid) if mid is not None else None
+    if not uid:
+        report.add(
+            LineReport("account_profile_cache", _rel(path), "skip", detail="缺少 mid，无法归属账号")
+        )
+        return None
+    row = session.get(AccountProfileCacheRow, uid)
     following = payload.get("following")
     dynamic_count = payload.get("dynamic_count")
     data = AccountProfileCacheRow(
-        id=1,
+        uid=uid,
         uname=payload.get("uname"),
         face=payload.get("face"),
         mid=int(mid) if mid is not None else None,

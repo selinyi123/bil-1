@@ -11,7 +11,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.pipeline.refresh_all_pipeline import PipelineResult
-from src.sources.common import CheckResult, commit_source_checkpoint
+from src.sources.common import CheckResult, commit_source_checkpoint, load_source_fingerprint
 from src.state_store import get_last_container, get_last_cv_id, save_state
 from web.actions import run_action
 
@@ -193,3 +193,59 @@ def test_refresh_source_keeps_checkpoint_when_pipeline_fails(
             run_action("refresh_source", {"source_id": "DS-3"})
 
     assert get_last_container("DS-3") == "https://www.bilibili.com/read/cv888001"
+
+
+def test_ds8_checkpoint_advances_fingerprint_only_after_commit(
+    isolated_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """增量 fingerprint 复用 cv_id 列：check_update 判定变化但不落库，
+    只有 commit_source_checkpoint（成功路径）才推进。"""
+    f = tmp_path / "manual_dyids.txt"
+    f.write_text("1224962472871460885", encoding="utf-8")
+    monkeypatch.setattr("src.sources.ds8_manual.CONFIG_FILE", f)
+    from src.sources.ds8_manual import check_update
+
+    r1 = check_update()
+    assert r1.updated is True
+    assert r1.cv_id  # fingerprint 承载于 cv_id
+    assert load_source_fingerprint("DS-8") is None  # 检查阶段不落库
+    commit_source_checkpoint(r1)
+    assert load_source_fingerprint("DS-8") == r1.cv_id
+    assert get_last_cv_id("DS-8") == r1.cv_id
+
+    # 同内容再查：fingerprint 相同 → 无更新
+    assert check_update().updated is False
+
+    # 内容变化：新 fingerprint，但 commit 前 DB 仍是旧值（pipeline 失败不丢更新）
+    f.write_text("1224962472871460885\n1224962472871460886", encoding="utf-8")
+    r3 = check_update()
+    assert r3.updated is True
+    assert load_source_fingerprint("DS-8") == r1.cv_id
+    commit_source_checkpoint(r3)
+    assert load_source_fingerprint("DS-8") == r3.cv_id
+
+
+def test_ds10_checkpoint_persists_per_source_fingerprints(
+    isolated_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """DS-10 按源 fingerprint 以 JSON 存于 cv_id 列，commit 后整体持久化。"""
+    import json as _json
+
+    src_a = tmp_path / "a.json"
+    src_a.write_text(_json.dumps({"dynamic_ids": ["1224962472871460885"]}), encoding="utf-8")
+    conf = tmp_path / "api_sources.txt"
+    conf.write_text(f"file://{src_a.as_posix()}\n", encoding="utf-8")
+    monkeypatch.setattr("src.sources.ds10_api.CONFIG_FILE", conf)
+    from src.sources.ds10_api import check_update
+
+    r1 = check_update()
+    assert r1.updated is True
+    assert load_source_fingerprint("DS-10") is None
+    commit_source_checkpoint(r1)
+    stored = load_source_fingerprint("DS-10")
+    assert stored == r1.cv_id
+    parsed = _json.loads(stored)
+    assert isinstance(parsed, dict) and len(parsed) == 1
+
+    # 相同内容再查 → 无更新（按源指纹判定）
+    assert check_update().updated is False

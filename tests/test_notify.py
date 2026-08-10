@@ -37,8 +37,10 @@ def test_send_sct_channel(isolated_home, monkeypatch) -> None:
     calls: list = []
 
     class FakeResponse:
+        status_code = 200
+
         def json(self):
-            return {}
+            return {"code": 0}
 
     def fake_get(url, params=None, timeout=None):
         calls.append((url, params))
@@ -51,6 +53,62 @@ def test_send_sct_channel(isolated_home, monkeypatch) -> None:
     assert url == "https://sctapi.ftqq.com/KEY123.send"
     assert params["title"] == "标题"
     assert params["desp"] == "内容"
+
+
+def test_sct_business_error_not_fake_success(isolated_home, monkeypatch) -> None:
+    """Server酱业务错误（code!=0 不抛 HTTPError）不得记为发送成功。"""
+    import httpx
+
+    import src.notify as module
+
+    config_dir = isolated_home / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "notify.json").write_text(
+        json.dumps({"enabled": True, "channels": {"sct": {"sendkey": "KEY123"}}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "config_dir", lambda: config_dir)
+    module.reset_notify_config_cache()
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"code": 1024, "message": "invalid key"}
+
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: FakeResponse())
+    result = send_notify("标题", "内容")
+    assert "sct" not in result["sent"]
+    assert "sct" in result["skipped"]
+
+
+def test_telegram_http_401_not_fake_success(isolated_home, monkeypatch) -> None:
+    """Telegram 401（HTTP 层失败）不得记为发送成功。"""
+    import httpx
+
+    import src.notify as module
+
+    config_dir = isolated_home / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "notify.json").write_text(
+        json.dumps(
+            {"enabled": True, "channels": {"telegram": {"bot_token": "BAD", "chat_id": "1"}}}
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "config_dir", lambda: config_dir)
+    module.reset_notify_config_cache()
+
+    class FakeResponse:
+        status_code = 401
+
+        def json(self):
+            return {"ok": False, "error_code": 401, "description": "Unauthorized"}
+
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: FakeResponse())
+    result = send_notify("标题", "内容")
+    assert "telegram" not in result["sent"]
+    assert "telegram" in result["skipped"]
 
 
 def test_feishu_signature_correct(isolated_home, monkeypatch) -> None:

@@ -100,9 +100,10 @@ class BilibiliClient:
         if cookie:
             headers["Cookie"] = cookie
         if proxy is None:
+            from src.bilibili_auth import resolve_effective_uid
             from src.proxy_config import get_proxy_url
 
-            proxy = get_proxy_url()
+            proxy = get_proxy_url(uid=resolve_effective_uid())
         self._client = httpx.Client(
             headers=headers,
             timeout=timeout,

@@ -12,18 +12,22 @@ from src.app_paths import config_dir
 
 ALLOWED_NAMES = frozenset({"participate_enhance.json", "notify.json"})
 
-# 配置中的凭据字段（GET 回显脱敏、PUT 恢复），避免密钥经前端 textarea 明文外泄
+# 配置中的凭据字段（GET 回显脱敏、PUT 恢复），避免密钥经前端 textarea 明文外泄。
+# 覆盖 notify.json 全部渠道的实际敏感键名（含 bot_token/pass/push 等非通用命名）。
 SENSITIVE_FIELDS = frozenset(
     {
         "sendkey",
         "sckey",
         "key",
         "token",
+        "bot_token",
         "pushkey",
         "appkey",
         "secret",
         "corpsecret",
         "password",
+        "pass",
+        "push",
         "webhook",
         "access_token",
     }
@@ -50,16 +54,22 @@ def load_config_json(name: str) -> dict[str, Any]:
 
 
 def save_config_json(name: str, data: dict[str, Any]) -> None:
-    """原子写配置文件（仅接受 dict，含默认值合并后的完整结构）。"""
+    """原子写配置文件（仅接受 dict，含默认值合并后的完整结构）。
+
+    notify.json 含凭据，走 write_text_secret（写后权限硬化）。
+    """
     if not isinstance(data, dict):
         raise ValueError("配置内容必须是 JSON 对象")
     path = config_json_path(name)
     path.parent.mkdir(parents=True, exist_ok=True)
+    content = json.dumps(data, ensure_ascii=False, indent=2)
+    if name == "notify.json":
+        from src.secure_files import write_text_secret
+
+        write_text_secret(path, content, encoding="utf-8")
+        return
     tmp_path = path.with_suffix(".json.tmp")
-    tmp_path.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    tmp_path.write_text(content, encoding="utf-8")
     tmp_path.replace(path)
 
 

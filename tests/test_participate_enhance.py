@@ -3,8 +3,18 @@ from __future__ import annotations
 
 import json
 
+import pytest
+from pydantic import ValidationError
+
 from src.lottery_actions import assemble_repost_content
-from src.participate_enhance import DEFAULTS, load_participate_enhance, reset_participate_enhance_cache
+from src.participate_enhance import (
+    DEFAULTS,
+    EnhanceSettingsModel,
+    format_enhance_validation_error,
+    load_participate_enhance,
+    reset_participate_enhance_cache,
+    sanitize_participate_enhance,
+)
 from src.participate_text import (
     _extract_sender_uid,
     _reply_author_mid,
@@ -112,3 +122,163 @@ def test_participate_enhance_merge(isolated_home, monkeypatch) -> None:
     # 未配置项保持默认
     assert cfg["copy_chat"]["enabled"] is False
     assert DEFAULTS["action_interval_sec"]["min"] == 0.75
+
+
+# ---------- 强类型校验（EnhanceSettingsModel） ----------
+
+VALID_CONFIG: dict = {
+    "copy_chat": {"enabled": True, "blockwords": ["抽奖", "互关"], "exclude_author": False},
+    "at_users": [{"uid": "294887687", "name": "转发抽奖娘"}, {"uid": 123, "name": "好友"}],
+    "topic": "#每日抽奖#",
+    "shuffle_targets": True,
+    "action_interval_sec": {"min": 0.75, "max": 2.25},
+    "partition": {"enabled": True, "name": "抽奖临时关注"},
+}
+
+
+def test_enhance_model_valid_roundtrip() -> None:
+    """合法完整配置通过校验，且 dump 后再次校验保持不变。"""
+    dumped = EnhanceSettingsModel.model_validate(VALID_CONFIG).model_dump()
+    # uid 数字字符串归一化为 int，结构字段一一对应
+    assert dumped["at_users"] == [{"uid": 294887687, "name": "转发抽奖娘"}, {"uid": 123, "name": "好友"}]
+    assert dumped["copy_chat"] == {"enabled": True, "blockwords": ["抽奖", "互关"], "exclude_author": False}
+    assert dumped["topic"] == "#每日抽奖#"
+    assert dumped["shuffle_targets"] is True
+    assert dumped["action_interval_sec"] == {"min": 0.75, "max": 2.25}
+    assert dumped["partition"] == {"enabled": True, "name": "抽奖临时关注"}
+    # roundtrip：dump 结果再次通过校验且不变
+    assert EnhanceSettingsModel.model_validate(dumped).model_dump() == dumped
+
+
+def test_enhance_model_partial_input_uses_defaults() -> None:
+    """部分提交：缺省字段补默认值（PUT 是合并语义）。"""
+    dumped = EnhanceSettingsModel.model_validate({"topic": "#抽奖#"}).model_dump()
+    assert dumped["topic"] == "#抽奖#"
+    assert dumped["copy_chat"] == {"enabled": False, "blockwords": [], "exclude_author": True}
+    assert dumped["at_users"] == []
+    assert dumped["shuffle_targets"] is True
+    assert dumped["partition"] == {"enabled": False, "name": "抽奖临时关注"}
+
+
+def test_enhance_model_dedupes_at_users() -> None:
+    """at_users 按 uid 去重，保留首个出现的条目。"""
+    dumped = EnhanceSettingsModel.model_validate(
+        {"at_users": [{"uid": "1", "name": "A"}, {"uid": 1, "name": "B"}, {"uid": "2", "name": "C"}]}
+    ).model_dump()
+    assert dumped["at_users"] == [{"uid": 1, "name": "A"}, {"uid": 2, "name": "C"}]
+
+
+def test_enhance_model_unknown_fields_ignored() -> None:
+    """未知字段被忽略（宽容），不影响已知字段保存。"""
+    dumped = EnhanceSettingsModel.model_validate(
+        {"topic": "#抽奖#", "future_feature": {"x": 1}, "bogus": 42}
+    ).model_dump()
+    assert "future_feature" not in dumped
+    assert "bogus" not in dumped
+    assert dumped["topic"] == "#抽奖#"
+
+
+@pytest.mark.parametrize(
+    ("payload", "field", "keyword"),
+    [
+        # 间隔范围：min > max
+        ({"action_interval_sec": {"min": 5, "max": 2}}, "action_interval_sec", "不能大于"),
+        # 间隔上限：max 超 600 秒
+        ({"action_interval_sec": {"max": 86400}}, "action_interval_sec", "600"),
+        # 间隔下界：min <= 0
+        ({"action_interval_sec": {"min": 0}}, "action_interval_sec.min", "0"),
+        ({"action_interval_sec": {"min": -1}}, "action_interval_sec.min", "0"),
+        # at_users 超限（51 个）
+        ({"at_users": [{"uid": i, "name": f"u{i}"} for i in range(51)]}, "at_users", "50"),
+        # at_users 非数字 uid
+        ({"at_users": [{"uid": "abc", "name": "x"}]}, "at_users", "纯数字"),
+        ({"at_users": [{"uid": 0, "name": "x"}]}, "at_users", "纯数字"),
+        # at_users 不是列表
+        ({"at_users": {"uid": 1, "name": "x"}}, "at_users", "列表"),
+        # blockwords 超长单条（101 字符）
+        ({"copy_chat": {"blockwords": ["长" * 101]}}, "copy_chat.blockwords", "100"),
+        # blockwords 数量超限（201 条）
+        ({"copy_chat": {"blockwords": ["w"] * 201}}, "copy_chat.blockwords", "200"),
+        # 类型错误：布尔字段传字符串/数字
+        ({"copy_chat": {"enabled": "yes"}}, "copy_chat.enabled", "布尔"),
+        ({"shuffle_targets": "true"}, "shuffle_targets", "布尔"),
+        ({"partition": {"enabled": 1}}, "partition.enabled", "布尔"),
+        # 类型错误：字符串字段传数字
+        ({"topic": 123}, "topic", "字符串"),
+        ({"partition": {"name": 42}}, "partition.name", "字符串"),
+        ({"at_users": [{"uid": 1, "name": 9}]}, "at_users", "字符串"),
+        # 类型错误：数字字段传字符串
+        ({"action_interval_sec": {"min": "abc"}}, "action_interval_sec.min", "数字"),
+        # 嵌套对象传非对象
+        ({"copy_chat": "on"}, "copy_chat", "对象"),
+        ({"action_interval_sec": None}, "action_interval_sec", "对象"),
+        # 字符串超长
+        ({"topic": "长" * 101}, "topic", "长度"),
+    ],
+)
+def test_enhance_model_rejects_invalid(payload: dict, field: str, keyword: str) -> None:
+    with pytest.raises(ValidationError) as excinfo:
+        EnhanceSettingsModel.model_validate(payload)
+    message = format_enhance_validation_error(excinfo.value)
+    assert field in message  # 指出哪个字段
+    assert keyword in message  # 指出为什么
+
+
+def test_enhance_model_rejects_invalid_name_too_long() -> None:
+    with pytest.raises(ValidationError):
+        EnhanceSettingsModel.model_validate({"at_users": [{"uid": 1, "name": "长" * 51}]})
+
+
+def test_sanitize_tolerates_invalid_disk_config() -> None:
+    """磁盘旧配置含非法字段：sanitize 静默回退默认，合法字段保留，不抛错。"""
+    raw = {
+        "copy_chat": {"enabled": "yes", "blockwords": ["长" * 101], "exclude_author": True},
+        "at_users": [{"uid": "abc"}, {"uid": 1, "name": "A"}],
+        "topic": 123,
+        "shuffle_targets": True,  # 合法字段
+        "action_interval_sec": {"min": 86400, "max": 999999},
+    }
+    cfg = sanitize_participate_enhance(raw)
+    # 非法字段回退默认
+    assert cfg["copy_chat"] == {"enabled": False, "blockwords": [], "exclude_author": True}
+    assert cfg["at_users"] == []
+    assert cfg["topic"] == ""
+    assert cfg["action_interval_sec"] == {"min": 0.75, "max": 2.25}
+    # 合法字段保留
+    assert cfg["shuffle_targets"] is True
+    # 结构完整（含全部默认字段）
+    assert set(cfg) == set(DEFAULTS)
+
+
+def test_sanitize_tolerates_non_dict() -> None:
+    assert sanitize_participate_enhance(None) == DEFAULTS
+    assert sanitize_participate_enhance([1, 2]) == DEFAULTS
+    assert sanitize_participate_enhance("nope") == DEFAULTS
+
+
+def test_load_tolerates_invalid_disk_config(isolated_home, monkeypatch) -> None:
+    """磁盘上非法旧配置 load 不崩溃（GET 可用），非法字段回退默认。"""
+    import src.participate_enhance as module
+
+    config_dir = isolated_home / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "participate_enhance.json").write_text(
+        json.dumps(
+            {
+                "action_interval_sec": {"min": 86400, "max": 999999},
+                "topic": 123,
+                "copy_chat": {"enabled": "yes"},
+                "at_users": [{"uid": "abc"}],
+                "shuffle_targets": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "config_dir", lambda: config_dir)
+    reset_participate_enhance_cache()
+    cfg = load_participate_enhance()
+    assert cfg["action_interval_sec"] == {"min": 0.75, "max": 2.25}
+    assert cfg["topic"] == ""
+    assert cfg["copy_chat"]["enabled"] is False
+    assert cfg["at_users"] == []
+    assert cfg["shuffle_targets"] is True  # 合法字段保留

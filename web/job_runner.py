@@ -21,7 +21,7 @@ from src.job_store import (
 )
 from src.log_context import job_log_context
 from src.log_span import log_event
-from web.actions import run_action
+from web.actions import TripleParticipateFailed, run_action
 from web.event_hub import event_hub
 from web.user_messages import JOB_ACTION_LABELS, friendly_error, sanitize_log
 
@@ -657,6 +657,14 @@ class JobRunner:
                     current = self.get_status()
                     result = dict(current.result or {})
                     result["login_phase"] = "error"
+                elif isinstance(exc, TripleParticipateFailed):
+                    # 三连部分失败：保留已完成活动摘要（partial_failure 语义，
+                    # 外部副作用不可回滚，UI 需要知道哪些活动实际完成了）
+                    result = {
+                        "partial_failure": True,
+                        "failed_dynamic_id": exc.failed_dynamic_id,
+                        "completed": exc.completed,
+                    }
                 self._apply_terminal(
                     job_id,
                     state="error",

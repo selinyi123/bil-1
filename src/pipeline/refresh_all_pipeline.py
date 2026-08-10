@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import queue
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
 from typing import Callable, Literal
@@ -144,30 +145,44 @@ def run_new_links_pipeline(
     enriched_rows: list[dict] = []
     enrich_total = len(tasks)
 
-    def _enrich_one(
-        client: BilibiliClient,
-        dynamic_id: str,
-        lottery_type: LotteryType,
-        outcome: ClassifyOutcome,
-    ) -> EnrichedActivity:
-        return enrich_activity(
-            client,
-            dynamic_id=dynamic_id,
-            lottery_type=lottery_type,
-            participation=participations.get(dynamic_id),
-            classify_content=outcome.classify_content or None,
-            classify_detail=outcome.detail_item,
-            classify_notice=outcome.lottery_notice,
-            classify_notice_business_type=outcome.notice_business_type,
-            classify_notice_business_id=outcome.notice_business_id,
-        )
+    # 并发修复（P2 #13）：为每个 worker 预创建独立 BilibiliClient，池式「取-还」分配，
+    # 保证同一 client 同一时刻只被一个 worker 持有，HTTP 不再因共享 _http_lock 而串行；
+    # 全局限速仍由 acquire_bilibili_request_slot（模块级、线程安全）统一控制。
+    # warmup 保持默认 True：每个独立 client 都带 buvid3 风控 cookie（与原单 client 行为一致），
+    # 且 warmup 次数 = worker_count（受全局限速保护），不会随任务数增长。
+    clients: list[BilibiliClient] = []
+    try:
+        for _ in range(worker_count):
+            clients.append(BilibiliClient())
+        client_pool: queue.Queue[BilibiliClient] = queue.Queue()
+        for client in clients:
+            client_pool.put(client)
 
-    with BilibiliClient() as enrich_client:
+        def _enrich_one(
+            dynamic_id: str,
+            lottery_type: LotteryType,
+            outcome: ClassifyOutcome,
+        ) -> EnrichedActivity:
+            client = client_pool.get()
+            try:
+                return enrich_activity(
+                    client,
+                    dynamic_id=dynamic_id,
+                    lottery_type=lottery_type,
+                    participation=participations.get(dynamic_id),
+                    classify_content=outcome.classify_content or None,
+                    classify_detail=outcome.detail_item,
+                    classify_notice=outcome.lottery_notice,
+                    classify_notice_business_type=outcome.notice_business_type,
+                    classify_notice_business_id=outcome.notice_business_id,
+                )
+            finally:
+                client_pool.put(client)
+
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
             futures = {
                 executor.submit(
                     _enrich_one,
-                    enrich_client,
                     did,
                     lt,
                     classify_outcome_by_id[did],
@@ -202,6 +217,13 @@ def run_new_links_pipeline(
                 done += 1
                 if on_progress:
                     on_progress(done, enrich_total, "详情进度")
+    finally:
+        # 无论成功/异常/构造中断，均关闭全部 client，避免连接泄漏；
+        # getattr 防御：测试替身可能未实现 close()
+        for client in clients:
+            close = getattr(client, "close", None)
+            if close is not None:
+                close()
 
     if on_progress and enriched_rows:
         on_progress(0, len(enriched_rows), "正在写入活动库…")

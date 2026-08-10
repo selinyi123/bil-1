@@ -59,3 +59,39 @@ def test_sanitize_and_restore_secrets(isolated_home) -> None:
     # 顶层敏感键同样处理
     assert sanitize_config_secrets({"secret": "x"}) == {"secret": "****"}
     assert restore_config_secrets({"secret": "y"}, {"secret": "****"}) == {"secret": "y"}
+
+
+def test_sanitize_covers_notify_channel_secrets(isolated_home) -> None:
+    """notify.json 全部渠道的真实敏感键名必须被脱敏/恢复（含非通用命名）。"""
+    from src.config_files import restore_config_secrets, sanitize_config_secrets
+
+    saved = {
+        "channels": {
+            "telegram": {"bot_token": "TG-REAL", "chat_id": "123"},
+            "email": {"user": "me@x.com", "pass": "SMTP-REAL", "host": "smtp.x.com"},
+            "bark": {"push": "BARK-KEY", "sound": "alarm"},
+            "serverchan": {"sckey": "SC-REAL"},
+            "sct": {"sendkey": "SCT-REAL"},
+            "dingtalk": {"token": "DT-REAL", "secret": "DT-SEC"},
+        }
+    }
+    sanitized = sanitize_config_secrets(saved)
+    assert sanitized["channels"]["telegram"]["bot_token"] == "****"
+    assert sanitized["channels"]["email"]["pass"] == "****"
+    assert sanitized["channels"]["bark"]["push"] == "****"
+    # 非敏感字段保持原样
+    assert sanitized["channels"]["telegram"]["chat_id"] == "123"
+    assert sanitized["channels"]["email"]["user"] == "me@x.com"
+
+    incoming = {
+        "channels": {
+            "telegram": {"bot_token": "****", "chat_id": "456"},
+            "email": {"pass": "****", "user": "me@x.com"},
+            "bark": {"push": ""},
+        }
+    }
+    restored = restore_config_secrets(saved, incoming)
+    assert restored["channels"]["telegram"]["bot_token"] == "TG-REAL"
+    assert restored["channels"]["email"]["pass"] == "SMTP-REAL"
+    # 空字符串表示清除，不恢复
+    assert restored["channels"]["bark"]["push"] == ""

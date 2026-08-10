@@ -338,6 +338,29 @@ def _raise_if_cancelled(cancel_event: threading.Event | None) -> None:
         raise ValueError("任务已取消")
 
 
+class TripleParticipateAborted(RuntimeError):
+    """三连内部 fail-fast：某活动失败后中止其他活动（区别于用户取消）。"""
+
+
+class TripleParticipateFailed(RuntimeError):
+    """三连参与失败：至少一个活动内部失败，任务终态应为 error 而非 cancelled。
+
+    携带失败前已完成的活动摘要（partial_failure 语义：外部副作用不可回滚，
+    必须让调用方/UI 知道哪些活动实际完成了哪些动作）。
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        completed: list[dict[str, Any]] | None = None,
+        failed_dynamic_id: str = "",
+    ) -> None:
+        super().__init__(message)
+        self.completed = completed or []
+        self.failed_dynamic_id = failed_dynamic_id
+
+
 def run_action(
     action: str,
     params: dict[str, Any] | None = None,
@@ -420,6 +443,7 @@ def run_action(
     if action == "refresh_all":
         ds_results: list[dict[str, Any]] = []
         sources_updated = 0
+        sources_failed = 0
         progress(
             step=0,
             total=REFRESH_ALL_TOTAL,
@@ -448,6 +472,7 @@ def run_action(
                     ds_payloads.append(future.result())
                 except Exception as exc:
                     logger.warning("%s 检查失败，跳过该源: %s", source_id, exc)
+                    sources_failed += 1
                     ds_results.append(
                         {
                             "source_id": source_id,
@@ -483,22 +508,66 @@ def run_action(
             )
 
         if sources_updated == 0:
-            skip_line = f"【跳过流水线】{len(DS_HANDLERS)} 个数据源均为同一专栏，跳过后续步骤"
+            failed_text = (
+                f"，{sources_failed} 个数据源检查失败"
+                if sources_failed
+                else ""
+            )
+            if sources_failed == len(DS_HANDLERS):
+                # 全部数据源失败：必须显式失败，绝不伪装成"无更新"
+                fail_line = (
+                    f"【失败】全部 {len(DS_HANDLERS)} 个数据源检查失败，"
+                    "活动库未刷新（请检查网络/数据源配置）"
+                )
+                log_lines.append(fail_line)
+                progress(
+                    step=REFRESH_ALL_TOTAL,
+                    total=REFRESH_ALL_TOTAL,
+                    message=fail_line,
+                    log_append=fail_line,
+                )
+                logger.error("一键更新失败：全部数据源检查失败")
+                set_last_pipeline_persisted(action="refresh_all", persisted_count=0)
+                return {
+                    "ok": False,
+                    "message": fail_line,
+                    "result": {
+                        "sources": ds_results,
+                        "sources_updated": 0,
+                        "sources_failed": sources_failed,
+                        "pipeline_skipped": True,
+                        "new_link_count": 0,
+                        "persisted_count": 0,
+                    },
+                    "log": sanitize_log("\n".join(log_lines).strip()),
+                }
+            # 无更新（可能有部分失败）：降级提示，仍为完成态
+            skip_line = (
+                f"【跳过流水线】{len(DS_HANDLERS)} 个数据源均无新专栏{failed_text}，跳过后续步骤"
+            )
             log_lines.append(skip_line)
             progress(
                 step=REFRESH_ALL_TOTAL,
                 total=REFRESH_ALL_TOTAL,
-                message="均无新专栏，已跳过整个流水线",
+                message="均无新专栏，已跳过整个流水线" + failed_text,
                 log_append=skip_line,
             )
-            logger.info("一键更新：%s 个数据源均无新专栏，跳过流水线", len(DS_HANDLERS))
+            logger.info(
+                "一键更新：%s 个数据源均无新专栏%s，跳过流水线",
+                len(DS_HANDLERS),
+                failed_text,
+            )
             set_last_pipeline_persisted(action="refresh_all", persisted_count=0)
             return {
                 "ok": True,
-                "message": f"检查完成：{len(DS_HANDLERS)} 个数据源均无新专栏，已跳过整个流水线",
+                "message": (
+                    f"检查完成：{len(DS_HANDLERS)} 个数据源均无新专栏{failed_text}，"
+                    "已跳过整个流水线"
+                ),
                 "result": {
                     "sources": ds_results,
                     "sources_updated": 0,
+                    "sources_failed": sources_failed,
                     "pipeline_skipped": True,
                     "new_link_count": 0,
                     "persisted_count": 0,
@@ -897,6 +966,10 @@ def run_action(
         )
 
         progress_lock = threading.Lock()
+        # 内部 fail-fast 事件：某活动失败后中止其他活动。
+        # 与用户取消（cancel_event）语义分离——内部失败绝不 set cancel_event，
+        # 避免 JobRunner 把业务失败误判成"用户取消"。
+        fail_fast_event = threading.Event()
         task_states: dict[str, str] = {
             str(item.get("dynamic_id") or ""): "等待开始…" for item in targets
         }
@@ -934,6 +1007,8 @@ def run_action(
         def _report_task_progress(dynamic_id: str, step: int, _total: int, message: str) -> None:
             if cancel_event and cancel_event.is_set():
                 raise ValueError("任务已取消")
+            if fail_fast_event.is_set():
+                raise TripleParticipateAborted("其他活动失败，本活动已停止")
             if dynamic_id not in progress_plan:
                 return
             with progress_lock:
@@ -963,6 +1038,8 @@ def run_action(
         def _participate_triple_target(target: dict[str, Any]) -> dict[str, Any]:
             if cancel_event and cancel_event.is_set():
                 raise ValueError("任务已取消")
+            if fail_fast_event.is_set():
+                raise TripleParticipateAborted("其他活动失败，本活动已停止")
 
             dynamic_id = str(target.get("dynamic_id") or "")
             title = str(target.get("activity_title") or dynamic_id)
@@ -980,6 +1057,8 @@ def run_action(
                 )
                 if cancel_event and cancel_event.is_set():
                     raise ValueError("任务已取消")
+                if fail_fast_event.is_set():
+                    raise TripleParticipateAborted("其他活动失败，本活动已停止")
 
                 def on_step(step: int, total: int, message: str, _action_name: str) -> None:
                     _report_task_progress(dynamic_id, step, total, message)
@@ -1025,16 +1104,40 @@ def run_action(
                         raise ValueError("任务已取消")
                     try:
                         results.append(future.result())
+                    except TripleParticipateAborted:
+                        # 被 fail-fast 中止的活动：已由主失败路径标记，忽略
+                        continue
                     except Exception as exc:
-                        if cancel_event is not None:
-                            cancel_event.set()
+                        # 内部失败：设置 fail-fast（不 set cancel_event），
+                        # 取消未开始的任务并抛出业务失败异常 → JobRunner 终态 error。
+                        # 已完成的活动摘要随异常携带（partial_failure 语义）。
+                        fail_fast_event.set()
                         with progress_lock:
                             task_states[dynamic_id] = f"失败：{exc}"
                         _mark_other_tasks_stopped(dynamic_id, reason="已停止（其他活动失败）")
                         _emit_triple_progress(log_append=f"{dynamic_id}：失败")
                         for pending in future_to_id:
                             pending.cancel()
-                        raise
+                        completed_summary = [
+                            {
+                                "dynamic_id": item["dynamic_id"],
+                                "activity_title": item["activity_title"],
+                                "lottery_type": item["lottery_type"],
+                                "actions": [
+                                    {
+                                        "action": a.get("action"),
+                                        "ok": a.get("ok"),
+                                    }
+                                    for a in (item["payload"].get("actions") or [])
+                                ],
+                            }
+                            for item in results
+                        ]
+                        raise TripleParticipateFailed(
+                            f"三连参与失败（{dynamic_id}）：{exc}",
+                            completed=completed_summary,
+                            failed_dynamic_id=dynamic_id,
+                        ) from exc
             finally:
                 if cancel_event and cancel_event.is_set():
                     _mark_other_tasks_stopped("", reason="已取消")
@@ -1096,26 +1199,40 @@ def run_action(
 
     if action == "clear_follows":
         # 清理动态 + 取关（源自 LAS clear）
+        # 安全默认：dry_run=True，真实删除/取关必须由前端显式确认后传 dry_run=false
         from src.clear_follows import clear_follows
 
         def on_step(step: int, total: int, message: str, **_kwargs: Any) -> None:
             progress(step=step, total=total, message=message)
 
+        dry_run = _parse_bool(params.get("dry_run"), default=True)
         progress(step=1, total=1, message="正在清理动态与关注…")
         with BilibiliClient() as client:
             result = clear_follows(
                 client,
                 max_days=int(params.get("max_days") or 30),
-                delete_dynamic=_parse_bool(params.get("delete_dynamic", True)),
+                delete_dynamic=_parse_bool(params.get("delete_dynamic"), default=True),
                 white_list=str(params.get("white_list") or ""),
-                dry_run=_parse_bool(params.get("dry_run", False)),
+                dry_run=dry_run,
             )
+        skipped_extra = ""
+        if result.get("skipped_unowned"):
+            skipped_extra += f"，跳过非 Binggo 转发 {result['skipped_unowned']} 条"
+        if result.get("skipped_whitelist"):
+            skipped_extra += f"，跳过白名单作者 {result['skipped_whitelist']} 条"
         message = (
             f"清理完成：删除动态 {result['deleted']} 条，取关 {result['unfollowed']} 人"
-            + ("（预演，未实际执行）" if _parse_bool(params.get("dry_run", False)) else "")
+            f"{skipped_extra}"
+            + ("（预演，未实际执行）" if dry_run else "")
         )
         progress(step=1, total=1, message=message)
-        logger.info("清理完成 deleted=%s unfollowed=%s", result["deleted"], result["unfollowed"])
+        logger.info(
+            "清理完成 deleted=%s unfollowed=%s skipped_unowned=%s skipped_whitelist=%s",
+            result["deleted"],
+            result["unfollowed"],
+            result.get("skipped_unowned"),
+            result.get("skipped_whitelist"),
+        )
         return {
             "ok": True,
             "message": message,

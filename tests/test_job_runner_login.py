@@ -141,6 +141,50 @@ def test_triple_cancel_exception_becomes_cancelled(isolated_home: Path) -> None:
     assert get_job(job_id)["state"] == "cancelled"
 
 
+def test_triple_internal_failure_becomes_error_with_partial_results(isolated_home: Path) -> None:
+    """核心不变量：三连内部失败终态为 error（非 cancelled），
+    且已完成的 activity 摘要随 result.partial_failure 保留（partial_failure 语义）。"""
+    from web.actions import TripleParticipateFailed
+
+    _ = isolated_home
+    runner = JobRunner()
+    done = threading.Event()
+
+    def fake_run_action(action, params, *, on_progress, cancel_event):
+        done.set()
+        raise TripleParticipateFailed(
+            "三连参与失败（602）：评论 API 报错",
+            completed=[
+                {
+                    "dynamic_id": "601",
+                    "activity_title": "活动A",
+                    "lottery_type": "互动抽奖",
+                    "actions": [{"action": "like", "ok": True}, {"action": "repost", "ok": True}],
+                }
+            ],
+            failed_dynamic_id="602",
+        )
+
+    with patch("web.job_runner.run_action", side_effect=fake_run_action):
+        job_id = runner.try_start("participate_triple")
+        assert job_id is not None
+        assert done.wait(timeout=3)
+
+    _wait_until(runner, lambda s: s.state == "error")
+    status = runner.get_status()
+    assert status.state == "error"
+    assert status.result is not None
+    assert status.result.get("partial_failure") is True
+    assert status.result.get("failed_dynamic_id") == "602"
+    completed = status.result.get("completed") or []
+    assert len(completed) == 1
+    assert completed[0]["dynamic_id"] == "601"
+    assert {"action": "repost", "ok": True} in completed[0]["actions"]
+    row = get_job(job_id)
+    assert row is not None
+    assert row["state"] == "error"
+
+
 def test_a1_rejects_second_start(isolated_home: Path) -> None:
     _ = isolated_home
     runner = JobRunner()
