@@ -183,8 +183,9 @@ test.describe("Frontend contract safety", () => {
     await preview.click();
 
     await expect.poll(() => posted).not.toBeNull();
-    expect(posted?.action).toBe("participate");
-    expect(posted?.params?.dry_run).toBe(true);
+    const captured = posted as Record<string, any>;
+    expect(captured.action).toBe("participate");
+    expect(captured.params?.dry_run).toBe(true);
 
     await expect(page.locator("#job-result-banner")).toBeVisible({ timeout: 10_000 });
     await expect(page.locator("#job-result-eyebrow")).toHaveText("参与预演");
