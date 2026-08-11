@@ -1,4 +1,5 @@
 import "./styles/styles.css";
+import "./styles/contract.css";
 import { init } from "./bootstrap";
 import { showToast } from "./shell/toast";
 
