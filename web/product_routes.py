@@ -58,17 +58,19 @@ def _reject_mutation_while_job_running() -> None:
 
 
 def _mask_proxy_url(value: str | None) -> str | None:
+    """仅回显代理 origin；userinfo/path/query 都可能携带凭据，绝不回传。"""
     raw = str(value or "").strip()
     if not raw:
         return None
     try:
         parsed = urlsplit(raw)
         host = parsed.hostname or ""
+        if not host:
+            return "***"
         if ":" in host and not host.startswith("["):
             host = f"[{host}]"
         port = f":{parsed.port}" if parsed.port else ""
-        auth = "***@" if parsed.username is not None or parsed.password is not None else ""
-        return urlunsplit((parsed.scheme, f"{auth}{host}{port}", parsed.path, "", ""))
+        return urlunsplit((parsed.scheme, f"{host}{port}", "", "", ""))
     except ValueError:
         return "***"
 
@@ -77,6 +79,8 @@ def _validate_proxy_url(value: str) -> str:
     raw = str(value or "").strip()
     if not raw:
         raise ValueError("代理地址不能为空")
+    if any(ch in raw for ch in ("\r", "\n", "\x00")):
+        raise ValueError("代理地址包含非法控制字符")
     parsed = urlsplit(raw)
     if parsed.scheme.lower() not in {"http", "https"}:
         raise ValueError("账号级代理仅支持 http:// 或 https://")
