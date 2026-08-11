@@ -133,6 +133,7 @@ test.describe("Frontend contract safety", () => {
   test("single activity dry-run sends dry_run=true and renders preview success semantics", async ({ page, request }) => {
     await setE2EState(request, { account: "logged_in", llm: "ready" });
     let posted: Record<string, any> | null = null;
+    const dryRunMessage = "预演完成：已读取当前状态，未执行点赞、关注、收藏、转发或评论写操作";
 
     await page.route("**/api/jobs", async (route) => {
       if (route.request().method() !== "POST") return route.continue();
@@ -151,7 +152,7 @@ test.describe("Frontend contract safety", () => {
           id: 9901,
           state: "success",
           action: "participate",
-          message: "预演完成，未实际请求 B 站",
+          message: dryRunMessage,
           progress_step: 5,
           progress_total: 5,
           finished_at: "2026-08-11T09:00:00Z",
@@ -159,14 +160,14 @@ test.describe("Frontend contract safety", () => {
             dynamic_id: "123456789012345678",
             lottery_type: "转发抽奖",
             status: "dry_run",
-            message: "预演完成，未实际请求 B 站",
+            message: dryRunMessage,
             action_text: "好运连连！",
             actions: [
-              { action: "like", ok: true, detail: "dry-run" },
-              { action: "follow", ok: true, detail: "dry-run" },
-              { action: "favorite", ok: true, detail: "dry-run" },
-              { action: "repost", ok: true, detail: "dry-run" },
-              { action: "comment", ok: true, detail: "dry-run" },
+              { action: "like", ok: true, detail: "将点赞" },
+              { action: "follow", ok: true, detail: "将关注 uid=123" },
+              { action: "favorite", ok: true, detail: "无收藏入口，跳过" },
+              { action: "repost", ok: true, detail: "将转发 好运连连！" },
+              { action: "comment", ok: true, detail: "将评论 type=17" },
             ],
           },
         }),
@@ -188,6 +189,7 @@ test.describe("Frontend contract safety", () => {
     await expect(page.locator("#job-result-banner")).toBeVisible({ timeout: 10_000 });
     await expect(page.locator("#job-result-eyebrow")).toHaveText("参与预演");
     await expect(page.locator("#job-result-title")).toHaveText("预演完成");
+    await expect(page.locator("#job-result-summary")).toContainText("未执行点赞、关注、收藏、转发或评论写操作");
     await expect(page.locator("#job-result-hint")).toContainText("不会写入参与记录");
     await expect(page.locator("#job-result-body")).toContainText("将点赞");
     await expect(page.locator("#job-result-body")).toContainText("预演文案：好运连连！");
