@@ -1,11 +1,14 @@
 // 新功能前端面板：账号池 / 参与增强配置 / 通知配置 / 任务工具（中奖深检、清理）/ 运行日志
 import { fetchJSON } from "../api/client";
+import { loadActivities, loadSummary } from "../activities/index";
+import { loadAccount } from "../account/index";
 import { accountHero } from "../dom";
 import { startJob } from "../jobs/index";
-import { loadAccount } from "../account/index";
 import { openAppConfirm as rawOpenAppConfirm } from "../shell/confirm";
 import { showToast } from "../shell/toast";
 import { escapeHtml } from "../utils/text";
+import { loadWatchUsers } from "../watch/index";
+import { mergeConfig, parseAtUsers, resolveCleanupPartitionName, type ConfigRecord } from "./config";
 
 type AppConfirmOptions = {
   eyebrow?: string;
@@ -22,26 +25,47 @@ type AppConfirmOptions = {
 /** openAppConfirm 来自 @ts-nocheck 模块，签名推导不完整（bullets 被推成 never[]），这里显式收窄。 */
 const openAppConfirm = rawOpenAppConfirm as (options?: AppConfirmOptions) => Promise<boolean>;
 
+let lastEnhanceConfig: ConfigRecord | null = null;
+let lastNotifyConfig: ConfigRecord | null = null;
+
 function errText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** 按钮 loading 辅助：避免重复点击（配合 disabled 禁用）。 */
-async function withBusy<T>(btn: HTMLButtonElement | null, fn: () => Promise<T>): Promise<T | undefined> {
-  if (!btn) return undefined;
-  if (btn.disabled) return undefined;
+/**
+ * 按钮 loading 辅助。设置、账号切换、破坏性任务默认禁止在 Job 运行中执行，
+ * 避免同一任务中途切换账号/参与策略。日志查看可显式 allowDuringJob。
+ */
+async function withBusy<T>(
+  btn: HTMLButtonElement | null,
+  fn: () => Promise<T>,
+  { allowDuringJob = false }: { allowDuringJob?: boolean } = {},
+): Promise<T | undefined> {
+  if (!btn || btn.disabled) return undefined;
+  if (!allowDuringJob && document.body.classList.contains("job-running")) {
+    showToast("有任务正在运行", "info", "请等待当前任务结束后再修改账号、配置或启动新任务");
+    return undefined;
+  }
   btn.disabled = true;
   try {
     return await fn();
   } finally {
-    // 任务运行中保持全局锁定，不恢复按钮
-    btn.disabled = document.body.classList.contains("job-running");
+    // 任务运行中保持全局锁定，不恢复危险按钮；日志按钮例外。
+    btn.disabled = allowDuringJob ? false : document.body.classList.contains("job-running");
   }
 }
 
 function asInt(value: unknown): number | null {
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
+}
+
+async function refreshAccountScopedViews(): Promise<void> {
+  await loadAccount();
+  // summary / activities / triple_targets 都带当前 uid 语义，切号后必须一起换上下文。
+  await Promise.all([loadSummary(), loadActivities()]);
+  await Promise.allSettled([loadWatchUsers()]);
+  await renderAccountPool();
 }
 
 // ---------------------------------------------------------------------------
@@ -63,7 +87,7 @@ export async function renderAccountPool(): Promise<void> {
       active_uid: number | null;
     }>("/api/accounts", { timeoutMs: 10000 });
   } catch {
-    return; // 接口不可用时静默（老版本后端无此 API）
+    return; // 兼容老版本后端无此 API
   }
   const accounts = data.accounts || [];
   if (accounts.length <= 1) {
@@ -75,7 +99,7 @@ export async function renderAccountPool(): Promise<void> {
     <div class="settings-panel-head">
       <div class="settings-panel-intro">
         <h2 class="section-title">账号池</h2>
-        <p class="section-desc">多账号切换（参与记录按账号隔离）；切换后当前账号立即生效。任务运行中不允许切换或删除。</p>
+        <p class="section-desc">多账号切换（参与记录按账号隔离）；切换后统计、活动状态与三连候选会同步切换。任务运行中不允许切换或删除。</p>
       </div>
     </div>
     <div class="account-pool-list">
@@ -97,15 +121,20 @@ export async function renderAccountPool(): Promise<void> {
   panel.querySelectorAll<HTMLButtonElement>("[data-pool-switch]").forEach((btn) => {
     btn.addEventListener("click", () => {
       void withBusy(btn, async () => {
+        const uid = Number(btn.dataset.poolSwitch);
         try {
           await fetchJSON("/api/accounts/switch", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ uid: Number(btn.dataset.poolSwitch) }),
+            body: JSON.stringify({ uid }),
           });
-          showToast("已切换账号", "success");
-          await loadAccount();
-          await renderAccountPool();
+          try {
+            await refreshAccountScopedViews();
+            showToast("已切换账号", "success", `UID ${uid}`);
+          } catch (refreshError) {
+            showToast("账号已切换，但部分页面刷新失败", "warning", errText(refreshError));
+            await renderAccountPool().catch(() => {});
+          }
         } catch (error) {
           showToast(errText(error), "error");
         }
@@ -121,16 +150,20 @@ export async function renderAccountPool(): Promise<void> {
         const confirmed = await openAppConfirm({
           eyebrow: "账号池",
           title: `确认删除账号 UID ${uid}？`,
-          desc: "删除后该账号的 Cookie 会从本机移除，需要重新扫码登录才能使用。其参与记录仍保留在本地数据库。",
+          desc: "删除后该账号的 Cookie 与账号级网络配置会从本机移除；参与历史仍保留在数据库中。若删除当前账号，页面会立即切换到未登录状态。",
           confirmLabel: "删除账号",
           danger: true,
         });
         if (!confirmed) return;
         try {
           await fetchJSON(`/api/accounts/${uid}`, { method: "DELETE" });
-          showToast("账号已删除", "success");
-          await loadAccount();
-          await renderAccountPool();
+          try {
+            await refreshAccountScopedViews();
+            showToast("账号已删除", "success");
+          } catch (refreshError) {
+            showToast("账号已删除，但部分页面刷新失败", "warning", errText(refreshError));
+            await renderAccountPool().catch(() => {});
+          }
         } catch (error) {
           showToast(errText(error), "error");
         }
@@ -151,7 +184,7 @@ function buildEnhancePanel(): HTMLDivElement {
     <div class="settings-panel-head">
       <div class="settings-panel-intro">
         <h2 class="section-title">参与增强配置</h2>
-        <p class="section-desc">抄热评 / @好友 / 带话题 / 乱序 / 随机延迟 / 关注分区（participate_enhance.json）。</p>
+        <p class="section-desc">随机评论过滤 / @好友 / 带话题 / 乱序 / 随机延迟 / 关注分区。是否随机借用评论由上方「参与文案」模式统一控制。</p>
       </div>
     </div>
     <div class="extra-mode-tabs" style="padding: 0 20px;">
@@ -160,8 +193,7 @@ function buildEnhancePanel(): HTMLDivElement {
     </div>
     <div class="extra-form-section" data-enhance-form>
       <div class="extra-form-grid">
-        <label class="extra-form-check"><input type="checkbox" id="enh-copy-chat"> 转发时抄热评</label>
-        <label class="extra-form-check"><input type="checkbox" id="enh-copy-chat-exclude"> 热评排除作者</label>
+        <label class="extra-form-check"><input type="checkbox" id="enh-copy-chat-exclude"> 随机评论时排除活动作者</label>
         <label class="extra-form-check"><input type="checkbox" id="enh-shuffle"> 参与前乱序目标</label>
         <label class="extra-form-check"><input type="checkbox" id="enh-partition"> 参与后移入关注分区</label>
         <div class="extra-form-field">
@@ -169,11 +201,11 @@ function buildEnhancePanel(): HTMLDivElement {
           <input type="text" id="enh-topic" placeholder="#每日抽奖#">
         </div>
         <div class="extra-form-field">
-          <label for="enh-at-users">转发 @ 用户（每行 uid:名称）</label>
+          <label for="enh-at-users">转发 @ 用户（每行 uid:昵称）</label>
           <textarea id="enh-at-users" spellcheck="false" placeholder="294887687:转发抽奖娘"></textarea>
         </div>
         <div class="extra-form-field">
-          <label for="enh-blockwords">热评屏蔽词（逗号分隔）</label>
+          <label for="enh-blockwords">随机评论屏蔽词（逗号分隔）</label>
           <input type="text" id="enh-blockwords" placeholder="抽奖,互关">
         </div>
         <div class="extra-form-field">
@@ -189,40 +221,33 @@ function buildEnhancePanel(): HTMLDivElement {
           <input type="text" id="enh-partition-name" placeholder="抽奖临时关注">
         </div>
       </div>
-      <p class="extra-form-hint">@ 用户每行一个，格式 <code>uid:昵称</code>；昵称可省略（仅填 uid）。</p>
+      <p class="extra-form-hint">@ 用户必须填写 <code>uid:昵称</code>；只填 UID 会被拒绝，避免保存后执行时静默失效。高级 JSON 中的 <code>copy_chat.enabled</code> 仅为旧配置兼容，不再是第二个运行期开关。</p>
     </div>
     <div class="extra-config-body" data-enhance-json hidden>
       <textarea class="extra-config-textarea" spellcheck="false" rows="14" placeholder="加载中…"></textarea>
     </div>
-    <div class="settings-panel-foot" style="padding: 0 20px 20px;">
+    <div class="settings-panel-foot" style="padding: 0 20px 20px; gap: 10px; flex-wrap: wrap;">
+      <p class="extra-form-hint" data-extra-load-error hidden style="flex: 1 1 100%; margin: 0;"></p>
+      <button type="button" class="btn btn-secondary btn-pill" data-extra-reload="enhance" hidden>重新加载</button>
       <button type="button" class="btn btn-primary btn-pill" data-extra-save="enhance">保存配置</button>
     </div>`;
   return wrap;
 }
 
-function readEnhanceForm(): Record<string, unknown> {
+function readEnhanceForm(): ConfigRecord {
   const chk = (id: string) => (document.getElementById(id) as HTMLInputElement | null)?.checked ?? false;
   const val = (id: string) => (document.getElementById(id) as HTMLInputElement | null)?.value ?? "";
   const blockwords = val("enh-blockwords")
     .split(/[,，]/)
     .map((s) => s.trim())
     .filter(Boolean);
-  const atUsers = val("enh-at-users")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const [uidPart, ...nameParts] = line.split(":");
-      const uid = asInt(uidPart);
-      const name = nameParts.join(":").trim();
-      return uid !== null ? { uid, name: name || "" } : null;
-    })
-    .filter((item): item is { uid: number; name: string } => item !== null);
-  const min = asInt(val("enh-interval-min"));
-  const max = asInt(val("enh-interval-max"));
+  const atUsers = parseAtUsers(val("enh-at-users"));
+  const min = Number(val("enh-interval-min"));
+  const max = Number(val("enh-interval-max"));
   return {
+    // legacy compatibility only; participate_text_mode is the authoritative switch.
     copy_chat: {
-      enabled: chk("enh-copy-chat"),
+      enabled: true,
       blockwords,
       exclude_author: chk("enh-copy-chat-exclude"),
     },
@@ -230,8 +255,8 @@ function readEnhanceForm(): Record<string, unknown> {
     topic: val("enh-topic").trim(),
     shuffle_targets: chk("enh-shuffle"),
     action_interval_sec: {
-      min: min ?? 0.75,
-      max: max ?? 2.25,
+      min: Number.isFinite(min) && min > 0 ? min : 0.75,
+      max: Number.isFinite(max) && max > 0 ? max : 2.25,
     },
     partition: {
       enabled: chk("enh-partition"),
@@ -240,7 +265,7 @@ function readEnhanceForm(): Record<string, unknown> {
   };
 }
 
-function fillEnhanceForm(config: Record<string, unknown>): void {
+function fillEnhanceForm(config: ConfigRecord): void {
   const setChk = (id: string, value: unknown) => {
     const el = document.getElementById(id) as HTMLInputElement | null;
     if (el) el.checked = Boolean(value);
@@ -249,23 +274,22 @@ function fillEnhanceForm(config: Record<string, unknown>): void {
     const el = document.getElementById(id) as HTMLInputElement | null;
     if (el) el.value = String(value ?? "");
   };
-  const copyChat = (config.copy_chat ?? {}) as Record<string, unknown>;
-  const interval = (config.action_interval_sec ?? {}) as Record<string, unknown>;
-  const partition = (config.partition ?? {}) as Record<string, unknown>;
+  const copyChat = (config.copy_chat ?? {}) as ConfigRecord;
+  const interval = (config.action_interval_sec ?? {}) as ConfigRecord;
+  const partition = (config.partition ?? {}) as ConfigRecord;
   const atUsers = (config.at_users ?? []) as Array<{ uid: number; name?: string }>;
-  setChk("enh-copy-chat", copyChat.enabled);
   setChk("enh-copy-chat-exclude", copyChat.exclude_author);
   setChk("enh-shuffle", config.shuffle_targets);
   setChk("enh-partition", partition.enabled);
   setVal("enh-topic", config.topic);
   setVal(
     "enh-at-users",
-    atUsers.map((u) => (u.name ? `${u.uid}:${u.name}` : String(u.uid))).join("\n"),
+    atUsers.filter((u) => u?.uid && u?.name).map((u) => `${u.uid}:${u.name}`).join("\n"),
   );
   setVal("enh-blockwords", ((copyChat.blockwords ?? []) as string[]).join(", "));
   setVal("enh-interval-min", interval.min ?? 0.75);
   setVal("enh-interval-max", interval.max ?? 2.25);
-  setVal("enh-partition-name", partition.name);
+  setVal("enh-partition-name", partition.name ?? "抽奖临时关注");
 }
 
 // ---------------------------------------------------------------------------
@@ -303,10 +327,11 @@ function buildNotifyPanel(): HTMLDivElement {
     <div class="extra-form-field" data-notify-channel="${ch.key}">
       <label>${escapeHtml(ch.label)}</label>
       ${ch.fields
-        .map(
-          (f) =>
-            `<input type="${f.type === "number" ? "number" : "text"}" data-channel-field="${f.key}" placeholder="${escapeHtml(f.label)}" aria-label="${escapeHtml(f.label)}（${escapeHtml(ch.label)}）" ${f.secret ? 'data-secret="1"' : ""}>`,
-        )
+        .map((f) => {
+          const inputType = f.type === "number" ? "number" : f.secret ? "password" : "text";
+          const autocomplete = f.secret ? ' autocomplete="new-password"' : ' autocomplete="off"';
+          return `<input type="${inputType}" data-channel-field="${f.key}" placeholder="${escapeHtml(f.label)}" aria-label="${escapeHtml(f.label)}（${escapeHtml(ch.label)}）"${autocomplete} ${f.secret ? 'data-secret="1"' : ""}>`;
+        })
         .join("")}
     </div>`,
   ).join("");
@@ -314,7 +339,7 @@ function buildNotifyPanel(): HTMLDivElement {
     <div class="settings-panel-head">
       <div class="settings-panel-intro">
         <h2 class="section-title">通知推送配置</h2>
-        <p class="section-desc">中奖深检命中关键词后推送。凭据字段回显为 ****，留空保存即清除；未填凭据的渠道自动跳过。</p>
+        <p class="section-desc">中奖深检命中关键词后推送。已保存凭据只回显 ****，凭据输入框默认隐藏内容；主动清空后保存才会清除。</p>
       </div>
     </div>
     <div class="extra-mode-tabs" style="padding: 0 20px;">
@@ -329,28 +354,30 @@ function buildNotifyPanel(): HTMLDivElement {
       </div>
       <hr class="extra-form-divider">
       <div class="extra-form-grid">${channelsHtml}</div>
-      <p class="extra-form-hint">任选渠道填写即可，未填写的渠道自动跳过；全部为空则仅记录不推送。</p>
+      <p class="extra-form-hint">任选渠道填写即可，未填写的渠道自动跳过；全部为空则仅记录不推送。表单保存会保留当前前端不认识的后端新字段。</p>
     </div>
     <div class="extra-config-body" data-notify-json hidden>
       <textarea class="extra-config-textarea" spellcheck="false" rows="14" placeholder="加载中…"></textarea>
     </div>
-    <div class="settings-panel-foot" style="padding: 0 20px 20px;">
+    <div class="settings-panel-foot" style="padding: 0 20px 20px; gap: 10px; flex-wrap: wrap;">
+      <p class="extra-form-hint" data-extra-load-error hidden style="flex: 1 1 100%; margin: 0;"></p>
+      <button type="button" class="btn btn-secondary btn-pill" data-extra-reload="notify" hidden>重新加载</button>
       <button type="button" class="btn btn-primary btn-pill" data-extra-save="notify">保存配置</button>
     </div>`;
   return wrap;
 }
 
-function readNotifyForm(): Record<string, unknown> {
+function readNotifyForm(): ConfigRecord {
   const enabled = (document.getElementById("notify-enabled") as HTMLInputElement | null)?.checked ?? true;
   const keywords = (document.getElementById("notify-keywords") as HTMLTextAreaElement | null)
     ?.value.split("\n")
     .map((s) => s.trim())
     .filter(Boolean) ?? [];
-  const channels: Record<string, unknown> = {};
+  const channels: ConfigRecord = {};
   document.querySelectorAll<HTMLDivElement>("[data-notify-channel]").forEach((card) => {
     const key = card.dataset.notifyChannel;
     if (!key) return;
-    const fields: Record<string, unknown> = {};
+    const fields: ConfigRecord = {};
     card.querySelectorAll<HTMLInputElement>("[data-channel-field]").forEach((input) => {
       const field = input.dataset.channelField;
       if (!field) return;
@@ -362,12 +389,12 @@ function readNotifyForm(): Record<string, unknown> {
   return { enabled, keywords, channels };
 }
 
-function fillNotifyForm(config: Record<string, unknown>): void {
+function fillNotifyForm(config: ConfigRecord): void {
   const enabledEl = document.getElementById("notify-enabled") as HTMLInputElement | null;
   if (enabledEl) enabledEl.checked = config.enabled !== false;
   const keywordsEl = document.getElementById("notify-keywords") as HTMLTextAreaElement | null;
   if (keywordsEl && Array.isArray(config.keywords)) keywordsEl.value = (config.keywords as string[]).join("\n");
-  const channels = (config.channels ?? {}) as Record<string, Record<string, unknown>>;
+  const channels = (config.channels ?? {}) as Record<string, ConfigRecord>;
   CHANNEL_SCHEMA.forEach((ch) => {
     const card = document.querySelector<HTMLDivElement>(`[data-notify-channel="${ch.key}"]`);
     const values = channels[ch.key] ?? {};
@@ -378,6 +405,35 @@ function fillNotifyForm(config: Record<string, unknown>): void {
       input.value = value === undefined || value === null ? "" : String(value);
     });
   });
+}
+
+function setConfigLoadState(
+  wrap: HTMLDivElement,
+  saveBtn: HTMLButtonElement,
+  reloadBtn: HTMLButtonElement,
+  error: unknown | null,
+): void {
+  const errorEl = wrap.querySelector<HTMLElement>("[data-extra-load-error]");
+  if (error) {
+    saveBtn.disabled = true;
+    reloadBtn.hidden = false;
+    if (errorEl) {
+      errorEl.hidden = false;
+      errorEl.textContent = `配置加载失败：${errText(error)}。为防止覆盖本机已有配置，保存已禁用。`;
+    }
+  } else {
+    saveBtn.disabled = false;
+    reloadBtn.hidden = true;
+    if (errorEl) {
+      errorEl.hidden = true;
+      errorEl.textContent = "";
+    }
+  }
+}
+
+async function fetchConfig(api: string): Promise<ConfigRecord> {
+  const data = await fetchJSON<{ config: unknown }>(api, { timeoutMs: 10000 });
+  return (data.config ?? {}) as ConfigRecord;
 }
 
 // ---------------------------------------------------------------------------
@@ -414,15 +470,35 @@ function bindEnhancePanel(wrap: HTMLDivElement): void {
   const textarea = wrap.querySelector<HTMLTextAreaElement>("[data-enhance-json] textarea")!;
   const formSection = wrap.querySelector<HTMLElement>("[data-enhance-form]")!;
   const jsonSection = wrap.querySelector<HTMLElement>("[data-enhance-json]")!;
-  const saveBtn = wrap.querySelector<HTMLButtonElement>("[data-extra-save]")!;
+  const saveBtn = wrap.querySelector<HTMLButtonElement>("[data-extra-save='enhance']")!;
+  const reloadBtn = wrap.querySelector<HTMLButtonElement>("[data-extra-reload='enhance']")!;
   let mode: "form" | "json" = "form";
+
+  const load = async () => {
+    saveBtn.disabled = true;
+    reloadBtn.disabled = true;
+    try {
+      const config = await fetchConfig("/api/settings/enhance");
+      lastEnhanceConfig = config;
+      textarea.value = JSON.stringify(config, null, 2);
+      fillEnhanceForm(config);
+      syncCleanupPartitionLabel();
+      setConfigLoadState(wrap, saveBtn, reloadBtn, null);
+    } catch (error) {
+      setConfigLoadState(wrap, saveBtn, reloadBtn, error);
+    } finally {
+      reloadBtn.disabled = false;
+    }
+  };
 
   wrap.querySelectorAll<HTMLButtonElement>("[data-enhance-mode]").forEach((tab) => {
     tab.addEventListener("click", () => {
       mode = tab.dataset.enhanceMode as "form" | "json";
       wrap.querySelectorAll("[data-enhance-mode]").forEach((t) => t.classList.toggle("is-active", t === tab));
       if (mode === "json") {
-        textarea.value = JSON.stringify(readEnhanceForm(), null, 2);
+        if (lastEnhanceConfig) {
+          textarea.value = JSON.stringify(mergeConfig(lastEnhanceConfig, readEnhanceForm()), null, 2);
+        }
         formSection.hidden = true;
         jsonSection.hidden = false;
       } else {
@@ -439,13 +515,23 @@ function bindEnhancePanel(wrap: HTMLDivElement): void {
 
   saveBtn.addEventListener("click", () => {
     void withBusy(saveBtn, async () => {
+      if (!lastEnhanceConfig) {
+        showToast("参与增强配置尚未成功加载", "error", "请先重新加载，避免覆盖已有配置");
+        return;
+      }
       try {
-        const payload = mode === "form" ? readEnhanceForm() : JSON.parse(textarea.value || "{}");
-        await fetchJSON("/api/settings/enhance", {
+        const payload = mode === "form"
+          ? mergeConfig(lastEnhanceConfig, readEnhanceForm())
+          : JSON.parse(textarea.value || "{}");
+        const response = await fetchJSON<{ config?: ConfigRecord }>("/api/settings/enhance", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
+        lastEnhanceConfig = (response.config ?? payload) as ConfigRecord;
+        textarea.value = JSON.stringify(lastEnhanceConfig, null, 2);
+        fillEnhanceForm(lastEnhanceConfig);
+        syncCleanupPartitionLabel();
         showToast("参与增强配置已保存", "success");
       } catch (error) {
         showToast(errText(error), "error");
@@ -453,10 +539,11 @@ function bindEnhancePanel(wrap: HTMLDivElement): void {
     });
   });
 
-  loadConfigInto("/api/settings/enhance", async (config) => {
-    textarea.value = JSON.stringify(config, null, 2);
-    fillEnhanceForm(config);
+  reloadBtn.addEventListener("click", () => {
+    void withBusy(reloadBtn, load);
   });
+
+  void load();
 }
 
 // ---------------------------------------------------------------------------
@@ -467,15 +554,34 @@ function bindNotifyPanel(wrap: HTMLDivElement): void {
   const textarea = wrap.querySelector<HTMLTextAreaElement>("[data-notify-json] textarea")!;
   const formSection = wrap.querySelector<HTMLElement>("[data-notify-form]")!;
   const jsonSection = wrap.querySelector<HTMLElement>("[data-notify-json]")!;
-  const saveBtn = wrap.querySelector<HTMLButtonElement>("[data-extra-save]")!;
+  const saveBtn = wrap.querySelector<HTMLButtonElement>("[data-extra-save='notify']")!;
+  const reloadBtn = wrap.querySelector<HTMLButtonElement>("[data-extra-reload='notify']")!;
   let mode: "form" | "json" = "form";
+
+  const load = async () => {
+    saveBtn.disabled = true;
+    reloadBtn.disabled = true;
+    try {
+      const config = await fetchConfig("/api/settings/notify");
+      lastNotifyConfig = config;
+      textarea.value = JSON.stringify(config, null, 2);
+      fillNotifyForm(config);
+      setConfigLoadState(wrap, saveBtn, reloadBtn, null);
+    } catch (error) {
+      setConfigLoadState(wrap, saveBtn, reloadBtn, error);
+    } finally {
+      reloadBtn.disabled = false;
+    }
+  };
 
   wrap.querySelectorAll<HTMLButtonElement>("[data-notify-mode]").forEach((tab) => {
     tab.addEventListener("click", () => {
       mode = tab.dataset.notifyMode as "form" | "json";
       wrap.querySelectorAll("[data-notify-mode]").forEach((t) => t.classList.toggle("is-active", t === tab));
       if (mode === "json") {
-        textarea.value = JSON.stringify(readNotifyForm(), null, 2);
+        if (lastNotifyConfig) {
+          textarea.value = JSON.stringify(mergeConfig(lastNotifyConfig, readNotifyForm()), null, 2);
+        }
         formSection.hidden = true;
         jsonSection.hidden = false;
       } else {
@@ -492,13 +598,22 @@ function bindNotifyPanel(wrap: HTMLDivElement): void {
 
   saveBtn.addEventListener("click", () => {
     void withBusy(saveBtn, async () => {
+      if (!lastNotifyConfig) {
+        showToast("通知配置尚未成功加载", "error", "请先重新加载，避免覆盖已有密钥");
+        return;
+      }
       try {
-        const payload = mode === "form" ? readNotifyForm() : JSON.parse(textarea.value || "{}");
-        await fetchJSON("/api/settings/notify", {
+        const payload = mode === "form"
+          ? mergeConfig(lastNotifyConfig, readNotifyForm())
+          : JSON.parse(textarea.value || "{}");
+        const response = await fetchJSON<{ config?: ConfigRecord }>("/api/settings/notify", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
+        lastNotifyConfig = (response.config ?? payload) as ConfigRecord;
+        textarea.value = JSON.stringify(lastNotifyConfig, null, 2);
+        fillNotifyForm(lastNotifyConfig);
         showToast("通知配置已保存", "success");
       } catch (error) {
         showToast(errText(error), "error");
@@ -506,19 +621,11 @@ function bindNotifyPanel(wrap: HTMLDivElement): void {
     });
   });
 
-  loadConfigInto("/api/settings/notify", (config) => {
-    textarea.value = JSON.stringify(config, null, 2);
-    fillNotifyForm(config);
+  reloadBtn.addEventListener("click", () => {
+    void withBusy(reloadBtn, load);
   });
-}
 
-async function loadConfigInto(api: string, apply: (config: Record<string, unknown>) => void): Promise<void> {
-  try {
-    const data = await fetchJSON<{ config: unknown }>(api, { timeoutMs: 10000 });
-    apply((data.config ?? {}) as Record<string, unknown>);
-  } catch {
-    apply({});
-  }
+  void load();
 }
 
 // ---------------------------------------------------------------------------
@@ -532,40 +639,117 @@ function buildToolsPanel(): HTMLDivElement {
     <div class="settings-panel-head">
       <div class="settings-panel-intro">
         <h2 class="section-title">任务工具</h2>
-        <p class="section-desc">中奖深检（扫描 @/回复/私信，命中关键词推送）与清理（删除超期转发动态，可选同步取关）。</p>
+        <p class="section-desc">中奖深检与清理工具。清理包含两个独立范围：超期转发删除，以及关注分区批量取关；时间阈值只影响动态删除。</p>
       </div>
     </div>
     <div class="extra-tools-body">
-      <button type="button" class="btn btn-secondary btn-pill" data-extra-tool="check_prize" title="扫描 @/回复/私信，命中中奖关键词则推送通知">中奖深检</button>
-      <button type="button" class="btn btn-secondary btn-pill" data-extra-tool="clear_dry" title="预演：只统计将删除的超期转发动态，不真正删除">清理（预演）</button>
-      <button type="button" class="btn btn-ghost btn-pill" data-extra-tool="clear_run" title="真正删除超期转发动态并同步取关（有确认弹窗）">清理（执行）</button>
+      <div class="extra-form-grid">
+        <label class="extra-form-check"><input type="checkbox" id="check-prize-push" checked> 中奖深检命中后推送通知</label>
+        <div class="extra-form-field">
+          <label for="cleanup-max-days">转发动态超期阈值（天）</label>
+          <input type="number" id="cleanup-max-days" min="1" max="365" step="1" value="30">
+        </div>
+        <label class="extra-form-check"><input type="checkbox" id="cleanup-delete-dynamic" checked> 删除 Binggo 确认归属的超期转发动态</label>
+        <div class="extra-form-field">
+          <label for="cleanup-partition-name">批量取关分区</label>
+          <input type="text" id="cleanup-partition-name" value="抽奖临时关注" readonly>
+        </div>
+        <div class="extra-form-field">
+          <label for="cleanup-whitelist">白名单 UID（逗号分隔）</label>
+          <input type="text" id="cleanup-whitelist" inputmode="numeric" placeholder="123456,789012">
+        </div>
+      </div>
+      <p class="extra-form-hint">分区取关与动态删除互相独立：即使关闭“删除动态”，清理仍会取关该分区内非白名单用户。建议先预演，并在任务日志中核对数量。</p>
+      <div class="action-row">
+        <button type="button" class="btn btn-secondary btn-pill" data-extra-tool="check_prize" title="扫描 @/回复/私信；是否推送由上方勾选项决定">中奖深检</button>
+        <button type="button" class="btn btn-secondary btn-pill" data-extra-tool="clear_dry" title="预演清理，不真正删除或取关">清理（预演）</button>
+        <button type="button" class="btn btn-ghost btn-pill" data-extra-tool="clear_run" title="按当前范围真实执行清理（有二次确认）">清理（执行）</button>
+      </div>
     </div>`;
   return tools;
 }
 
+function syncCleanupPartitionLabel(): void {
+  const input = document.getElementById("cleanup-partition-name") as HTMLInputElement | null;
+  if (input) input.value = resolveCleanupPartitionName(lastEnhanceConfig);
+}
+
+function readCleanupParams(dryRun: boolean): Record<string, unknown> {
+  const maxDaysInput = document.getElementById("cleanup-max-days") as HTMLInputElement | null;
+  const maxDays = Number(maxDaysInput?.value || 30);
+  if (!Number.isInteger(maxDays) || maxDays < 1 || maxDays > 365) {
+    throw new Error("清理天数必须是 1～365 的整数");
+  }
+  const whitelistInput = document.getElementById("cleanup-whitelist") as HTMLInputElement | null;
+  const rawWhitelist = String(whitelistInput?.value || "").trim();
+  const whitelistParts = rawWhitelist
+    ? rawWhitelist.split(/[,，\s]+/).map((item) => item.trim()).filter(Boolean)
+    : [];
+  if (whitelistParts.some((item) => !/^\d+$/.test(item) || Number(item) <= 0)) {
+    throw new Error("白名单只能填写正整数 UID，并用逗号分隔");
+  }
+  return {
+    dry_run: dryRun,
+    max_days: maxDays,
+    delete_dynamic: (document.getElementById("cleanup-delete-dynamic") as HTMLInputElement | null)?.checked ?? true,
+    white_list: whitelistParts.join(","),
+  };
+}
+
 function bindToolsPanel(tools: HTMLDivElement): void {
+  syncCleanupPartitionLabel();
   tools.querySelectorAll<HTMLButtonElement>("[data-extra-tool]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const tool = btn.dataset.extraTool;
       if (tool === "check_prize") {
-        void withBusy(btn, () => startJob("check_prize", {}));
-      } else if (tool === "clear_dry") {
-        void withBusy(btn, () => startJob("clear_follows", { dry_run: true, max_days: 30 }));
-      } else if (tool === "clear_run") {
-        void withBusy(btn, async () => {
-          const confirmed = await openAppConfirm({
-            eyebrow: "清理",
-            title: "确认清理超期转发动态？",
-            desc: "将删除超过 30 天的转发动态，并同步取关对应 UP。此操作不可撤销。",
-            bullets: ["仅删除「转发」类型的动态，原创动态不会被删", "预演模式可先查看将删除的数量"],
-            confirmLabel: "清理并取关",
-            danger: true,
-            secondaryLabel: "先去预演",
-          });
-          if (!confirmed) return;
-          await startJob("clear_follows", { dry_run: false, max_days: 30 });
-        });
+        const push = (document.getElementById("check-prize-push") as HTMLInputElement | null)?.checked ?? true;
+        void withBusy(btn, () => startJob("check_prize", { push }));
+        return;
       }
+      if (tool === "clear_dry") {
+        void withBusy(btn, async () => {
+          try {
+            await startJob("clear_follows", readCleanupParams(true));
+          } catch (error) {
+            showToast(errText(error), "error");
+          }
+        });
+        return;
+      }
+      if (tool !== "clear_run") return;
+
+      void withBusy(btn, async () => {
+        let params: Record<string, unknown>;
+        try {
+          params = readCleanupParams(false);
+        } catch (error) {
+          showToast(errText(error), "error");
+          return;
+        }
+        const partition = resolveCleanupPartitionName(lastEnhanceConfig);
+        const maxDays = Number(params.max_days || 30);
+        const deleteDynamic = Boolean(params.delete_dynamic);
+        const whitelist = String(params.white_list || "");
+        const confirmed = await openAppConfirm({
+          eyebrow: "清理 · 不可撤销",
+          title: "确认执行真实清理？",
+          desc: `${deleteDynamic ? `将删除超过 ${maxDays} 天、且由 Binggo 台账确认归属的转发动态；` : "本次不删除动态；"}另外会批量取关关注分区「${partition}」中的非白名单用户。两个范围互相独立。`,
+          bullets: [
+            "原创动态和无法确认由 Binggo 创建的转发动态不会删除",
+            `分区「${partition}」内的非白名单用户会被批量取关，不按动态天数筛选`,
+            whitelist ? `当前白名单：${whitelist}` : "当前未设置白名单",
+            "建议先执行预演，并在任务日志核对预计删除与取关数量",
+          ],
+          confirmLabel: "确认真实清理",
+          danger: true,
+          secondaryLabel: "先执行预演",
+          onSecondary: () => {
+            tools.querySelector<HTMLButtonElement>("[data-extra-tool='clear_dry']")?.click();
+          },
+        });
+        if (!confirmed) return;
+        await startJob("clear_follows", params);
+      });
     });
   });
 }
@@ -604,38 +788,42 @@ function bindLogsPanel(logs: HTMLDivElement): void {
   const empty = logs.querySelector<HTMLElement>("[data-extra-log-empty]")!;
   const meta = logs.querySelector<HTMLElement>("[data-extra-log-meta]")!;
   refreshBtn.addEventListener("click", () => {
-    void withBusy(refreshBtn, async () => {
-      try {
-        const limitEl = document.getElementById("extra-log-limit") as HTMLInputElement | null;
-        const jobEl = document.getElementById("extra-log-job") as HTMLInputElement | null;
-        const limit = Math.min(500, Math.max(10, Number(limitEl?.value) || 50));
-        const jobRaw = (jobEl?.value ?? "").trim();
-        const jobId = jobRaw ? asInt(jobRaw) : undefined;
-        const params = new URLSearchParams({ limit: String(limit) });
-        if (jobId !== undefined && jobId !== null) params.set("job_id", String(jobId));
-        const data = await fetchJSON<{ count: number; lines?: string[]; files?: string[] }>(
-          `/api/diagnostics/logs?${params.toString()}`,
-          { timeoutMs: 15000 },
-        );
-        const lines = data.lines ?? [];
-        if (lines.length === 0) {
+    void withBusy(
+      refreshBtn,
+      async () => {
+        try {
+          const limitEl = document.getElementById("extra-log-limit") as HTMLInputElement | null;
+          const jobEl = document.getElementById("extra-log-job") as HTMLInputElement | null;
+          const limit = Math.min(500, Math.max(10, Number(limitEl?.value) || 50));
+          const jobRaw = (jobEl?.value ?? "").trim();
+          const jobId = jobRaw ? asInt(jobRaw) : undefined;
+          const params = new URLSearchParams({ limit: String(limit) });
+          if (jobId !== undefined && jobId !== null) params.set("job_id", String(jobId));
+          const data = await fetchJSON<{ count: number; lines?: string[]; files?: string[] }>(
+            `/api/diagnostics/logs?${params.toString()}`,
+            { timeoutMs: 15000 },
+          );
+          const lines = data.lines ?? [];
+          if (lines.length === 0) {
+            output.hidden = true;
+            output.textContent = "";
+            empty.hidden = false;
+            empty.textContent = "没有匹配的日志行。";
+            meta.textContent = "";
+          } else {
+            empty.hidden = true;
+            output.hidden = false;
+            output.textContent = lines.join("\n");
+            meta.textContent = `共 ${data.count} 行（${lines.length} 行已显示）`;
+          }
+        } catch (error) {
           output.hidden = true;
-          output.textContent = "";
           empty.hidden = false;
-          empty.textContent = "没有匹配的日志行。";
+          empty.textContent = `日志加载失败：${errText(error)}`;
           meta.textContent = "";
-        } else {
-          empty.hidden = true;
-          output.hidden = false;
-          output.textContent = lines.join("\n");
-          meta.textContent = `共 ${data.count} 行（${lines.length} 行已显示）`;
         }
-      } catch (error) {
-        output.hidden = true;
-        empty.hidden = false;
-        empty.textContent = `日志加载失败：${errText(error)}`;
-        meta.textContent = "";
-      }
-    });
+      },
+      { allowDuringJob: true },
+    );
   });
 }

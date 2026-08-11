@@ -1,8 +1,8 @@
 """清理动态与取关（源自 LAS lib/clear.js）。
 
-清理策略（与 Binggo 的"抽奖临时关注"分区联动）：
+清理策略（与 Binggo 参与增强配置的关注分区联动）：
 1. 删除自己空间里超过 max_days 天的**由 Binggo 创建的**转发动态（可选）；
-2. 对"抽奖临时关注"分区内的用户批量取关（白名单排除）。
+2. 对当前参与增强配置使用的关注分区内用户批量取关（白名单排除）。
 
 安全不变量（P0）：
 - **只删除本地参与台账（participation_actions）中确认由 Binggo 成功转发
@@ -195,6 +195,29 @@ def _item_pub_ts(item: dict) -> int:
         return 0
 
 
+def _resolve_partition_name(partition_name: str) -> str:
+    """解析清理使用的分区名。
+
+    调用方未显式覆盖（仍是默认名）时，自动沿用 participate_enhance.json 中
+    已启用的 partition.name。这样参与阶段把用户移入自定义分区后，清理阶段
+    不会继续错误扫描旧的默认分区。配置读取失败时 fail-soft 回退默认名。
+    """
+    requested = str(partition_name or "").strip() or DEFAULT_PARTITION_NAME
+    if requested != DEFAULT_PARTITION_NAME:
+        return requested
+    try:
+        from src.participate_enhance import load_participate_enhance
+
+        partition = load_participate_enhance().get("partition") or {}
+        if isinstance(partition, dict) and partition.get("enabled"):
+            configured = str(partition.get("name") or "").strip()
+            if configured:
+                return configured
+    except (OSError, ValueError, TypeError):
+        pass
+    return requested
+
+
 def clear_follows(
     client: BilibiliClient,
     *,
@@ -204,17 +227,19 @@ def clear_follows(
     partition_name: str = DEFAULT_PARTITION_NAME,
     dry_run: bool = True,
 ) -> dict[str, Any]:
-    """清理超期转发动态（仅限 Binggo 创建）与取关。
+    """清理超期转发动态（仅限 Binggo 创建）与关注分区。
 
     dry_run 默认 True：真实删除/取关必须显式传 dry_run=False。
-    返回键：scanned / deleted / unfollowed / skipped / skipped_unowned /
-    skipped_whitelist。
+    未显式提供 partition_name 时会沿用参与增强配置中已启用的分区名称。
+    返回键包含：scanned / deleted / unfollowed / skipped / skipped_unowned /
+    skipped_whitelist / partition_name / max_days / delete_dynamic / dry_run。
     """
     # 防御：max_days 下限 1 天，避免 0/负数导致全量删除
     try:
         max_days = max(1, int(max_days))
     except (TypeError, ValueError):
         max_days = DEFAULT_MAX_DAYS
+    partition_name = _resolve_partition_name(partition_name)
     now = int(time.time())
     white_uids = {
         int(part) for part in str(white_list or "").split(",") if part.strip().isdigit()
@@ -226,6 +251,10 @@ def clear_follows(
         "skipped": 0,
         "skipped_unowned": 0,
         "skipped_whitelist": 0,
+        "partition_name": partition_name,
+        "max_days": max_days,
+        "delete_dynamic": bool(delete_dynamic),
+        "dry_run": bool(dry_run),
     }
 
     # 1) 删除超期转发动态（仅限 Binggo 归属台账内的动态）
@@ -280,7 +309,8 @@ def clear_follows(
             if not offset:
                 break
 
-    # 2) 分区批量取关
+    # 2) 分区批量取关。注意：这与“删除了哪些动态”是两个独立范围；
+    # 只依据关注分区 + 白名单决定，不再用“对应 UP”这样的误导语义。
     for tag in client.get_relation_tags() or []:
         if not isinstance(tag, dict):
             continue

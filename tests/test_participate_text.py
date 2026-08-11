@@ -204,37 +204,34 @@ def test_resolve_participate_text_explicit_override() -> None:
     assert resolved.text == "固定文案"
 
 
-def test_resolve_participate_text_random_mode_copy_chat_disabled_falls_back(
+def test_resolve_participate_text_random_mode_ignores_legacy_enabled_flag(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """copy_chat.enabled 关闭（或缺省）时：random_comment 模式回退固定文案，不请求评论区。"""
+    """random_comment 是唯一业务开关；旧 copy_chat.enabled=False 不得静默降级。"""
     set_participate_text_mode("random_comment")
-    set_participate_text("@小明 自定义文案")
-
-    def _fail_if_called(*args, **kwargs):
-        raise AssertionError("enabled=False 时不应请求评论区")
-
+    set_participate_fallback_text("好运连连！")
     monkeypatch.setattr(
         "src.participate_enhance.load_participate_enhance",
-        lambda: {"copy_chat": {"enabled": False, "exclude_author": True, "blockwords": []}},
+        lambda: {"copy_chat": {"enabled": False, "exclude_author": False, "blockwords": []}},
     )
-    monkeypatch.setattr("src.participate_text.resolve_comment_rid_and_type", _fail_if_called)
-    monkeypatch.setattr("src.participate_text.fetch_reply_messages", _fail_if_called)
-
-    resolved = resolve_participate_text_for_activity(
-        _FakeClient([]),
-        dynamic_id="123",
-    )
-    assert resolved.source == "custom"
-    assert resolved.text == "@小明 自定义文案"
-
-    # 缺省（未配置 copy_chat）同样回退
     monkeypatch.setattr(
-        "src.participate_enhance.load_participate_enhance",
-        lambda: {},
+        "src.participate_text.resolve_comment_rid_and_type",
+        lambda client, dynamic_id: ("123", 17, "https://www.bilibili.com/opus/123"),
     )
-    resolved = resolve_participate_text_for_activity(
-        _FakeClient([]),
-        dynamic_id="123",
+    messages = [f"msg-{index}" for index in range(1, 21)]
+    monkeypatch.setattr(
+        "src.participate_text.fetch_reply_messages",
+        lambda *args, **kwargs: messages,
     )
-    assert resolved.source == "custom"
+    monkeypatch.setattr(random, "choice", lambda items: "msg-9")
+
+    resolved = resolve_participate_text_for_activity(_FakeClient([]), dynamic_id="123")
+    assert resolved.source == "random_comment"
+    assert resolved.text == "msg-9"
+
+    # 缺省 copy_chat 使用默认过滤配置，也不会关闭 random_comment。
+    monkeypatch.setattr("src.participate_enhance.load_participate_enhance", lambda: {})
+    monkeypatch.setattr("src.participate_text.fetch_dynamic_detail", lambda *args, **kwargs: {})
+    resolved = resolve_participate_text_for_activity(_FakeClient([]), dynamic_id="123")
+    assert resolved.source == "random_comment"
+    assert resolved.text == "msg-9"
