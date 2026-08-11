@@ -10,13 +10,24 @@ def test_cleanup_uses_enabled_enhance_partition(monkeypatch: pytest.MonkeyPatch)
         "src.participate_enhance.load_participate_enhance",
         lambda: {"partition": {"enabled": True, "name": "我的抽奖关注"}},
     )
-    assert _resolve_partition_name(DEFAULT_PARTITION_NAME) == "我的抽奖关注"
+    # 未显式指定 → 沿用配置中启用的分区
+    assert _resolve_partition_name(None) == "我的抽奖关注"
+    assert _resolve_partition_name("") == "我的抽奖关注"
 
 
 def test_cleanup_keeps_default_when_partition_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "src.participate_enhance.load_participate_enhance",
         lambda: {"partition": {"enabled": False, "name": "我的抽奖关注"}},
+    )
+    assert _resolve_partition_name(None) == DEFAULT_PARTITION_NAME
+
+
+def test_cleanup_explicit_default_partition_not_redirected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """显式传默认分区名时不被配置重定向（修复：显式请求默认分区被静默改道）。"""
+    monkeypatch.setattr(
+        "src.participate_enhance.load_participate_enhance",
+        lambda: {"partition": {"enabled": True, "name": "我的抽奖关注"}},
     )
     assert _resolve_partition_name(DEFAULT_PARTITION_NAME) == DEFAULT_PARTITION_NAME
 

@@ -90,3 +90,21 @@ def test_clear_account_proxy_restores_inheritance(tmp_path: Path, monkeypatch: p
     assert payload["effective_proxy"] == "http://global.example.com:3128"
     for secret in ("global-user", "global-pass", "global-secret"):
         assert secret not in str(payload)
+
+
+def test_account_proxy_request_mutual_exclusion() -> None:
+    """proxy 与 clear=true 互斥：同时提供必须拒绝；两者皆空也必须拒绝。"""
+    from pydantic import ValidationError
+
+    from web.schemas.product_settings import AccountProxyRequest
+
+    # proxy 与 clear 互斥
+    with pytest.raises(ValidationError, match="不能同时"):
+        AccountProxyRequest(proxy="http://127.0.0.1:7890", clear=True)
+    # 两者皆空（未提供 proxy 且 clear=False）→ 拒绝
+    with pytest.raises(ValidationError, match="请输入代理地址"):
+        AccountProxyRequest()
+    # 合法：仅 proxy
+    assert AccountProxyRequest(proxy="http://127.0.0.1:7890").proxy == "http://127.0.0.1:7890"
+    # 合法：仅 clear
+    assert AccountProxyRequest(clear=True).clear is True

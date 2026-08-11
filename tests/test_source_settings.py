@@ -104,6 +104,20 @@ def test_ds10_web_file_source_is_scoped_to_binggo_home(tmp_path: Path, monkeypat
         validate_external_source(outside.as_uri(), web_safe_file=True)
 
 
+def test_ds10_web_file_source_rejects_percent_encoded_escape(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """纵深防御：%2e%2e 编码的越界路径在解码后必须被沙箱拒绝。"""
+    home = tmp_path / "home"
+    home.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("BINGGO_HOME", str(home))
+    # file:///home/../outside.json 的 percent-encoded 形式
+    escaped = f"file://{home.as_posix()}/%2e%2e/outside.json"
+    with pytest.raises(ValueError, match="BINGGO_HOME"):
+        validate_external_source(escaped, web_safe_file=True)
+
+
 def test_ds10_rejects_unsupported_schemes_invalid_ports_and_control_chars(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

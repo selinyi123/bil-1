@@ -163,7 +163,12 @@ def validate_external_source(source: str, *, web_safe_file: bool = True) -> str:
             raise ValueError("file:// 外部源缺少路径")
         if web_safe_file:
             try:
-                resolved = path.resolve(strict=False)
+                # 先解码 percent-encoding 再做边界校验：防止 %2e%2e 等编码
+                # 路径绕过沙箱（消费方虽按字面路径读取，纵深防御不依赖该事实）
+                from urllib.parse import unquote
+
+                decoded = Path(unquote(str(path)))
+                resolved = decoded.resolve(strict=False)
                 home = user_home().resolve(strict=False)
                 resolved.relative_to(home)
             except (OSError, ValueError):

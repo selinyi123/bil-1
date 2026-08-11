@@ -195,16 +195,16 @@ def _item_pub_ts(item: dict) -> int:
         return 0
 
 
-def _resolve_partition_name(partition_name: str) -> str:
+def _resolve_partition_name(partition_name: str | None) -> str:
     """解析清理使用的分区名。
 
-    调用方未显式覆盖（仍是默认名）时，自动沿用 participate_enhance.json 中
-    已启用的 partition.name。这样参与阶段把用户移入自定义分区后，清理阶段
-    不会继续错误扫描旧的默认分区。配置读取失败时 fail-soft 回退默认名。
+    `partition_name` 未显式提供（None/空）时，自动沿用 participate_enhance.json
+    中已启用的 partition.name；显式提供的值（含默认分区名）原样使用，不被
+    配置重定向。配置读取失败时 fail-soft 回退默认名。
     """
-    requested = str(partition_name or "").strip() or DEFAULT_PARTITION_NAME
-    if requested != DEFAULT_PARTITION_NAME:
-        return requested
+    if partition_name is not None and str(partition_name).strip():
+        # 显式指定（含显式传默认名）：以调用方为准，不咨询配置
+        return str(partition_name).strip()
     try:
         from src.participate_enhance import load_participate_enhance
 
@@ -215,7 +215,7 @@ def _resolve_partition_name(partition_name: str) -> str:
                 return configured
     except (OSError, ValueError, TypeError):
         pass
-    return requested
+    return DEFAULT_PARTITION_NAME
 
 
 def clear_follows(
@@ -224,7 +224,7 @@ def clear_follows(
     max_days: int = DEFAULT_MAX_DAYS,
     delete_dynamic: bool = True,
     white_list: str = "",
-    partition_name: str = DEFAULT_PARTITION_NAME,
+    partition_name: str | None = None,
     dry_run: bool = True,
 ) -> dict[str, Any]:
     """清理超期转发动态（仅限 Binggo 创建）与关注分区。
