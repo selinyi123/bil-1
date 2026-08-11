@@ -86,6 +86,7 @@ sidebarRefreshBtn?.addEventListener("click", async () => {
     const account = await loadAccount();
     const merged = (await loadAccountExtras()) || account;
     await loadSettings();
+    await renderAccountPool().catch(() => {});
     if (!(merged as any)?.at_alert?.increased) {
       showToast("状态已同步", "success");
     }
@@ -102,6 +103,8 @@ sidebarLogoutBtn?.addEventListener("click", async () => {
   sidebarLogoutBtn!.disabled = true;
   try {
     await logoutAccount();
+    // logout 会清空 active uid；账号池徽标、按 uid 的参与状态和三连候选也必须同步失效。
+    await Promise.allSettled([renderAccountPool(), loadSummary(), loadActivities(), loadWatchUsers()]);
   } catch (error) {
     showToast(String(error instanceof Error ? error.message || error : error), "error");
   } finally {
