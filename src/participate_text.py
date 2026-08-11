@@ -187,11 +187,16 @@ def resolve_participate_text_for_activity(
     if get_participate_text_mode() != "random_comment":
         return ParticipateTextResolution(text=custom_text, source="custom")
 
+    from src.participate_enhance import load_participate_enhance
+
+    copy_chat = (load_participate_enhance().get("copy_chat") or {})
+    if not copy_chat.get("enabled", False):
+        # copy_chat.enabled 是"评论抄热评"的权威开关（与 text mode 解耦）：
+        # 关闭时回退固定文案，不请求评论区、不抄热评
+        return ParticipateTextResolution(text=custom_text, source="custom")
+
     try:
         # 抄热评增强（源自 LAS is_copy_chat）：剔除作者评论与屏蔽词
-        from src.participate_enhance import load_participate_enhance
-
-        copy_chat = (load_participate_enhance().get("copy_chat") or {})
         exclude_mid = None
         if copy_chat.get("exclude_author", True):
             item = fetch_dynamic_detail(client, dynamic_id)

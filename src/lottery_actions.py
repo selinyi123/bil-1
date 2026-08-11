@@ -83,6 +83,7 @@ class ActionResult:
     action: ActionName
     ok: bool
     detail: str = ""
+    extra: dict | None = None  # 附加结构化信息（如 repost 创建出的动态 id）
 
 
 @dataclass
@@ -486,7 +487,17 @@ def repost_dynamic(
     )
     code = _api_code(payload)
     if code == 0:
-        return ActionResult("repost", True, content[:80])
+        # 记录本次真实创建出的转发动态 id（exact ownership：cleanup 只删它，
+        # 而不是通过源动态 id 推断——B 站 repost 成功响应 data 含新动态 id）
+        extra: dict | None = None
+        data = payload.get("data")
+        if isinstance(data, dict):
+            created_id = str(
+                data.get("dynamic_id_str") or data.get("dynamic_id") or ""
+            ).strip()
+            if created_id:
+                extra = {"created_dynamic_id": created_id}
+        return ActionResult("repost", True, content[:80], extra=extra)
     message = _api_message(payload)
     if "已" in message or "重复" in message:
         return ActionResult("repost", True, "已转发")

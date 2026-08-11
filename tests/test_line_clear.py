@@ -100,7 +100,7 @@ def test_item_source_extractors() -> None:
 def test_clear_follows_skips_original_dynamics(monkeypatch) -> None:
     """原创动态（desc.type != 1）即使超期也绝不删除。"""
     now = int(time.time())
-    monkeypatch.setattr("src.clear_follows._owned_repost_dynamic_ids", lambda: _owned("REPOST"))
+    monkeypatch.setattr("src.clear_follows._owned_repost_dynamic_ids", lambda: (_owned(), _owned('REPOST')))
 
     class FakeClient:
         def get_my_space_feed(self, offset=""):
@@ -131,7 +131,7 @@ def test_clear_follows_skips_original_dynamics(monkeypatch) -> None:
 def test_clear_follows_ownership_uses_source_id_not_forward_id(monkeypatch) -> None:
     """归属校验必须用源动态 id（desc.rid）匹配台账：转发 id 在台账但源 id 不在 → 不删。"""
     now = int(time.time())
-    monkeypatch.setattr("src.clear_follows._owned_repost_dynamic_ids", lambda: _owned("SRC-A"))
+    monkeypatch.setattr("src.clear_follows._owned_repost_dynamic_ids", lambda: (_owned(), _owned('SRC-A')))
 
     class FakeClient:
         def get_my_space_feed(self, offset=""):
@@ -162,7 +162,7 @@ def test_clear_follows_ownership_uses_source_id_not_forward_id(monkeypatch) -> N
 def test_clear_follows_never_deletes_unowned_reposts(monkeypatch) -> None:
     """核心不变量：非 Binggo 创建的转发（含用户手动转发）绝不删除。"""
     now = int(time.time())
-    monkeypatch.setattr("src.clear_follows._owned_repost_dynamic_ids", lambda: _owned())
+    monkeypatch.setattr("src.clear_follows._owned_repost_dynamic_ids", lambda: (_owned(), _owned()))
 
     class FakeClient:
         def get_my_space_feed(self, offset=""):
@@ -182,7 +182,7 @@ def test_clear_follows_never_deletes_unowned_reposts(monkeypatch) -> None:
 def test_clear_follows_whitelist_protects_deletion(monkeypatch) -> None:
     """白名单作者的超期转发同样不删除（白名单同时保护删除与取关，按源作者匹配）。"""
     now = int(time.time())
-    monkeypatch.setattr("src.clear_follows._owned_repost_dynamic_ids", lambda: _owned("WL"))
+    monkeypatch.setattr("src.clear_follows._owned_repost_dynamic_ids", lambda: (_owned(), _owned('WL')))
 
     class FakeClient:
         def get_my_space_feed(self, offset=""):
@@ -205,7 +205,7 @@ def test_clear_follows_whitelist_protects_deletion(monkeypatch) -> None:
 def test_clear_follows_max_days_floor(monkeypatch) -> None:
     """max_days<=0 时回落到 1 天，绝不触发全量删除。"""
     now = int(time.time())
-    monkeypatch.setattr("src.clear_follows._owned_repost_dynamic_ids", lambda: _owned("OLD"))
+    monkeypatch.setattr("src.clear_follows._owned_repost_dynamic_ids", lambda: (_owned(), _owned('OLD')))
 
     class FakeClient:
         def get_my_space_feed(self, offset=""):
@@ -230,7 +230,7 @@ def test_clear_follows_max_days_floor(monkeypatch) -> None:
 def test_clear_follows_deletes_expired_and_unfollows(monkeypatch) -> None:
     now = int(time.time())
     monkeypatch.setattr(
-        "src.clear_follows._owned_repost_dynamic_ids", lambda: _owned("OLD1", "OLD2")
+        "src.clear_follows._owned_repost_dynamic_ids", lambda: (_owned(), _owned('OLD1', 'OLD2'))
     )
 
     class FakeClient:
@@ -280,7 +280,7 @@ def test_clear_follows_deletes_expired_and_unfollows(monkeypatch) -> None:
 
 def test_clear_follows_dry_run_does_not_call_api(monkeypatch) -> None:
     now = int(time.time())
-    monkeypatch.setattr("src.clear_follows._owned_repost_dynamic_ids", lambda: _owned("OLD"))
+    monkeypatch.setattr("src.clear_follows._owned_repost_dynamic_ids", lambda: (_owned(), _owned('OLD')))
 
     class FakeClient:
         def get_my_space_feed(self, offset=""):
@@ -372,6 +372,43 @@ def test_owned_repost_excludes_already_reposted(isolated_home, monkeypatch) -> N
         )
         session.commit()
 
-    owned = _owned_repost_dynamic_ids()
-    assert "SRC-NEW" in owned        # 真实创建 → 可删
-    assert "SRC-MANUAL" not in owned  # 已转发跳过 → 用户手动转发，不可删
+    exact, legacy = _owned_repost_dynamic_ids()
+    # 旧记录（无 extra.created_dynamic_id）：走 legacy 源 id 匹配
+    assert "SRC-NEW" in legacy        # 真实创建（detail 非"已转发"）→ 可删
+    assert "SRC-MANUAL" not in legacy  # 已转发跳过 → 用户手动转发，不可删
+    assert not exact
+
+
+def test_owned_repost_exact_created_id_matches_feed_id(isolated_home, monkeypatch) -> None:
+    """exact ownership：repost API 返回的 created_dynamic_id 精确匹配 feed 转发自身 id。
+
+    只有记录在 extra.created_dynamic_id 中的转发才可删；同源的其他转发（如
+    用户手动转发的另一条）不删。
+    """
+    from src.clear_follows import _owned_repost_dynamic_ids
+    from src.db.models import ParticipationActionRow
+    from src.db.session import session_scope
+
+    monkeypatch.setattr("src.db.uids.participation_uid", lambda: "u1")
+    with session_scope() as session:
+        session.add(
+            ParticipationActionRow(
+                uid="u1",
+                recorded_at=1,
+                dynamic_id="SRC-X",
+                lottery_type="转发抽奖",
+                status="joined",
+                message="",
+                action_text="",
+                actions_json=(
+                    '[{"action":"repost","ok":true,"detail":"转发内容",'
+                    '"extra":{"created_dynamic_id":"CREATED-1"}}]'
+                ),
+                context_snapshot_json="{}",
+            )
+        )
+        session.commit()
+
+    exact, legacy = _owned_repost_dynamic_ids()
+    assert exact == frozenset({"CREATED-1"})
+    assert not legacy  # 有 exact 记录时不再走 legacy 源 id 匹配

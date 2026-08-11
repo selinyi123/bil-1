@@ -181,11 +181,12 @@ def test_check_prize_draw_delivered_then_marks_read(monkeypatch) -> None:
 
 
 def test_check_prize_draw_mark_read_failure_keeps_acknowledged_false(monkeypatch) -> None:
-    """送达成功但 mark read 抛错 → delivered=True、acknowledged=False（下次可能重复提醒）。"""
+    """送达成功但 mark read 返回 False → delivered=True、acknowledged=False（下次可能重复提醒）。"""
     from src import draw_check
 
     def _fail_mark(client, talker_id, session_type=1, seqno=0):
-        raise RuntimeError("mark read 网络失败")
+        # mark_dm_read 真实契约：失败返回 False（不抛异常）
+        return False
 
     marked, _sent = _make_dm_harness(monkeypatch, send_result={"sent": ["sct"], "skipped": []}, mark_side_effect=_fail_mark)
     result = check_prize_draw(None)

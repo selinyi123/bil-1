@@ -25,14 +25,14 @@ DEFAULT_MAX_DAYS = 30
 DEFAULT_PARTITION_NAME = "抽奖临时关注"
 
 
-def _owned_repost_dynamic_ids() -> frozenset[str]:
-    """收集 Binggo **真实创建**的转发动态 ID（归属台账）。
+def _owned_repost_dynamic_ids() -> tuple[frozenset[str], frozenset[str]]:
+    """收集 Binggo **真实创建**的转发动态 ID（归属台账，exact ownership）。
 
-    判定：当前 uid 的 participation_actions 中存在该动态记录，
-    且 status == "joined"、actions_json 中 repost 动作 ok=True，
-    且 repost 的 detail **不含"已转发"**（Binggo 本次真实 POST 创建了新转发；
-    若参与前探测到用户已手动转发，repost 会记 ok=True 但 detail 为"已转发"，
-    那条转发并非 Binggo 创建，不得纳入可删除集合）。
+    返回 (exact_ids, legacy_source_ids)：
+    - exact_ids：repost 成功且 **记录了 extra.created_dynamic_id**（repost API
+      返回的真实新转发动态 id）→ cleanup 只精确匹配 feed 中该 id 的转发；
+    - legacy_source_ids：**旧版记录**（迁移前无 created id）中 repost 成功且
+      detail 不含"已转发"的源动态 id → 兼容旧记录按源 id 匹配。
     任何异常或无法确认时返回空集 —— **宁可不删，不可误删**。
     """
     try:
@@ -44,8 +44,9 @@ def _owned_repost_dynamic_ids() -> frozenset[str]:
 
         uid = participation_uid()
         if not uid:
-            return frozenset()
-        owned: set[str] = set()
+            return frozenset(), frozenset()
+        exact: set[str] = set()
+        legacy_sources: set[str] = set()
         with session_scope() as session:
             rows = session.exec(
                 select(ParticipationActionRow).where(
@@ -62,17 +63,30 @@ def _owned_repost_dynamic_ids() -> frozenset[str]:
                     actions = json.loads(row.actions_json or "[]")
                 except ValueError:
                     actions = []
-                if any(
-                    isinstance(a, dict)
-                    and a.get("action") == "repost"
-                    and a.get("ok")
-                    and "已转发" not in str(a.get("detail") or "")
-                    for a in actions
-                ):
-                    owned.add(str(row.dynamic_id))
-        return frozenset(owned)
+                has_created_id = False
+                reposted_new = False
+                for a in actions:
+                    if not (
+                        isinstance(a, dict)
+                        and a.get("action") == "repost"
+                        and a.get("ok")
+                        and "已转发" not in str(a.get("detail") or "")
+                    ):
+                        continue
+                    extra = a.get("extra")
+                    if isinstance(extra, dict):
+                        created_id = str(extra.get("created_dynamic_id") or "").strip()
+                        if created_id:
+                            exact.add(created_id)
+                            has_created_id = True
+                            continue
+                    reposted_new = True
+                if not has_created_id and reposted_new:
+                    # 旧记录（无 created id）：按源动态 id 兼容匹配
+                    legacy_sources.add(str(row.dynamic_id))
+        return frozenset(exact), frozenset(legacy_sources)
     except Exception:
-        return frozenset()
+        return frozenset(), frozenset()
 
 
 def _item_dynamic_id(item: dict) -> str:
@@ -216,7 +230,7 @@ def clear_follows(
 
     # 1) 删除超期转发动态（仅限 Binggo 归属台账内的动态）
     if delete_dynamic:
-        owned_ids = _owned_repost_dynamic_ids()
+        exact_ids, legacy_source_ids = _owned_repost_dynamic_ids()
         offset = ""
         for _ in range(20):
             data = client.get_my_space_feed(offset)
@@ -239,8 +253,13 @@ def clear_follows(
                     result["skipped"] += 1
                     continue
                 source_id = _item_source_dynamic_id(item)
-                if not source_id or source_id not in owned_ids:
-                    # 归属校验：非 Binggo 创建的转发绝不删除（含用户手动转发）
+                # 归属校验（exact ownership）：
+                # - 新记录：feed 转发自身 id ∈ exact_ids（Binggo 创建的精确匹配）
+                # - 旧记录（无 created id）：源动态 id ∈ legacy_source_ids 兼容
+                # 都不命中 → 非 Binggo 创建的转发绝不删除（含用户手动转发）
+                owned_exact = dynamic_id in exact_ids
+                owned_legacy = bool(source_id) and source_id in legacy_source_ids
+                if not owned_exact and not owned_legacy:
                     result["skipped_unowned"] += 1
                     result["skipped"] += 1
                     continue

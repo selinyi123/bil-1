@@ -168,9 +168,8 @@ def check_prize_draw(
         if delivered and dm_pending_ack:
             ack_ok = True
             for talker_id, seqno in dm_pending_ack:
-                try:
-                    mark_dm_read(client, talker_id, seqno=seqno)
-                except RuntimeError:
+                # mark_dm_read 失败返回 False（不抛异常），必须检查返回值
+                if not mark_dm_read(client, talker_id, seqno=seqno):
                     ack_ok = False
             acknowledged = ack_ok
     results["pushed"] = delivered

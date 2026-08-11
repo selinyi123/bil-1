@@ -114,6 +114,10 @@ def test_resolve_participate_text_custom_mode(monkeypatch: pytest.MonkeyPatch) -
 
 def test_resolve_participate_text_random_mode_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     set_participate_text_mode("random_comment")
+    monkeypatch.setattr(
+        "src.participate_enhance.load_participate_enhance",
+        lambda: {"copy_chat": {"enabled": True, "exclude_author": False, "blockwords": []}},
+    )
     set_participate_text("@小明 自定义文案")
     set_participate_fallback_text("好运连连！")
 
@@ -136,6 +140,10 @@ def test_resolve_participate_text_random_mode_uses_default_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     set_participate_text_mode("random_comment")
+    monkeypatch.setattr(
+        "src.participate_enhance.load_participate_enhance",
+        lambda: {"copy_chat": {"enabled": True, "exclude_author": False, "blockwords": []}},
+    )
     set_participate_text("@小明 自定义文案")
     monkeypatch.setattr(
         "src.participate_text.get_participate_fallback_text",
@@ -159,6 +167,10 @@ def test_resolve_participate_text_random_mode_uses_default_fallback(
 
 def test_resolve_participate_text_random_mode_picks_comment(monkeypatch: pytest.MonkeyPatch) -> None:
     set_participate_text_mode("random_comment")
+    monkeypatch.setattr(
+        "src.participate_enhance.load_participate_enhance",
+        lambda: {"copy_chat": {"enabled": True, "exclude_author": False, "blockwords": []}},
+    )
     set_participate_fallback_text("好运连连！")
 
     monkeypatch.setattr(
@@ -190,3 +202,39 @@ def test_resolve_participate_text_explicit_override() -> None:
     )
     assert resolved.source == "custom"
     assert resolved.text == "固定文案"
+
+
+def test_resolve_participate_text_random_mode_copy_chat_disabled_falls_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """copy_chat.enabled 关闭（或缺省）时：random_comment 模式回退固定文案，不请求评论区。"""
+    set_participate_text_mode("random_comment")
+    set_participate_text("@小明 自定义文案")
+
+    def _fail_if_called(*args, **kwargs):
+        raise AssertionError("enabled=False 时不应请求评论区")
+
+    monkeypatch.setattr(
+        "src.participate_enhance.load_participate_enhance",
+        lambda: {"copy_chat": {"enabled": False, "exclude_author": True, "blockwords": []}},
+    )
+    monkeypatch.setattr("src.participate_text.resolve_comment_rid_and_type", _fail_if_called)
+    monkeypatch.setattr("src.participate_text.fetch_reply_messages", _fail_if_called)
+
+    resolved = resolve_participate_text_for_activity(
+        _FakeClient([]),
+        dynamic_id="123",
+    )
+    assert resolved.source == "custom"
+    assert resolved.text == "@小明 自定义文案"
+
+    # 缺省（未配置 copy_chat）同样回退
+    monkeypatch.setattr(
+        "src.participate_enhance.load_participate_enhance",
+        lambda: {},
+    )
+    resolved = resolve_participate_text_for_activity(
+        _FakeClient([]),
+        dynamic_id="123",
+    )
+    assert resolved.source == "custom"
