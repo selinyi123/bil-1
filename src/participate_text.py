@@ -158,7 +158,7 @@ def _extract_sender_uid(item: object) -> int | None:
         modules = modules[0] if modules else {}
     if not isinstance(modules, dict):
         return None
-    author = (modules.get("module_author") or {})
+    author = modules.get("module_author") or {}
     if not isinstance(author, dict):
         return None
     for key in ("mid", "uid"):
@@ -184,19 +184,19 @@ def resolve_participate_text_for_activity(
             source="custom",
         )
 
+    # participate_text_mode 是文案来源的唯一业务开关。copy_chat.enabled 仍保留在
+    # 配置模型中用于旧配置兼容，但不再作为第二个运行期开关，避免 UI 选择了
+    # random_comment 却因另一个隐藏开关为 false 而静默退回固定文案。
     if get_participate_text_mode() != "random_comment":
         return ParticipateTextResolution(text=custom_text, source="custom")
 
     from src.participate_enhance import load_participate_enhance
 
-    copy_chat = (load_participate_enhance().get("copy_chat") or {})
-    if not copy_chat.get("enabled", False):
-        # copy_chat.enabled 是"评论抄热评"的权威开关（与 text mode 解耦）：
-        # 关闭时回退固定文案，不请求评论区、不抄热评
-        return ParticipateTextResolution(text=custom_text, source="custom")
+    copy_chat = load_participate_enhance().get("copy_chat") or {}
 
     try:
-        # 抄热评增强（源自 LAS is_copy_chat）：剔除作者评论与屏蔽词
+        # 抄热评增强（源自 LAS is_copy_chat）：剔除作者评论与屏蔽词。
+        # enabled 字段只作旧配置兼容；真正是否抄评论由 participate_text_mode 决定。
         exclude_mid = None
         if copy_chat.get("exclude_author", True):
             item = fetch_dynamic_detail(client, dynamic_id)
