@@ -3,7 +3,7 @@
 Web 控制面只暴露业务字段，不暴露任意文件路径写入：
 - DS-8: dynamic_ids（ID/动态链接输入，落盘为规范 ID）
 - DS-9: tags（话题名）
-- DS-10: 以 entry id 增删外部源；读取时 URL 凭据/查询值脱敏
+- DS-10: 以 entry id 增删外部源；读取时仅暴露 scheme/host 级脱敏标识
 
 DS-10 兼容已有 file:// 源，但 Web 新增 file:// 时仅允许位于 BINGGO_HOME
 之下，避免把“数据源配置”退化成浏览器任意本地文件读取能力。直接编辑
@@ -14,7 +14,7 @@ from __future__ import annotations
 import hashlib
 import threading
 from pathlib import Path
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from src.app_paths import config_dir, user_home
 from src.secure_files import write_text_secret
@@ -52,14 +52,12 @@ def _read_lines(name: str) -> list[str]:
     return result
 
 
-def _write_lines(name: str, values: list[str], *, secret: bool = False) -> None:
+def _write_lines(name: str, values: list[str]) -> None:
     text = "\n".join(values)
     if text:
         text += "\n"
-    path = _path(name)
-    # DS-10 URL 常含 token；统一原子写。其余文件也复用同一安全写路径，
-    # secret 参数只保留语义标记，权限收紧对三者均无害。
-    write_text_secret(path, text)
+    # URL/代理类配置可能包含 token；三类 source 配置统一走原子写 + 用户权限收紧。
+    write_text_secret(_path(name), text)
 
 
 def _dedupe(values: list[str]) -> list[str]:
@@ -145,11 +143,19 @@ def validate_external_source(source: str, *, web_safe_file: bool = True) -> str:
         raise ValueError("外部源不能为空")
     if len(value) > _MAX_SOURCE_LENGTH:
         raise ValueError(f"外部源 URL 过长（最多 {_MAX_SOURCE_LENGTH} 字符）")
+    if any(ch in value for ch in ("\r", "\n", "\x00")):
+        raise ValueError("外部源 URL 包含非法控制字符")
     parsed = urlsplit(value)
     scheme = parsed.scheme.lower()
     if scheme in {"http", "https"}:
         if not parsed.hostname:
             raise ValueError("HTTP(S) 外部源缺少主机名")
+        try:
+            port = parsed.port
+        except ValueError as exc:
+            raise ValueError("HTTP(S) 外部源端口无效") from exc
+        if port is not None and not (1 <= port <= 65535):
+            raise ValueError("HTTP(S) 外部源端口无效")
         return value
     if scheme == "file":
         path = _file_source_path(value)
@@ -167,16 +173,14 @@ def validate_external_source(source: str, *, web_safe_file: bool = True) -> str:
 
 
 def _mask_http_source(source: str) -> str:
+    """只暴露 origin 级识别信息；path/query/userinfo 均可能携带密钥，不回显。"""
     parsed = urlsplit(source)
     host = parsed.hostname or ""
     if ":" in host and not host.startswith("["):
         host = f"[{host}]"
     port = f":{parsed.port}" if parsed.port else ""
-    userinfo = "***@" if parsed.username is not None or parsed.password is not None else ""
-    netloc = f"{userinfo}{host}{port}"
-    query_pairs = parse_qsl(parsed.query, keep_blank_values=True)
-    query = urlencode([(key, "***") for key, _value in query_pairs])
-    return urlunsplit((parsed.scheme, netloc, parsed.path, query, ""))
+    query_marker = "…" if parsed.query else ""
+    return urlunsplit((parsed.scheme, f"{host}{port}", "/…", query_marker, ""))
 
 
 def mask_external_source(source: str) -> str:
@@ -187,9 +191,7 @@ def mask_external_source(source: str) -> str:
         except ValueError:
             return f"{parsed.scheme}://{parsed.hostname or '***'}/…"
     if parsed.scheme.lower() == "file":
-        path = _file_source_path(source)
-        name = path.name or "local.json"
-        return f"file://…/{name}"
+        return "file://BINGGO_HOME/…"
     return "***"
 
 
@@ -219,7 +221,7 @@ def add_ds10_source(source: str) -> dict[str, str]:
             if len(sources) >= _MAX_DS10_SOURCES:
                 raise ValueError(f"DS-10 最多允许 {_MAX_DS10_SOURCES} 个外部源")
             sources.append(value)
-            _write_lines(_DS10_FILE, sources, secret=True)
+            _write_lines(_DS10_FILE, sources)
     return {
         "id": external_source_id(value),
         "kind": urlsplit(value).scheme.lower(),
@@ -236,7 +238,7 @@ def remove_ds10_source(source_id: str) -> bool:
         kept = [source for source in sources if external_source_id(source) != target]
         if len(kept) == len(sources):
             return False
-        _write_lines(_DS10_FILE, kept, secret=True)
+        _write_lines(_DS10_FILE, kept)
         return True
 
 
@@ -250,6 +252,6 @@ def get_source_settings_payload() -> dict:
         "ds10": {
             "entries": ds10,
             "count": len(ds10),
-            "file_scope": str(user_home()),
+            "file_scope": "BINGGO_HOME",
         },
     }
