@@ -75,10 +75,13 @@ function Invoke-BinggoInnoSetup {
     if (-not $IsccPath) {
         $candidates = @(
             "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
-            "${env:ProgramFiles}\Inno Setup 6\ISCC.exe"
+            "${env:ProgramFiles}\Inno Setup 6\ISCC.exe",
+            "D:\WORK\Project Environment\InnoSetup\ISCC.exe"
         )
+        $cmdIscc = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+        if ($cmdIscc) { $candidates += $cmdIscc.Source }
         foreach ($c in $candidates) {
-            if (Test-Path $c) { $IsccPath = $c; break }
+            if ($c -and (Test-Path $c)) { $IsccPath = $c; break }
         }
     }
     if (-not $IsccPath -or -not (Test-Path $IsccPath)) {
