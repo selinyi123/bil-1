@@ -132,6 +132,10 @@ test.describe("Frontend contract safety", () => {
 
   test("single activity dry-run sends dry_run=true and renders preview success semantics", async ({ page, request }) => {
     await setE2EState(request, { account: "logged_in", llm: "ready" });
+    // 本用例只 mock REST Job 契约，因此显式关闭 EventSource，验证产品真实支持的 polling fallback。
+    await page.addInitScript(() => {
+      Object.defineProperty(window, "EventSource", { value: undefined, configurable: true });
+    });
     let posted: Record<string, any> | null = null;
     const dryRunMessage = "预演完成：已读取当前状态，未执行点赞、关注、收藏、转发或评论写操作";
 
