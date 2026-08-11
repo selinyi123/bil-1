@@ -178,7 +178,8 @@ test.describe("Frontend contract safety", () => {
     await page.locator("[data-section='activities']").click();
     await expect(page.locator("#section-activities")).toHaveClass(/active/);
 
-    const preview = page.locator("[data-action='participate'][data-dry-run='true']").first();
+    // 桌面表格与移动卡片都会渲染同一个动作，测试只操作当前布局真正可见的副本。
+    const preview = page.locator("[data-action='participate'][data-dry-run='true']:visible").first();
     await expect(preview).toBeVisible({ timeout: 10_000 });
     await preview.click();
 
