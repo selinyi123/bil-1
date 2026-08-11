@@ -4,6 +4,7 @@
 import { state } from "./state";
 import type { JobStatus } from "./types";
 import { bindOnboardingPanel, loadAccount, loadAccountExtras, logoutAccount, requestLogoutConfirm, syncProjectState } from "./account/index";
+import { bindAddAccount } from "./account/add-account";
 import { bindFilterPills, loadActivities, loadSummary } from "./activities/index";
 import { bindAutoDock, fetchAutoStatus, setAutoDockOpen } from "./auto/index";
 import { sidebarLogoutBtn, sidebarRefreshBtn } from "./dom";
@@ -37,6 +38,7 @@ export async function init() {
   bindWatchUsers();
   bindOnboardingPanel();
   bindActionButtons();
+  bindAddAccount();
   bindDiagnosticsExport();
   bindCheckUpdates();
   loadRuntimeInfo().catch(() => {});
@@ -106,7 +108,6 @@ sidebarLogoutBtn?.addEventListener("click", async () => {
     sidebarLogoutBtn!.disabled = false;
   }
 });
-
 
 window.addEventListener("pageshow", (event) => {
   if (!event.persisted) return;
