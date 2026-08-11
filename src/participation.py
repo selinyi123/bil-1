@@ -333,7 +333,7 @@ def participate_five_action_lottery(
 
     if dry_run:
         status: ParticipationOutcome = "dry_run"
-        message = "预演完成，未实际请求 B 站"
+        message = "预演完成：已读取当前状态，未执行点赞、关注、收藏、转发或评论写操作"
     elif participation_succeeded(actions, lottery_type=lottery_type):
         status = "joined"
         comment = next((item for item in actions if item.action == "comment"), None)
@@ -571,7 +571,7 @@ def participate_reserve_lottery(
 
     if dry_run:
         status: ParticipationOutcome = "dry_run"
-        message = "预演完成，未实际请求 B 站"
+        message = "预演完成：已读取当前状态，未执行关注或预约写操作"
     elif participation_succeeded(actions, lottery_type="预约抽奖"):
         status = "joined"
         message = "关注与预约均已完成"

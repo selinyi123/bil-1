@@ -8,6 +8,20 @@ import { loadWatchUsers } from "../watch/index";
 
 let sectionSwitchTimer: number | null = null;
 
+function refreshSectionData(sectionId: string): void {
+  if (sectionId === "sources") {
+    loadWatchUsers().catch(() => {});
+    void import("../sources/settings")
+      .then(({ loadDataSourceSettings }) => loadDataSourceSettings())
+      .catch(() => {});
+  }
+  if (sectionId === "settings") {
+    void import("../settings/page")
+      .then(({ loadProxySettings }) => loadProxySettings())
+      .catch(() => {});
+  }
+}
+
 export function activateSection(sectionId: string) {
   const target = document.getElementById(`section-${sectionId}`);
   document.querySelectorAll<HTMLElement>(".nav-item").forEach((item) => {
@@ -38,9 +52,7 @@ export function activateSection(sectionId: string) {
     }
   });
   document.getElementById("sidebar")?.classList.remove("open");
-  if (sectionId === "sources") {
-    loadWatchUsers().catch(() => {});
-  }
+  refreshSectionData(sectionId);
 }
 
 export function switchSection(sectionId: string) {

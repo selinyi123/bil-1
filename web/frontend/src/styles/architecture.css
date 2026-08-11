@@ -1,0 +1,165 @@
+.settings-architecture-stack,
+.managed-source-settings {
+  display: grid;
+  gap: 18px;
+}
+
+.settings-architecture-body {
+  padding: 0 20px 20px;
+  display: grid;
+  gap: 16px;
+}
+
+.settings-state-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.settings-state-grid > div {
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color, rgba(127, 127, 127, 0.18));
+  border-radius: 14px;
+  background: var(--surface-soft, rgba(127, 127, 127, 0.05));
+  display: grid;
+  gap: 5px;
+}
+
+.mono-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+
+.settings-callout {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--text-secondary, inherit);
+}
+
+.settings-action-row,
+.managed-source-add-row,
+.activity-participate-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.managed-source-grid {
+  padding: 0 20px 20px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.managed-source-card {
+  min-width: 0;
+  border: 1px solid var(--border-color, rgba(127, 127, 127, 0.18));
+  border-radius: 16px;
+  padding: 16px;
+  background: var(--surface-soft, rgba(127, 127, 127, 0.04));
+  display: grid;
+  gap: 12px;
+}
+
+.managed-source-card-wide {
+  grid-column: 1 / -1;
+}
+
+.managed-source-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.managed-source-head h3 {
+  margin: 3px 0 0;
+  font-size: 1rem;
+}
+
+.source-kicker,
+.source-count,
+.source-kind {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted, #777);
+}
+
+.source-count {
+  white-space: nowrap;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(127, 127, 127, 0.08);
+}
+
+.managed-source-textarea {
+  min-height: 150px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.managed-source-entry-list {
+  display: grid;
+  gap: 8px;
+}
+
+.managed-source-entry {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color, rgba(127, 127, 127, 0.16));
+  border-radius: 12px;
+}
+
+.managed-source-entry code {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.managed-source-add-row .input {
+  flex: 1 1 420px;
+}
+
+.participation-result-steps.is-preview .participation-result-step.preview {
+  border-color: rgba(59, 130, 246, 0.24);
+  background: rgba(59, 130, 246, 0.08);
+  color: var(--text-secondary, inherit);
+}
+
+.dry-run-copy {
+  margin-top: 10px;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 900px) {
+  .settings-state-grid,
+  .managed-source-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .managed-source-card-wide {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .settings-state-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .managed-source-entry {
+    grid-template-columns: 1fr auto;
+  }
+
+  .managed-source-entry .source-kind {
+    grid-column: 1 / -1;
+  }
+}

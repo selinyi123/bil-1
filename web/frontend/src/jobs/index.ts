@@ -121,7 +121,7 @@ export function classifyFailureText(message: string | undefined, action: string 
       severity: "error",
       title: "LLM 未就绪",
       message: displayMessage,
-      hint: "在概览页填写 API Key 与模型名称，保存并通过连接测试。",
+      hint: "在设置页填写 API Key 与模型名称，保存并通过连接测试。",
       actions: [{ id: "llm", label: "去配置 LLM" }],
       retryable: true,
     };
@@ -202,7 +202,7 @@ export function notifyJobStartError(error: any, action: string, params: Record<s
     message.includes("配置并通过连接测试") ||
     /未配置\s*LLM|配置 LLM/i.test(message)
   ) {
-    showToast("请先测试 LLM 连接", "info", "保存配置后点击「测试连接」，通过后才能使用项目功能");
+    showToast("请先测试 LLM 连接", "info", "在设置页保存配置后点击「测试连接」，通过后才能使用项目功能");
     return;
   }
   const failure = classifyFailureText(error?.message || error, action);
@@ -672,6 +672,10 @@ export function payloadJoinedSuccess(payload: Record<string, any> | null | undef
   return participationSucceeded(actions, payload?.lottery_type || "");
 }
 
+export function payloadDryRun(payload: Record<string, any> | null | undefined) {
+  return String(payload?.status || "") === "dry_run";
+}
+
 export function summarizeTripleResult(result: Record<string, any>) {
   const items = result?.items || [];
   let joined = 0;
@@ -700,6 +704,19 @@ export function renderActionChips(actions: ActionResult[]) {
             icon = "×";
           }
           return `<span class="participation-result-step ${stepState}">${icon} ${escapeHtml(label)}</span>`;
+        })
+        .join("")}
+    </div>`;
+}
+
+export function renderDryRunActionChips(actions: ActionResult[]) {
+  if (!actions?.length) return "";
+  return `
+    <div class="participation-result-steps is-preview">
+      ${actions
+        .map((item) => {
+          const label = (ACTION_LABELS as Record<string, string>)[item?.action || ""] || item?.action || "步骤";
+          return `<span class="participation-result-step preview">→ 将${escapeHtml(label)}</span>`;
         })
         .join("")}
     </div>`;
@@ -769,6 +786,12 @@ export function restartParticipationResultProgress() {
 
 export function renderParticipationStepResults(result: Record<string, any>) {
   const actions = result?.actions || [];
+  if (payloadDryRun(result)) {
+    const chips = renderDryRunActionChips(actions);
+    const actionText = sanitizeUserText(result?.action_text || "");
+    return `${chips}${actionText ? `<p class="caption dry-run-copy">预演文案：${escapeHtml(actionText)}</p>` : ""}` ||
+      `<p class="caption">预演完成，没有需要执行的步骤。</p>`;
+  }
   if (!actions.length) {
     const message = sanitizeUserText(result?.message || "");
     if (result?.status === "joined" && !payloadJoinedSuccess(result)) {
@@ -824,6 +847,7 @@ export function showParticipationResult(job: JobStatus) {
 
   const result = (job.result || {}) as Record<string, any>;
   const isTriple = job.action === "participate_triple";
+  const isDryRun = !isTriple && payloadDryRun(result);
   let joined = 0;
   let failed = 0;
   let total = 1;
@@ -832,10 +856,9 @@ export function showParticipationResult(job: JobStatus) {
     joined = summary.joined;
     failed = summary.failed;
     total = summary.total;
-  } else {
+  } else if (!isDryRun) {
     joined = payloadJoinedSuccess(result) ? 1 : 0;
     failed = joined ? 0 : 1;
-    total = 1;
   }
 
   let tone = "is-error";
@@ -843,7 +866,11 @@ export function showParticipationResult(job: JobStatus) {
   let title = "参与未完成";
   const allSucceeded =
     job.state === "success" && total > 0 && joined >= total && failed === 0;
-  if (allSucceeded) {
+  if (isDryRun && job.state === "success") {
+    tone = "is-success";
+    icon = "◎";
+    title = "预演完成";
+  } else if (allSucceeded) {
     tone = "is-success";
     icon = "✓";
     title = isTriple ? "三连参与完成" : "参与成功";
@@ -856,16 +883,23 @@ export function showParticipationResult(job: JobStatus) {
   jobResultBanner.className = `job-result-banner ${tone}`;
   jobResultBanner.hidden = false;
   if (jobResultIcon) jobResultIcon.textContent = icon;
-  if (jobResultEyebrow) jobResultEyebrow.textContent = isTriple ? "三连参与结果" : "参与结果";
+  if (jobResultEyebrow) jobResultEyebrow.textContent = isDryRun ? "参与预演" : isTriple ? "三连参与结果" : "参与结果";
   if (jobResultTitle) jobResultTitle.textContent = title;
   if (jobResultSummary) {
-    const fallback = joined > 0 ? "请查看下方各活动执行情况" : "请查看下方步骤详情";
+    const fallback = isDryRun
+      ? "仅展示将执行的步骤，本次未向 B 站发送参与请求"
+      : joined > 0
+        ? "请查看下方各活动执行情况"
+        : "请查看下方步骤详情";
     jobResultSummary.textContent = sanitizeUserText(job.message) || fallback;
   }
-  const needsFailureHelp = job.state === "error" || (joined > 0 && failed > 0) || (joined === 0 && failed > 0);
+  const needsFailureHelp = !isDryRun && (job.state === "error" || (joined > 0 && failed > 0) || (joined === 0 && failed > 0));
   const failure = needsFailureHelp ? classifyJobFailure(job) : null;
   if (jobResultHint) {
-    if (failure?.hint) {
+    if (isDryRun) {
+      jobResultHint.hidden = false;
+      jobResultHint.textContent = "预演不会写入参与记录，也不会把活动标记为“已参加”。";
+    } else if (failure?.hint) {
       jobResultHint.hidden = false;
       jobResultHint.textContent = failure.hint;
     } else {
@@ -890,7 +924,7 @@ export function showParticipationResult(job: JobStatus) {
   void jobResultBanner.offsetWidth;
   jobResultBanner.classList.add("is-visible");
   restartParticipationResultProgress();
-  scheduleParticipationResultDismiss();
+  scheduleParticipationResultDismiss(isDryRun ? 6000 : JOB_RESULT_AUTO_DISMISS_MS);
 }
 
 export function renderTripleParticipateProgress(job: JobStatus) {
@@ -1069,7 +1103,7 @@ export function calcJobProgressPercent(job: JobStatus) {
 }
 
 export function setButtonsDisabled(disabled: boolean) {
-  document.querySelectorAll("[data-action], [data-extra-tool]").forEach((button) => {
+  document.querySelectorAll("[data-action], [data-extra-tool], [data-source-setting-action], [data-settings-action]").forEach((button) => {
     const el = button as HTMLElement & { disabled: boolean };
     el.disabled = disabled;
     el.setAttribute("aria-disabled", String(disabled));
@@ -1229,7 +1263,7 @@ export function collectFinishedDynamicIds(job: JobStatus) {
   if (job.action === "participate_triple") {
     return ((job.result?.items as any[]) || []).map((item) => item?.dynamic_id).filter(Boolean);
   }
-  if (job.action === "participate" && job.result?.dynamic_id) {
+  if (job.action === "participate" && job.result?.dynamic_id && !payloadDryRun(job.result)) {
     return [job.result.dynamic_id];
   }
   return [];
@@ -1313,11 +1347,12 @@ export function bindActionButtons() {
       const params: Record<string, any> = {};
       if (button.dataset.dynamicId) params.dynamic_id = button.dataset.dynamicId;
       if (button.dataset.sourceId) params.source_id = button.dataset.sourceId;
+      if (button.dataset.dryRun === "true") params.dry_run = true;
       if (action === "participate_triple") {
         Object.assign(params, buildActivityFilterJobParams());
       }
       if (action === "participate") {
-        setButtonLoading(button, true, { label: "参与中…" });
+        setButtonLoading(button, true, { label: params.dry_run ? "预演中…" : "参与中…" });
       }
       if (action === "participate_triple") {
         setButtonLoading(button, true, { label: "参与中" });

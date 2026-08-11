@@ -11,6 +11,8 @@ import { sidebarLogoutBtn, sidebarRefreshBtn } from "./dom";
 import { bindActionButtons, setLogDockOpen, startPolling } from "./jobs/index";
 import { startRealtime } from "./realtime/sse";
 import { bindLlmApiKeyToggle, bindParticipateSettings, bindSettingsDirtyTracking, loadSettings, refreshLlmSettings, resetParticipateText, saveLlmSettings, saveParticipateText, testLlmSettings } from "./settings/index";
+import { mountSettingsArchitecture } from "./settings/page";
+import { mountDataSourceSettings } from "./sources/settings";
 import { bindNavigation } from "./shell/nav";
 import { initSystemPreferences } from "./shell/theme";
 import { showToast } from "./shell/toast";
@@ -21,10 +23,23 @@ import { bindCheckUpdates, loadRuntimeInfo } from "./runtime/index";
 import { bindWatchUsers, loadWatchUsers } from "./watch/index";
 import { mountExtraPanels, renderAccountPool } from "./extra/index";
 
+function placeOperationalPanels(): void {
+  const overview = document.getElementById("section-overview");
+  if (!overview) return;
+  const tools = document.querySelector<HTMLElement>(".extra-tools-panel");
+  const logs = document.getElementById("extra-panel-logs");
+  if (tools && tools.parentElement !== overview) overview.appendChild(tools);
+  if (logs && logs.parentElement !== overview) overview.appendChild(logs);
+}
+
 export async function init() {
   initSystemPreferences();
   setLogDockOpen(false);
   setAutoDockOpen(false);
+
+  // 信息架构必须先于 bindNavigation 创建：新增 Settings nav/section 才能进入统一导航绑定。
+  mountSettingsArchitecture();
+  mountDataSourceSettings();
   bindNavigation();
   bindAutoDock();
   window.addEventListener("binggo:auth-expired", () => {
@@ -42,7 +57,12 @@ export async function init() {
   bindDiagnosticsExport();
   bindCheckUpdates();
   loadRuntimeInfo().catch(() => {});
-  mountExtraPanels().catch(() => {});
+
+  // 配置类 Extra Panels（Enhance / Notify）跟随 participate-settings 进入 Settings；
+  // 中奖深检 / Cleanup / 运行日志是操作工具，仍属于 Overview，不混入 Settings。
+  await mountExtraPanels().catch(() => {});
+  placeOperationalPanels();
+
   await syncProjectState();
   renderAccountPool().catch(() => {});
   try {
