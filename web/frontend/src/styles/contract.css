@@ -1,0 +1,8 @@
+/*
+ * UI contract: the HTML `hidden` attribute must always remove an element from layout.
+ * Component classes such as `.btn { display: inline-flex }` otherwise outrank the browser's
+ * user-agent `[hidden] { display: none }` rule and can make logically hidden controls visible.
+ */
+[hidden] {
+  display: none !important;
+}
