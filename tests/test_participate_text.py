@@ -229,8 +229,9 @@ def test_resolve_participate_text_random_mode_ignores_legacy_enabled_flag(
     assert resolved.source == "random_comment"
     assert resolved.text == "msg-9"
 
-    # 缺省 copy_chat 也只意味着使用默认过滤配置，不会关闭随机评论模式。
+    # 缺省 copy_chat 使用默认过滤配置，也不会关闭 random_comment。
     monkeypatch.setattr("src.participate_enhance.load_participate_enhance", lambda: {})
+    monkeypatch.setattr("src.participate_text.fetch_dynamic_detail", lambda *args, **kwargs: {})
     resolved = resolve_participate_text_for_activity(_FakeClient([]), dynamic_id="123")
     assert resolved.source == "random_comment"
     assert resolved.text == "msg-9"
