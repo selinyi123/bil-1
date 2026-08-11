@@ -22,17 +22,22 @@ from src.lottery_api import (
     fetch_notice_for_reserve,
     is_upower_dynamic,
 )
+from sqlmodel import col, select
+
+from src.db.activity_codec import activity_dict_to_row, row_to_activity_dict
+from src.db.json_cols import dumps_json
+from src.db.models import ActivityRow, ParticipationActionRow, ParticipationRow
+from src.db.session import session_scope
+from src.db.uids import participation_uid
 from src.participation_log import (
     ParticipationActionRecord,
     ParticipationOutcome,
     participation_succeeded,
-    append_action_record_unlocked,
     serialize_actions,
+    _MAX_ENTRIES_PER_UID,
 )
-from src.participation_store import set_participation_unlocked
 from src.user_data_lock import user_data_lock
 from src.participate_text import resolve_participate_text_for_activity
-from src.fetch_activity_info import mark_enriched_joined
 from src.lottery_classifier import PARTICIPATABLE_TYPES
 from src.sources.common import is_valid_dynamic_id, opus_link
 
@@ -95,6 +100,88 @@ def _context_snapshot(context: Any | None, *, extra: dict[str, Any] | None = Non
     return payload
 
 
+def record_participation_outcome_unlocked(
+    record: ParticipationActionRecord,
+    *,
+    mark_joined: bool,
+) -> None:
+    """在单个 DB 事务内落盘一次参与结果，保证三表一致。
+
+    (a) participation_actions 动作日志（复用 ParticipationActionRow 构造，含按 uid 裁剪）；
+    (b) participations 置为已参加（uid + dynamic_id 复合主键 upsert）；
+    (c) activities 活动状态置为已参加（与 mark_enriched_joined 相同的写入结果）。
+
+    调用方须持有 user_data_lock（跨进程/线程互斥）。任一子步骤抛错时整体回滚，
+    避免此前多次独立提交造成的部分写入不一致。仅在 mark_joined 时写入
+    participations 与 activities（动作日志始终写入）。
+    """
+    uid = participation_uid()
+    dynamic_id = str(record.dynamic_id or "").strip()
+    now = int(time.time())
+    with session_scope() as session:
+        # (a) 动作日志
+        session.add(
+            ParticipationActionRow(
+                uid=uid,
+                recorded_at=int(record.recorded_at),
+                dynamic_id=dynamic_id,
+                lottery_type=str(record.lottery_type or ""),
+                status=str(record.status or ""),
+                message=str(record.message or ""),
+                action_text=str(record.action_text or ""),
+                actions_json=dumps_json(record.actions or []),
+                context_snapshot_json=dumps_json(record.context_snapshot or {}),
+            )
+        )
+        session.flush()
+        rows = session.exec(
+            select(ParticipationActionRow)
+            .where(ParticipationActionRow.uid == uid)
+            .order_by(
+                col(ParticipationActionRow.recorded_at).desc(),
+                col(ParticipationActionRow.id).desc(),
+            )
+        ).all()
+        for stale in rows[_MAX_ENTRIES_PER_UID:]:
+            session.delete(stale)
+
+        if not mark_joined or not dynamic_id:
+            return
+
+        # (b) participations 已参加
+        part = session.get(ParticipationRow, (uid, dynamic_id))
+        if part is None:
+            session.add(
+                ParticipationRow(
+                    uid=uid,
+                    dynamic_id=dynamic_id,
+                    user_status="已参加",
+                    updated_at=now,
+                    source="participate",
+                )
+            )
+        else:
+            part.user_status = "已参加"
+            part.updated_at = now
+            part.source = "participate"
+
+        # (c) activities 活动状态置为已参加
+        activity_row = session.get(ActivityRow, dynamic_id)
+        if activity_row is None:
+            return
+        item = row_to_activity_dict(activity_row)
+        item["activity_status"] = "已参加"
+        item["draw_tag"] = ""
+        item["status_classified"] = True
+        if item.get("platform_participated") is not None:
+            item["platform_participated"] = True
+        updated = activity_dict_to_row(item, updated_at=now)
+        for name in ActivityRow.model_fields:
+            if name == "dynamic_id":
+                continue
+            setattr(activity_row, name, getattr(updated, name))
+
+
 def _persist_result(
     *,
     result: ParticipateResult,
@@ -118,11 +205,7 @@ def _persist_result(
         context_snapshot=result.context_snapshot,
     )
     with user_data_lock():
-        append_action_record_unlocked(record)
-        if joined:
-            set_participation_unlocked(result.dynamic_id, "已参加")
-    if joined:
-        mark_enriched_joined(result.dynamic_id)
+        record_participation_outcome_unlocked(record, mark_joined=joined)
 
 
 def _safe_int(value: Any, default: int = 0) -> int:

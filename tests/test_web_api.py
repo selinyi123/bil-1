@@ -282,3 +282,43 @@ def test_check_prize_job_requires_login() -> None:
     with patch("web.app.get_account_profile", return_value={"logged_in": False}):
         resp = client.post("/api/jobs", json={"action": "check_prize", "params": {}})
     assert resp.status_code == 401
+
+
+# ---------- /api/jobs params 强类型（P2 #26：JobRequest.params 按 action 校验） ----------
+
+
+def test_clear_follows_rejects_invalid_max_days() -> None:
+    """clear_follows params.max_days 越界（-5）→ 400 VALIDATION_ERROR，消息含字段。"""
+    with patch("web.app.get_account_profile", return_value={"logged_in": True}):
+        resp = client.post(
+            "/api/jobs",
+            json={"action": "clear_follows", "params": {"max_days": -5}},
+        )
+    assert resp.status_code == 400
+    data = resp.json()
+    assert data["error"]["code"] == "VALIDATION_ERROR"
+    assert "max_days" in data["error"]["message"]
+
+
+def test_clear_follows_accepts_valid_max_days() -> None:
+    """clear_follows params.max_days=30 合法 → 登录态下创建任务成功（200）。"""
+    with patch("web.app.get_account_profile", return_value={"logged_in": True}):
+        with patch("web.app.runner.try_start", return_value=1) as start_mock:
+            resp = client.post(
+                "/api/jobs",
+                json={"action": "clear_follows", "params": {"max_days": 30}},
+            )
+    assert resp.status_code == 200
+    start_mock.assert_called_once()
+    assert start_mock.call_args.args[0] == "clear_follows"
+
+
+def test_participate_requires_dynamic_id_field() -> None:
+    """#26：participate 缺 dynamic_id → 400（已登录态下校验失败，而非创建 job）。"""
+    with patch("web.app.get_account_profile", return_value={"logged_in": True}):
+        with patch("web.api_errors.is_llm_ready", return_value=True):
+            resp = client.post("/api/jobs", json={"action": "participate", "params": {}})
+    assert resp.status_code == 400
+    data = resp.json()
+    assert data["error"]["code"] == "VALIDATION_ERROR"
+    assert "dynamic_id" in data["error"]["message"]

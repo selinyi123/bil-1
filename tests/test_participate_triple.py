@@ -526,3 +526,106 @@ def test_run_action_participate_triple_partial_failure_carries_completed() -> No
     actions = completed["actions"]
     assert {"action": "repost", "ok": True} in actions
     assert {"action": "follow", "ok": True} in actions
+
+
+def test_run_action_participate_triple_partial_reports_started_actions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#9：失败活动已开始执行的外部副作用（on_step 已上报）必须出现在异常摘要中。"""
+    import time as time_mod
+
+    from web.actions import TripleParticipateFailed
+
+    targets = [_row(_id(701), can_participate=True), _row(_id(702), can_participate=True)]
+
+    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None) -> dict:
+        if dynamic_id == _id(701):
+            return {
+                "dynamic_id": dynamic_id,
+                "status": "joined",
+                "message": "完成",
+                "actions": _interact_actions(),
+                "lottery_type": "互动抽奖",
+            }
+        if dynamic_id == _id(702):
+            time_mod.sleep(0.2)  # 保证 701 先完成
+            # 点赞、关注已开始执行（真实外部副作用），随后评论步骤抛错
+            on_step(1, 5, f"{dynamic_id} 正在点赞（1/5）", "like")
+            on_step(2, 5, f"{dynamic_id} 正在关注（2/5）", "follow")
+            raise RuntimeError("评论 API 报错")
+        raise AssertionError("unexpected dynamic_id")
+
+    with (
+        patch("web.actions.pick_triple_participate_targets", return_value=targets),
+        patch("web.actions.resolve_participate_lottery_type", return_value="互动抽奖"),
+        patch("web.actions.ensure_activity_participatable"),
+        patch("web.actions._execute_participate", side_effect=fake_execute),
+        patch("web.actions.invalidate_activity_cache"),
+        patch("web.actions.mark_enriched_joined"),
+        patch("web.actions.refresh_local_activity_statuses"),
+        patch("web.actions.BilibiliClient"),
+    ):
+        with pytest.raises(TripleParticipateFailed) as excinfo:
+            run_action("participate_triple", {}, on_progress=lambda **_kwargs: None)
+
+    exc = excinfo.value
+    assert exc.failed_dynamic_id == _id(702)
+    # 已完成活动仍按原结构返回
+    completed_ids = [item["dynamic_id"] for item in exc.completed]
+    assert _id(701) in completed_ids
+    # 未完成但已开始动作的活动以 partial: true 如实上报
+    partials = [item for item in exc.completed if item.get("partial") is True]
+    assert len(partials) == 1
+    partial = partials[0]
+    assert partial["dynamic_id"] == _id(702)
+    assert partial["actions"] == [
+        {"action": "like", "ok": None, "partial": True},
+        {"action": "follow", "ok": None, "partial": True},
+    ]
+
+
+def test_run_action_participate_triple_partial_dedupes_started_actions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#9：同一动作名多次上报只记录一次（去重）。"""
+    import time as time_mod
+
+    from web.actions import TripleParticipateFailed
+
+    targets = [_row(_id(801), can_participate=True), _row(_id(802), can_participate=True)]
+
+    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None) -> dict:
+        if dynamic_id == _id(801):
+            return {
+                "dynamic_id": dynamic_id,
+                "status": "joined",
+                "message": "完成",
+                "actions": _interact_actions(),
+                "lottery_type": "互动抽奖",
+            }
+        if dynamic_id == _id(802):
+            time_mod.sleep(0.2)
+            on_step(1, 5, f"{dynamic_id} 正在点赞（1/5）", "like")
+            on_step(2, 5, f"{dynamic_id} 正在点赞（2/5）", "like")
+            on_step(3, 5, f"{dynamic_id} 正在关注（3/5）", "follow")
+            raise RuntimeError("转发 API 报错")
+        raise AssertionError("unexpected dynamic_id")
+
+    with (
+        patch("web.actions.pick_triple_participate_targets", return_value=targets),
+        patch("web.actions.resolve_participate_lottery_type", return_value="互动抽奖"),
+        patch("web.actions.ensure_activity_participatable"),
+        patch("web.actions._execute_participate", side_effect=fake_execute),
+        patch("web.actions.invalidate_activity_cache"),
+        patch("web.actions.mark_enriched_joined"),
+        patch("web.actions.refresh_local_activity_statuses"),
+        patch("web.actions.BilibiliClient"),
+    ):
+        with pytest.raises(TripleParticipateFailed) as excinfo:
+            run_action("participate_triple", {}, on_progress=lambda **_kwargs: None)
+
+    partial = next(item for item in excinfo.value.completed if item.get("partial") is True)
+    assert partial["actions"] == [
+        {"action": "like", "ok": None, "partial": True},
+        {"action": "follow", "ok": None, "partial": True},
+    ]

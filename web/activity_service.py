@@ -3,7 +3,11 @@ from __future__ import annotations
 from typing import Any
 
 from src.activity_status import resolve_activity_status
-from src.activity_store import load_payload
+from src.activity_store import (
+    load_payload,
+    refresh_expired_activity_statuses,
+    seed_activities_if_empty,
+)
 from src.db.snapshots import load_ds_check_dict, load_watch_sync_dict
 from src.draw_reminder import matches_draw_window_filter
 from src.lottery_classifier import PARTICIPATABLE_TYPES, is_charging_lottery_activity
@@ -203,6 +207,13 @@ def _participatable_stored(item: dict) -> bool:
 
 
 def _load_activities_payload() -> dict:
+    """读取活动库：先显式 seed（空库）与刷新过期状态，再纯读。
+
+    原 `load_payload` 读路径的隐式写库副作用已移除，此处显式调用命名函数，
+    保证 GET 响应中过期活动仍会自动显示为已结束。
+    """
+    seed_activities_if_empty()
+    refresh_expired_activity_statuses()
     return load_payload()
 
 

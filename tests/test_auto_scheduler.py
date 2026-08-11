@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import sys
-from datetime import datetime
+from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import MagicMock
-from datetime import timedelta, timezone
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -15,6 +15,17 @@ if str(ROOT) not in sys.path:
 from web.auto_config import ALLOWED_CLICK_ACTIONS
 from web.auto_scheduler import AutoScheduler, CollisionError, _is_hard_failure, _next_slot, _probe_job
 from web.job_runner import JobRunner, JobStatus
+
+
+@contextmanager
+def _logged_in(*, llm: bool = False):
+    """模拟已登录（可选 LLM 就绪）以通过 /api/jobs 前置政策。"""
+    with patch("web.auto_scheduler.get_account_profile", return_value={"logged_in": True}):
+        if llm:
+            with patch("web.api_errors.is_llm_ready", return_value=True):
+                yield
+        else:
+            yield
 
 
 def _bind_resolve(runner: MagicMock, status_factory) -> None:
@@ -64,8 +75,9 @@ def test_collision_when_try_start_returns_none() -> None:
     runner.is_running.return_value = False
     runner.try_start.return_value = None
     scheduler = AutoScheduler(job_runner=runner)
-    with pytest.raises(CollisionError, match="已有任务正在运行"):
-        scheduler._click_and_wait("refresh_all")
+    with _logged_in(llm=True):
+        with pytest.raises(CollisionError, match="已有任务正在运行"):
+            scheduler._click_and_wait("refresh_all")
     runner.cancel.assert_not_called()
 
 
@@ -83,7 +95,8 @@ def test_wait_until_terminal_never_calls_cancel() -> None:
 
     _bind_resolve(runner, status_factory)
     scheduler = AutoScheduler(job_runner=runner)
-    scheduler._click_and_wait("refresh_status")
+    with _logged_in():
+        scheduler._click_and_wait("refresh_status")
     runner.cancel.assert_not_called()
     runner.try_start.assert_called_once_with("refresh_status", {}, source="auto")
 
@@ -144,7 +157,8 @@ def test_click_and_wait_treats_skipped_triple_as_success() -> None:
         ),
     )
     scheduler = AutoScheduler(job_runner=runner)
-    outcome = scheduler._click_and_wait("participate_triple")
+    with _logged_in(llm=True):
+        outcome = scheduler._click_and_wait("participate_triple")
     assert outcome["skipped"] is True
     runner.try_start.assert_called_once_with("participate_triple", {"from_auto": True}, source="auto")
     runner.cancel.assert_not_called()
@@ -165,7 +179,8 @@ def test_click_and_wait_treats_legacy_empty_triple_error_as_skip() -> None:
         ),
     )
     scheduler = AutoScheduler(job_runner=runner)
-    outcome = scheduler._click_and_wait("participate_triple")
+    with _logged_in(llm=True):
+        outcome = scheduler._click_and_wait("participate_triple")
     assert outcome["skipped"] is True
     runner.cancel.assert_not_called()
 
@@ -185,8 +200,9 @@ def test_click_and_wait_cancelled_raises(isolated_home: Path) -> None:
         ),
     )
     scheduler = AutoScheduler(job_runner=runner)
-    with pytest.raises(RuntimeError, match="已取消"):
-        scheduler._click_and_wait("refresh_status")
+    with _logged_in():
+        with pytest.raises(RuntimeError, match="已取消"):
+            scheduler._click_and_wait("refresh_status")
     runner.cancel.assert_not_called()
 
 
@@ -205,8 +221,9 @@ def test_click_and_wait_interrupted_raises(isolated_home: Path) -> None:
         ),
     )
     scheduler = AutoScheduler(job_runner=runner)
-    with pytest.raises(RuntimeError, match="中断"):
-        scheduler._click_and_wait("refresh_status")
+    with _logged_in():
+        with pytest.raises(RuntimeError, match="中断"):
+            scheduler._click_and_wait("refresh_status")
     runner.cancel.assert_not_called()
 
 
@@ -227,3 +244,102 @@ def test_next_slot_triple_minute() -> None:
     assert slot["minute"] == 55
     assert slot["action"] == "participate_triple"
     assert slot["action_label"] == "三连参与"
+
+
+# ---------- P2 #18：AutoScheduler 统一前置政策（未登录 / LLM 未就绪 → soft 跳过） ----------
+
+
+def test_auto_skips_refresh_when_not_logged_in() -> None:
+    """未登录时调度触发 refresh_all → 跳过本次调度并记日志，不崩溃、不 try_start。"""
+    runner = MagicMock()
+    runner.is_running.return_value = False
+    scheduler = AutoScheduler(job_runner=runner)
+    with patch("web.auto_scheduler.get_account_profile", return_value={"logged_in": False}):
+        outcome = scheduler._click_and_wait("refresh_all")
+    assert outcome["skipped"] is True
+    assert "登录" in outcome["message"]
+    runner.try_start.assert_not_called()
+    runner.cancel.assert_not_called()
+
+
+def test_auto_skips_when_llm_not_ready() -> None:
+    """已登录但 LLM 未就绪时 participate_triple 同样跳过，不崩溃。"""
+    runner = MagicMock()
+    runner.is_running.return_value = False
+    scheduler = AutoScheduler(job_runner=runner)
+    with patch("web.auto_scheduler.get_account_profile", return_value={"logged_in": True}):
+        with patch("web.api_errors.is_llm_ready", return_value=False):
+            outcome = scheduler._click_and_wait("participate_triple")
+    assert outcome["skipped"] is True
+    runner.try_start.assert_not_called()
+
+
+# ---------- P2 #19：_is_hard_failure 优先按 error_kind 分类 ----------
+
+
+def test_hard_failure_by_error_kind() -> None:
+    """error_kind 结构化判定：business_partial/cancelled 为 soft，internal/business/network 为 hard。"""
+    soft = RuntimeError("三连部分失败")
+    soft.error_kind = "business_partial"
+    assert _is_hard_failure(soft) is False
+    cancelled = RuntimeError("任务已取消")
+    cancelled.error_kind = "cancelled"
+    assert _is_hard_failure(cancelled) is False
+    network = RuntimeError("网络异常")
+    network.error_kind = "network"
+    assert _is_hard_failure(network) is True
+    internal = RuntimeError("内部异常")
+    internal.error_kind = "internal"
+    assert _is_hard_failure(internal) is True
+    business = RuntimeError("全部数据源检查失败")
+    business.error_kind = "business"
+    assert _is_hard_failure(business) is True
+    # 无 error_kind：字符串兜底行为保留
+    assert _is_hard_failure(RuntimeError("当前列表没有可参与的未参加活动")) is False
+    assert _is_hard_failure(RuntimeError("连接超时")) is True
+
+
+def test_click_and_wait_error_attaches_error_kind() -> None:
+    """job 终态 error 时 _click_and_wait 抛出的异常携带 error_kind（DB 行兜底）。"""
+    runner = MagicMock()
+    runner.is_running.return_value = False
+    runner.try_start.return_value = 11
+    _bind_resolve(
+        runner,
+        lambda: JobStatus(
+            id=11,
+            state="error",
+            action="refresh_status",
+            message="部分活动失败",
+            result=None,
+        ),
+    )
+    scheduler = AutoScheduler(job_runner=runner)
+    with _logged_in():
+        with patch("web.auto_scheduler.get_job", return_value={"error_kind": "business_partial"}):
+            with pytest.raises(RuntimeError, match="部分活动失败") as exc_info:
+                scheduler._click_and_wait("refresh_status")
+    assert getattr(exc_info.value, "error_kind", None) == "business_partial"
+
+
+def test_triple_slot_partial_failure_is_soft() -> None:
+    """business_partial 在三连槽位按 soft 处理（记日志跳过），不致命停机。"""
+    runner = MagicMock()
+    runner.is_running.return_value = False
+    runner.try_start.return_value = 12
+    _bind_resolve(
+        runner,
+        lambda: JobStatus(
+            id=12,
+            state="error",
+            action="participate_triple",
+            message="部分活动参与失败",
+            result=None,
+        ),
+    )
+    scheduler = AutoScheduler(job_runner=runner)
+    with _logged_in(llm=True):
+        with patch("web.auto_scheduler.get_job", return_value={"error_kind": "business_partial"}):
+            scheduler._run_triple_slot("2026-07-17-03-55")
+    assert scheduler.get_status()["state"] != "fatal"
+    assert "2026-07-17-03-55" in scheduler._done_triple

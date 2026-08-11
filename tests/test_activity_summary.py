@@ -45,6 +45,8 @@ def test_get_summary_counts_are_consistent(tmp_path, monkeypatch) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     monkeypatch.setattr("web.activity_service.load_participations", lambda: {})
     monkeypatch.setattr("web.activity_service.load_payload", lambda: payload)
+    monkeypatch.setattr("web.activity_service.seed_activities_if_empty", lambda: False)
+    monkeypatch.setattr("web.activity_service.refresh_expired_activity_statuses", lambda: 0)
 
     summary = get_summary()
     status = summary["user_status_counts"]
@@ -89,3 +91,42 @@ def test_get_summary_loads_seeded_activities(
     summary = get_summary()
     assert summary["total_count"] == 1
     assert summary["counts"]["active"] == 1
+
+
+def test_get_summary_auto_ends_expired_activity(
+    isolated_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#30：读取路径先显式刷新过期状态，GET 摘要中过期活动仍显示为已结束。"""
+    import time
+
+    from src.activity_store import replace_all_activities
+
+    now = int(time.time())
+    replace_all_activities(
+        [
+            {
+                "dynamic_id": "1001",
+                "lottery_type": "转发抽奖",
+                "draw_status": "active",
+                "activity_status": "未参加",
+                "lottery_time": now - 10,
+                "prizes": [{"description": "过期奖品", "winner_count": 1}],
+                "repost_fetched": True,
+            },
+            {
+                "dynamic_id": "1002",
+                "lottery_type": "转发抽奖",
+                "draw_status": "active",
+                "activity_status": "未参加",
+                "lottery_time": now + 3600,
+                "prizes": [{"description": "进行中奖品", "winner_count": 1}],
+                "repost_fetched": True,
+            },
+        ]
+    )
+    monkeypatch.setattr("web.activity_service.load_participations", lambda: {})
+
+    summary = get_summary()
+    assert summary["counts"]["ended"] == 1
+    assert summary["counts"]["active"] == 1
+    assert summary["user_status_counts"]["已结束"] == 1

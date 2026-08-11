@@ -976,6 +976,10 @@ def run_action(
         task_step_progress: dict[str, int] = {
             str(item.get("dynamic_id") or ""): 0 for item in targets
         }
+        # 已开始执行（on_step 上报）的动作名，用于失败摘要如实反映外部副作用
+        task_executed_actions: dict[str, list[str]] = {
+            str(item.get("dynamic_id") or ""): [] for item in targets
+        }
         target_ids = [str(item.get("dynamic_id") or "") for item in targets]
 
         def _overall_progress_step() -> int:
@@ -1004,7 +1008,13 @@ def run_action(
                 parts.append(f"{title}: {task_states.get(dynamic_id, '等待开始…')}")
             return " | ".join(parts)
 
-        def _report_task_progress(dynamic_id: str, step: int, _total: int, message: str) -> None:
+        def _report_task_progress(
+            dynamic_id: str,
+            step: int,
+            _total: int,
+            message: str,
+            action_name: str = "",
+        ) -> None:
             if cancel_event and cancel_event.is_set():
                 raise ValueError("任务已取消")
             if fail_fast_event.is_set():
@@ -1014,6 +1024,10 @@ def run_action(
             with progress_lock:
                 task_states[dynamic_id] = message
                 task_step_progress[dynamic_id] = max(task_step_progress.get(dynamic_id, 0), step)
+                if action_name:
+                    executed = task_executed_actions.setdefault(dynamic_id, [])
+                    if action_name not in executed:
+                        executed.append(action_name)
             title = next(
                 (
                     str(item.get("activity_title") or dynamic_id)
@@ -1060,8 +1074,8 @@ def run_action(
                 if fail_fast_event.is_set():
                     raise TripleParticipateAborted("其他活动失败，本活动已停止")
 
-                def on_step(step: int, total: int, message: str, _action_name: str) -> None:
-                    _report_task_progress(dynamic_id, step, total, message)
+                def on_step(step: int, total: int, message: str, action_name: str) -> None:
+                    _report_task_progress(dynamic_id, step, total, message, action_name)
 
                 payload = _participate_dynamic_payload(
                     dynamic_id,
@@ -1133,6 +1147,28 @@ def run_action(
                             }
                             for item in results
                         ]
+                        # 未完成但已开始执行的活动：外部副作用可能已发生，如实标记 partial
+                        with progress_lock:
+                            completed_ids = {str(item["dynamic_id"]) for item in completed_summary}
+                            for target in targets:
+                                did = str(target.get("dynamic_id") or "")
+                                if did in completed_ids:
+                                    continue
+                                started = list(task_executed_actions.get(did) or [])
+                                if not started:
+                                    continue
+                                completed_summary.append(
+                                    {
+                                        "dynamic_id": did,
+                                        "activity_title": str(target.get("activity_title") or did),
+                                        "lottery_type": str(target.get("lottery_type") or ""),
+                                        "actions": [
+                                            {"action": name, "ok": None, "partial": True}
+                                            for name in started
+                                        ],
+                                        "partial": True,
+                                    }
+                                )
                         raise TripleParticipateFailed(
                             f"三连参与失败（{dynamic_id}）：{exc}",
                             completed=completed_summary,

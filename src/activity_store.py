@@ -128,21 +128,32 @@ def seed_activities_if_empty() -> bool:
         return _seed_activities_if_empty()
 
 
+def refresh_expired_activity_statuses() -> int:
+    """显式把已过开奖时间的活动标记为已结束。
+
+    原 `load_payload` 读请求路径的隐式写库副作用在此显式化：先调用本函数再
+    纯读 `load_payload`。返回被更新的活动条数。持全局活动锁。
+    """
+    with _activity_lock:
+        with session_scope() as session:
+            rows = session.exec(select(ActivityRow).order_by(col(ActivityRow.dynamic_id))).all()
+            changed_items: list[dict] = []
+            for row in rows:
+                item = row_to_activity_dict(row)
+                if _normalize_ended_by_time(item):
+                    changed_items.append(item)
+            if not changed_items:
+                return 0
+            _upsert_activities(session, changed_items, updated_at=int(time.time()))
+            return len(changed_items)
+
+
 def _load_payload_unlocked() -> dict[str, Any]:
-    _seed_activities_if_empty()
+    """纯读当前活动库：不 seed、不改 ended、不 upsert、不更新 updated_at。"""
     with session_scope() as session:
         rows = session.exec(select(ActivityRow).order_by(col(ActivityRow.dynamic_id))).all()
         max_updated = max((int(row.updated_at or 0) for row in rows), default=0)
         activities = [row_to_activity_dict(row) for row in rows]
-        changed_items: list[dict] = []
-        for item in activities:
-            if _normalize_ended_by_time(item):
-                changed_items.append(item)
-        if changed_items:
-            now = int(time.time())
-            _upsert_activities(session, changed_items, updated_at=now)
-            max_updated = max(max_updated, now)
-            activities = _list_activity_dicts(session)
     payload = _empty_payload()
     payload["activities"] = activities
     payload["updated_at"] = max_updated

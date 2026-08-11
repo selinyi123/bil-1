@@ -10,6 +10,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
 from src.app_logging import get_logger
+from src.job_store import get_job
+from web.account_service import get_account_profile
+from web.api_errors import AppError
 from web.auto_config import (
     ACTION_LABELS,
     ALLOWED_CLICK_ACTIONS,
@@ -411,6 +414,15 @@ class AutoScheduler:
                 f"（action={current.get('action')}, message={current.get('message')}）"
             )
 
+        # 前置政策与 /api/jobs 一致（P2 #18）：未登录 / LLM 未就绪时跳过本次调度（soft），不崩溃。
+        from web.app import validate_job_prerequisites
+
+        try:
+            validate_job_prerequisites(action, get_account_profile())
+        except AppError as exc:
+            self._log("warn", f"跳过「{label}」：{exc}（本次调度不执行）")
+            return {"skipped": True, "message": str(exc), "job": None}
+
         params = {"from_auto": True} if action == "participate_triple" else {}
         job_id = self._runner.try_start(action, params, source="auto")
         if job_id is None:
@@ -438,9 +450,13 @@ class AutoScheduler:
         ):
             return {"skipped": True, "message": msg, "job": final}
         if state == "cancelled":
-            raise RuntimeError(msg or f"「{label}」已取消")
+            exc = RuntimeError(msg or f"「{label}」已取消")
+            exc.error_kind = self._resolve_error_kind(job_id, final) or "cancelled"  # type: ignore[attr-defined]
+            raise exc
         if state in {"error", "interrupted"}:
-            raise RuntimeError(msg or f"「{label}」以 {state} 结束")
+            exc = RuntimeError(msg or f"「{label}」以 {state} 结束")
+            exc.error_kind = self._resolve_error_kind(job_id, final)  # type: ignore[attr-defined]
+            raise exc
         if state != "success":
             raise RuntimeError(msg or f"「{label}」异常结束：state={state}")
         return {"skipped": False, "message": msg, "job": final}
@@ -466,6 +482,25 @@ class AutoScheduler:
                 self._set_phase(f"等待结束：{label}", detail)
             self._stop_event.wait(JOB_POLL_INTERVAL_SEC)
         return last
+
+    def _resolve_error_kind(self, job_id: int, final: dict[str, Any]) -> str | None:
+        """尽力解析 job 终态的 error_kind：先看状态 dict，再回退 DB 行。
+
+        当前 JobStatus 尚未透出 error_kind，DB 行（get_job）是可靠来源；
+        未来若状态透出，优先取用，保持向后兼容。
+        """
+        kind = final.get("error_kind")
+        if isinstance(kind, str) and kind:
+            return kind
+        try:
+            row = get_job(job_id)
+        except Exception:
+            row = None
+        if isinstance(row, dict):
+            kind = row.get("error_kind")
+            if isinstance(kind, str) and kind:
+                return kind
+        return None
 
 
 def _probe_job(job_runner: JobRunner) -> dict[str, Any]:
@@ -498,9 +533,20 @@ def _is_triple_empty_skip(message: str) -> bool:
     return any(marker in text for marker in markers)
 
 
+_HARD_ERROR_KINDS = frozenset({"internal", "business", "network"})
+_SOFT_ERROR_KINDS = frozenset({"business_partial", "cancelled"})
+
+
+# P2 #19：优先按 error_kind 结构化判定严重程度；无 error_kind 时保留字符串兜底。
 def _is_hard_failure(exc: BaseException) -> bool:
     if isinstance(exc, CollisionError):
         return True
+    error_kind = getattr(exc, "error_kind", None)
+    if isinstance(error_kind, str) and error_kind:
+        if error_kind in _HARD_ERROR_KINDS:
+            return True
+        if error_kind in _SOFT_ERROR_KINDS:
+            return False
     if _is_triple_empty_skip(str(exc)):
         return False
     text = str(exc)

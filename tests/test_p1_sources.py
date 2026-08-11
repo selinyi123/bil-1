@@ -91,6 +91,33 @@ def test_ds8_force_bypasses_fingerprint(isolated_home, tmp_path, monkeypatch) ->
     assert r2.updated is True
 
 
+def test_ds8_empty_batch_advances_fingerprint(isolated_home, tmp_path, monkeypatch) -> None:
+    """#23：清空清单后旧快照被覆盖清空——先有 ID（commit）→ 清空 → updated=True
+    + 空 activity_links + cv_id 推进 → 再查（仍空）→ updated=False。"""
+    f = tmp_path / "manual_dyids.txt"
+    f.write_text(VALID_ID, encoding="utf-8")
+    monkeypatch.setattr("src.sources.ds8_manual.CONFIG_FILE", f)
+    from src.sources.ds8_manual import save_result as ds8_save
+
+    r1 = manual_check()
+    assert r1.updated is True
+    commit_source_checkpoint(r1)
+    ds8_save(r1)  # 落库旧快照（含链接）
+
+    # 清空配置 → 空批次推进：updated=True + 空链接 + 指纹推进
+    f.write_text("", encoding="utf-8")
+    r2 = manual_check()
+    assert r2.updated is True
+    assert r2.activity_links == []
+    assert r2.cv_id and r2.cv_id != r1.cv_id  # 指纹推进（空清单指纹）
+    commit_source_checkpoint(r2)
+    ds8_save(r2)  # 覆盖旧快照（清空）
+
+    # 仍空 → 收敛为无更新
+    r3 = manual_check()
+    assert r3.updated is False
+
+
 def test_ds9_extract_dynamic_ids_cards() -> None:
     data = {
         "cards": [
@@ -220,6 +247,34 @@ def test_ds9_force_bypasses_fingerprint(isolated_home, tmp_path, monkeypatch) ->
 
     r2 = check_update(force=True)
     assert r2.updated is True
+
+
+def test_ds9_empty_batch_advances_fingerprint(isolated_home, tmp_path, monkeypatch) -> None:
+    """#23：清空话题配置后旧快照被覆盖清空——先有话题（commit）→ 清空 →
+    updated=True + 空 activity_links + cv_id 推进 → 再查（仍空）→ updated=False。"""
+    f = tmp_path / "topic_tags.txt"
+    f.write_text("转发抽奖\n", encoding="utf-8")
+    monkeypatch.setattr("src.sources.ds9_tags.CONFIG_FILE", f)
+
+    fake = _FakeTopicClient(latest_ids=[VALID_ID], history_ids=[VALID_ID2])
+    monkeypatch.setattr("src.sources.ds9_tags.BilibiliClient", lambda: fake)
+    from src.sources.ds9_tags import check_update
+
+    r1 = check_update()
+    assert r1.updated is True
+    commit_source_checkpoint(r1)
+
+    # 清空话题配置 → 空批次推进：updated=True + 空链接 + 指纹推进
+    f.write_text("", encoding="utf-8")
+    r2 = check_update()
+    assert r2.updated is True
+    assert r2.activity_links == []
+    assert r2.cv_id and r2.cv_id != r1.cv_id  # 指纹推进（空配置指纹）
+    commit_source_checkpoint(r2)
+
+    # 仍空 → 收敛为无更新
+    r3 = check_update()
+    assert r3.updated is False
 
 
 @pytest.mark.parametrize(

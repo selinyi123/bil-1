@@ -8,6 +8,10 @@
 （= 话题名 + 每话题最新动态 id 集合的 sha256，复用 `SourceCheckpointRow.cv_id`
 列存储）；fingerprint 未变 → updated=False 且不抓多页历史（省网络）；
 仅当 fingerprint 变化或 force 时才抓多页历史并入库。
+
+空批次推进（#23）：内容变化（含从非空清空话题配置、话题动态清空）→
+updated=True + 空/当前 activity_links + 新 fingerprint 进 cv_id，commit 落库后
+旧快照被覆盖清空；内容未变化（含首次即空、持续为空）→ updated=False。
 """
 from __future__ import annotations
 
@@ -85,25 +89,42 @@ def _fingerprint(tags: list[str], latest_by_tag: dict[str, list[str]]) -> str:
 
 def check_update(*, force: bool = False) -> CheckResult:
     tags = _read_tags()
+    now = int(time.time())
+    prev_fp = load_source_fingerprint(SOURCE_ID)
+
     if not tags:
-        prev_output = load_previous_output(OUTPUT_PATH)
+        # 空话题配置（#23 空批次推进）：首次即空/持续为空 → 无更新；
+        # 从非空清空（或 force）→ updated=True + 空链接，推进指纹覆盖旧快照。
+        fp = _fingerprint([], {})
+        if not force and (prev_fp is None or prev_fp == fp):
+            prev_output = load_previous_output(OUTPUT_PATH)
+            return CheckResult(
+                source_id=SOURCE_ID,
+                updated=False,
+                container_url=CONTAINER_PLACEHOLDER,
+                container_id="",
+                title="话题源（未配置）",
+                published_at=0,
+                previous_container_url=CONTAINER_PLACEHOLDER,
+                activity_links=(prev_output or {}).get("activity_links") or [],
+                checked_at=now,
+            )
         return CheckResult(
             source_id=SOURCE_ID,
-            updated=False,
+            updated=True,
             container_url=CONTAINER_PLACEHOLDER,
             container_id="",
             title="话题源（未配置）",
-            published_at=0,
+            published_at=now,
             previous_container_url=CONTAINER_PLACEHOLDER,
-            activity_links=(prev_output or {}).get("activity_links") or [],
-            checked_at=int(time.time()),
+            activity_links=[],
+            checked_at=now,
+            cv_id=fp,
         )
 
-    now = int(time.time())
     latest_by_tag: dict[str, list[str]] = {}
     raw_ids: list[str] = []
     fp: str | None = None
-    prev_fp = load_source_fingerprint(SOURCE_ID)
     with BilibiliClient() as client:
         for tag in tags:
             data = client.get_topic_new(tag) or {}
@@ -136,44 +157,32 @@ def check_update(*, force: bool = False) -> CheckResult:
         seen.add(did)
         links.append(opus_link(did))
 
-    if not links:
-        prev_output = load_previous_output(OUTPUT_PATH)
+    # 空批次推进语义（#23）：内容变化（含首次有配置、话题动态清空）→ updated=True；
+    # 未变化 → updated=False，不触发流水线。
+    if force or (prev_fp is None and bool(tags)) or (prev_fp is not None and prev_fp != fp):
         return CheckResult(
             source_id=SOURCE_ID,
-            updated=False,
-            container_url=CONTAINER_PLACEHOLDER,
-            container_id="",
-            title="话题源（无动态）",
-            published_at=0,
-            previous_container_url=CONTAINER_PLACEHOLDER,
-            activity_links=(prev_output or {}).get("activity_links") or [],
-            checked_at=now,
-        )
-    if not force and fp == prev_fp:
-        # 最新页与上次成功处理的批次相同：无新内容
-        prev_output = load_previous_output(OUTPUT_PATH)
-        return CheckResult(
-            source_id=SOURCE_ID,
-            updated=False,
+            updated=True,
             container_url=CONTAINER_PLACEHOLDER,
             container_id="tags",
             title=f"话题源（{len(tags)} 个话题，{len(links)} 条动态）",
-            published_at=0,
+            published_at=now,
             previous_container_url=CONTAINER_PLACEHOLDER,
-            activity_links=(prev_output or {}).get("activity_links") or [],
+            activity_links=links,
             checked_at=now,
+            cv_id=fp,  # 复用 cv_id 承载 fingerprint，由 commit_source_checkpoint 持久化
         )
+    prev_output = load_previous_output(OUTPUT_PATH)
     return CheckResult(
         source_id=SOURCE_ID,
-        updated=True,
+        updated=False,
         container_url=CONTAINER_PLACEHOLDER,
         container_id="tags",
         title=f"话题源（{len(tags)} 个话题，{len(links)} 条动态）",
-        published_at=now,
+        published_at=0,
         previous_container_url=CONTAINER_PLACEHOLDER,
-        activity_links=links,
+        activity_links=(prev_output or {}).get("activity_links") or [],
         checked_at=now,
-        cv_id=fp,  # 复用 cv_id 承载 fingerprint，由 commit_source_checkpoint 持久化
     )
 
 

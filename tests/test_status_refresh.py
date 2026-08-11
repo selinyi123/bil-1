@@ -156,3 +156,59 @@ def test_persist_activity_record_parallel_writes(isolated_home: Path, monkeypatc
     assert len(by_id) == 8
     for dynamic_id in done:
         assert by_id[dynamic_id]["platform_participated"] is True
+
+
+def test_load_payload_is_pure_read_does_not_seed(isolated_home: Path) -> None:
+    """#30：load_payload 为纯读——空库不再隐式 seed。"""
+    from src.activity_store import activity_count, load_payload
+
+    assert activity_count() == 0
+    payload = load_payload()
+    assert payload["activities"] == []
+    assert payload["updated_at"] == 0
+    # 读不写库：空库仍是空库
+    assert activity_count() == 0
+
+
+def test_load_payload_pure_read_does_not_mark_ended(isolated_home: Path, monkeypatch) -> None:
+    """#30：load_payload 纯读不隐式改过期活动状态（也不更新 updated_at）。"""
+    import time
+
+    from src.activity_store import load_payload, refresh_expired_activity_statuses
+
+    now = int(time.time())
+    replace_all_activities([_activity("past", lottery_time=now - 100)])
+    payload = load_payload()
+    item = payload["activities"][0]
+    assert item["activity_status"] == "未参加"
+    assert item["draw_status"] == "active"
+
+    # 再次读取并记录 updated_at，确认读路径无写副作用
+    payload_before = load_payload()
+    assert payload_before["updated_at"] == payload["updated_at"]
+    assert load_payload()["activities"][0]["activity_status"] == "未参加"
+
+    # 显式刷新后才标记结束
+    changed = refresh_expired_activity_statuses()
+    assert changed == 1
+    after = load_activities()[0]
+    assert after["activity_status"] == "已结束"
+    assert after["draw_status"] == "ended"
+
+
+def test_refresh_expired_activity_statuses_updates_updated_at(isolated_home: Path) -> None:
+    """#30：显式 refresh 函数生效，且刷新会更新库级 updated_at。"""
+    import time
+
+    from src.activity_store import load_payload, refresh_expired_activity_statuses
+
+    now = int(time.time())
+    replace_all_activities([_activity("past", lottery_time=now - 100)])
+    before = load_payload()["updated_at"]
+
+    assert refresh_expired_activity_statuses() == 1
+    after = load_payload()
+    assert after["updated_at"] >= before
+    assert after["activities"][0]["activity_status"] == "已结束"
+    # 幂等：第二次无变更
+    assert refresh_expired_activity_statuses() == 0

@@ -26,6 +26,14 @@ DEFAULT_HEADERS = {
 
 _RATE_LIMIT_CODES = frozenset({-352, -509})
 
+
+class _ApiError(RuntimeError):
+    """B 站 API 业务错误（code 非 0 且非限流）：不参与 retry，直接抛出。
+
+    get_json 中用于把「业务码错误」与「WBI 前置步骤的 RuntimeError（可重试）」
+    区分开（#28）。
+    """
+
 MIXIN_KEY_ENC_TAB = [
     46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49,
     33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16, 24, 55, 40, 61,
@@ -194,16 +202,22 @@ class BilibiliClient:
         referer: str | None = None,
         retries: int = 3,
     ) -> dict:
+        """请求 JSON 并校验 B 站业务 code。
+
+        尝试循环统一 retry 语义（#28）：WBI 前置步骤（nav 请求/签名密钥）、
+        HTTP GET、JSON 解析、业务码检查整体包进同一个 try，nav 失败
+        （httpx 异常或 RuntimeError）与 HTTP GET 失败一样参与 retry。
+        """
         last_error: Exception | None = None
         for attempt in range(retries + 1):
             req_params = dict(params or {})
             headers = {"Referer": referer} if referer else None
-            if wbi:
-                if attempt > 0:
-                    self._reset_wbi_keys()
-                self._ensure_wbi_keys()
-                req_params = wbi_sign(req_params, self._img_key, self._sub_key)
             try:
+                if wbi:
+                    if attempt > 0:
+                        self._reset_wbi_keys()
+                    self._ensure_wbi_keys()
+                    req_params = wbi_sign(req_params, self._img_key, self._sub_key)
                 resp = self._http_get(url, params=req_params, headers=headers)
                 resp.raise_for_status()
                 data = resp.json()
@@ -214,7 +228,10 @@ class BilibiliClient:
                     time.sleep(1.2 * (attempt + 1))
                     last_error = RuntimeError(f"API error {code}: {data.get('message')}")
                     continue
-                raise RuntimeError(f"API error {code}: {data.get('message')}")
+                raise _ApiError(f"API error {code}: {data.get('message')}")
+            except _ApiError:
+                # 业务码错误（非限流）：不参与 retry，保持原语义直接抛出
+                raise
             except (httpx.HTTPStatusError, httpx.RequestError, json.JSONDecodeError) as exc:
                 last_error = exc if isinstance(exc, Exception) else RuntimeError(str(exc))
                 if attempt < retries and (
@@ -225,6 +242,14 @@ class BilibiliClient:
                     continue
                 if isinstance(exc, httpx.RequestError):
                     raise RuntimeError(f"网络请求失败: {exc}") from exc
+                raise
+            except RuntimeError as exc:
+                # WBI 前置步骤失败（nav 请求失败/密钥缺失，含测试替身）：
+                # 与 HTTP GET 同一 retry 语义（#28）
+                last_error = exc
+                if attempt < retries:
+                    time.sleep(2.0 * (attempt + 1))
+                    continue
                 raise
         if last_error:
             raise last_error

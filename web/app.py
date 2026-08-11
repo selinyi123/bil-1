@@ -63,6 +63,7 @@ from web.schemas import (
     UpdatesCheckOut,
     WatchUserRequest,
 )
+from web.schemas.jobs import validate_job_params
 
 ensure_user_dirs()
 setup_logging(console=False)
@@ -134,6 +135,20 @@ _JOB_REQUIRES_LLM = frozenset(
         "refresh_watch",
     }
 )
+
+
+def validate_job_prerequisites(action: str, account: dict[str, Any] | None = None) -> None:
+    """统一任务前置政策：/api/jobs 端点与 AutoScheduler 共用。
+
+    action 需要登录但 account 未登录 → AppError(AUTH_REQUIRED)；
+    action 需要 LLM 就绪但未就绪 → AppError(LLM_NOT_READY)。
+    account 为 get_account_profile() 的返回值；为 None 时按未登录处理，
+    由调用方（后台线程）决定跳过策略。
+    """
+    if action in _JOB_REQUIRES_LOGIN:
+        require_login(account or {}, message="请先扫码登录后再执行此操作")
+    if action in _JOB_REQUIRES_LLM:
+        require_llm_ready()
 
 
 def custom_openapi() -> dict[str, Any]:
@@ -324,11 +339,8 @@ def api_start_job(request: JobRequest) -> dict[str, Any]:
     if request.action not in ALLOWED_JOB_ACTIONS:
         raise AppError(ErrorCode.UNSUPPORTED_ACTION, "暂不支持该操作")
     account = get_account_profile()
-    if request.action in _JOB_REQUIRES_LOGIN:
-        require_login(account, message="请先扫码登录后再执行此操作")
-    if request.action in _JOB_REQUIRES_LLM:
-        require_llm_ready()
-    params = request.params or {}
+    validate_job_prerequisites(request.action, account)
+    params = validate_job_params(request.action, request.params)
     if request.action == "refresh_source":
         from web.actions import DS_HANDLER_BY_ID
 
