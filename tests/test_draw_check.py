@@ -19,6 +19,9 @@ def test_judge_keywords_blacklist_overrides() -> None:
 def test_judge_keywords_empty() -> None:
     assert judge_keywords("", DEFAULT_KEYWORDS) is False
     assert judge_keywords("随便什么", []) is False
+    # None 才代表使用默认；显式 [] 必须真正禁用默认中奖词。
+    assert judge_keywords("恭喜中奖，请填写地址", None) is True
+    assert judge_keywords("恭喜中奖，请填写地址", []) is False
 
 
 def _entry(talker_id: int, text: str, title: str = "") -> MessageEntry:
@@ -79,6 +82,28 @@ def test_check_prize_draw_hits_and_pushes(monkeypatch) -> None:
     assert len(sent_payloads) == 1
     assert "中奖" in sent_payloads[0][0]
     assert marked == [9]  # 仅命中关键词的会话标记已读（10 未命中不标）
+
+
+def test_check_prize_draw_explicit_empty_keywords_disables_detection(monkeypatch) -> None:
+    from src import draw_check
+
+    monkeypatch.setattr(
+        draw_check,
+        "list_feed",
+        lambda client, msg_type: ([_entry(1, "恭喜中奖，请填写地址")], {}),
+    )
+    monkeypatch.setattr(draw_check, "list_dm_sessions", lambda client, size: [])
+    sent: list[str] = []
+    monkeypatch.setattr(
+        draw_check,
+        "send_notify",
+        lambda title, desp="": sent.append(title) or {"sent": ["sct"], "skipped": []},
+    )
+
+    result = check_prize_draw(None, keywords=[])
+    assert result["total"] == 0
+    assert result["delivered"] is False
+    assert sent == []
 
 
 def test_check_prize_draw_no_hits_no_push(monkeypatch) -> None:
@@ -144,8 +169,6 @@ def _make_dm_harness(monkeypatch, *, send_result, mark_side_effect=None):
 
 def test_check_prize_draw_push_false_never_marks_read(monkeypatch) -> None:
     """push=False 时即使命中私信也绝不标记已读（保留未读供下次提醒）。"""
-    from src import draw_check
-
     marked, sent = _make_dm_harness(monkeypatch, send_result={"sent": ["sct"], "skipped": []})
     result = check_prize_draw(None, push=False)
     assert result["total"] == 1
@@ -157,8 +180,6 @@ def test_check_prize_draw_push_false_never_marks_read(monkeypatch) -> None:
 
 def test_check_prize_draw_delivery_failed_never_marks_read(monkeypatch) -> None:
     """全部通知渠道失败（sent=[]）时不得标记已读（避免中奖提醒被吞）。"""
-    from src import draw_check
-
     marked, sent = _make_dm_harness(monkeypatch, send_result={"sent": [], "skipped": ["telegram"]})
     result = check_prize_draw(None)
     assert result["total"] == 1
@@ -170,8 +191,6 @@ def test_check_prize_draw_delivery_failed_never_marks_read(monkeypatch) -> None:
 
 def test_check_prize_draw_delivered_then_marks_read(monkeypatch) -> None:
     """至少一个渠道确认送达后才标记私信已读。"""
-    from src import draw_check
-
     marked, _sent = _make_dm_harness(monkeypatch, send_result={"sent": ["sct"], "skipped": []})
     result = check_prize_draw(None)
     assert result["total"] == 1
@@ -182,8 +201,6 @@ def test_check_prize_draw_delivered_then_marks_read(monkeypatch) -> None:
 
 def test_check_prize_draw_mark_read_failure_keeps_acknowledged_false(monkeypatch) -> None:
     """送达成功但 mark read 返回 False → delivered=True、acknowledged=False（下次可能重复提醒）。"""
-    from src import draw_check
-
     def _fail_mark(client, talker_id, session_type=1, seqno=0):
         # mark_dm_read 真实契约：失败返回 False（不抛异常）
         return False

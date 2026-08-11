@@ -249,7 +249,8 @@ export const REFRESH_ALL_PIPELINE_SUBSTEPS = 3;
 
 export const REFRESH_WATCH_PIPELINE_SUBSTEPS = 3;
 
-export const REFRESH_ALL_DS_COUNT = 6;
+// 仅用于缺失 progress_total 的兼容 fallback；当前后端注册 DS-1~10。
+export const REFRESH_ALL_DS_COUNT = 10;
 
 export const ACTION_LABELS = {
   like: "点赞",

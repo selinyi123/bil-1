@@ -4,6 +4,7 @@
 import { state } from "./state";
 import type { JobStatus } from "./types";
 import { bindOnboardingPanel, loadAccount, loadAccountExtras, logoutAccount, requestLogoutConfirm, syncProjectState } from "./account/index";
+import { bindAddAccount } from "./account/add-account";
 import { bindFilterPills, loadActivities, loadSummary } from "./activities/index";
 import { bindAutoDock, fetchAutoStatus, setAutoDockOpen } from "./auto/index";
 import { sidebarLogoutBtn, sidebarRefreshBtn } from "./dom";
@@ -37,6 +38,7 @@ export async function init() {
   bindWatchUsers();
   bindOnboardingPanel();
   bindActionButtons();
+  bindAddAccount();
   bindDiagnosticsExport();
   bindCheckUpdates();
   loadRuntimeInfo().catch(() => {});
@@ -84,6 +86,7 @@ sidebarRefreshBtn?.addEventListener("click", async () => {
     const account = await loadAccount();
     const merged = (await loadAccountExtras()) || account;
     await loadSettings();
+    await renderAccountPool().catch(() => {});
     if (!(merged as any)?.at_alert?.increased) {
       showToast("状态已同步", "success");
     }
@@ -100,13 +103,14 @@ sidebarLogoutBtn?.addEventListener("click", async () => {
   sidebarLogoutBtn!.disabled = true;
   try {
     await logoutAccount();
+    // logout 会清空 active uid；账号池徽标、按 uid 的参与状态和三连候选也必须同步失效。
+    await Promise.allSettled([renderAccountPool(), loadSummary(), loadActivities(), loadWatchUsers()]);
   } catch (error) {
     showToast(String(error instanceof Error ? error.message || error : error), "error");
   } finally {
     sidebarLogoutBtn!.disabled = false;
   }
 });
-
 
 window.addEventListener("pageshow", (event) => {
   if (!event.persisted) return;

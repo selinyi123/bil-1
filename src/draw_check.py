@@ -4,6 +4,8 @@
 优先级递增，命中即判为"可能中奖"），命中则推送通知；私信判定后标记已读避免重复提醒。
 
 关键词默认值与覆盖：`config/notify.json` 顶层 `"keywords": [...]`。
+- 未提供 / null：使用 DEFAULT_KEYWORDS；
+- 显式 []：禁用关键词命中，不再偷偷回退默认规则。
 """
 from __future__ import annotations
 
@@ -30,12 +32,16 @@ _DEFAULT_DM_LIMIT = 30
 
 def judge_keywords(text: str, patterns: list[str] | None = None) -> bool:
     """关键词判定（LAS judge 语义）：`~` 开头为黑名单（命中置 False），
-    其余为白名单（命中置 True）；后面的规则优先级更高。"""
+    其余为白名单（命中置 True）；后面的规则优先级更高。
+
+    `patterns is None` 才使用默认规则；显式空列表表示禁用匹配。
+    """
     text = str(text or "")
     if not text:
         return False
     result = False
-    for raw in patterns or DEFAULT_KEYWORDS:
+    effective_patterns = DEFAULT_KEYWORDS if patterns is None else patterns
+    for raw in effective_patterns:
         raw = str(raw).strip()
         if not raw:
             continue

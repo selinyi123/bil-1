@@ -40,4 +40,13 @@ test.describe("Frontend contract safety", () => {
     await expect(token).toHaveAttribute("type", "password");
     await expect(token).toHaveAttribute("autocomplete", "new-password");
   });
+
+  test("logged-in users get an explicit add-account action", async ({ page, request }) => {
+    await setE2EState(request, { account: "logged_in", llm: "ready" });
+    await gotoOverview(page);
+
+    await expect(page.locator("#sidebar-login")).toBeHidden();
+    await expect(page.locator("#sidebar-add-account")).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator("#sidebar-add-account")).toHaveText("添加账号");
+  });
 });
