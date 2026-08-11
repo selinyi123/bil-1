@@ -113,6 +113,8 @@ test.describe("Binggo smoke @smoke", () => {
   test("5 settings panels load", async ({ page, request }) => {
     await setE2EState(request, { account: "logged_in", llm: "ready" });
     await gotoOverview(page);
+    await page.locator("[data-section='settings']").click();
+    await expect(page.locator("#section-settings")).toHaveClass(/active/);
     await expect(page.locator("#llm-settings-panel")).toBeVisible();
     await expect(page.locator("#participate-text-input")).toBeVisible();
     await expect(page.locator("#save-llm-settings")).toBeVisible();
