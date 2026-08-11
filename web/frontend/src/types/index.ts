@@ -24,10 +24,17 @@ export interface ApiErrorFields {
 
 export type ApiError = Error & ApiErrorFields;
 
+export interface AutoNextSlot {
+  at_unix?: number | null;
+  hint?: string;
+  [key: string]: unknown;
+}
+
 export interface AutoStatus {
   state?: string;
-  next_slot?: number | null;
+  next_slot?: AutoNextSlot | null;
   server_now?: number | null;
+  server_now_unix?: number | null;
   logs?: Array<Record<string, unknown>>;
   pipeline?: unknown;
   current_job?: JobStatus | null;
