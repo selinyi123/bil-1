@@ -80,11 +80,6 @@ def _normalize_ended_by_time(item: dict, *, now: int | None = None) -> bool:
     return changed
 
 
-def _list_activity_dicts(session) -> list[dict]:
-    rows = session.exec(select(ActivityRow).order_by(col(ActivityRow.dynamic_id))).all()
-    return [row_to_activity_dict(row) for row in rows]
-
-
 def _upsert_activities(session, items: list[dict], *, updated_at: int) -> None:
     for item in items:
         dynamic_id = str(item.get("dynamic_id") or "").strip()

@@ -113,6 +113,33 @@ GLOBAL_SETTINGS_PATH = CONFIG_DIR / "participate_settings.json"
 QR_IMAGE_PATH = DATA_DIR / "login_qrcode.png"
 ACCOUNT_CACHE_PATH = DATA_DIR / "cache" / "account_profile.json"
 
+# 注意：上述 *_PATH / DATA_DIR / CONFIG_DIR 是模块导入时的快照。
+# 生产环境 BINGGO_HOME 在启动时固定，运行中不变，快照安全；嵌入式/测试场景
+# 在运行时修改 BINGGO_HOME 后须调用 reset_path_cache() 同步（模块级 `from
+# src.app_paths import DATA_DIR` 的绑定副本不会自动更新，见各模块）。关键写
+# 路径（SQLite db_path、cookies.txt）均走 user_home() 动态解析。
+
+
+def reset_path_cache() -> None:
+    """运行时重置路径快照（嵌入式场景：修改 BINGGO_HOME 后调用）。
+
+    仅更新本模块的全局快照；已通过 `from src.app_paths import DATA_DIR`
+    绑定旧值的模块需自行刷新其模块级常量（或改用函数动态解析）。
+    """
+    global USER_HOME, DATA_DIR, CONFIG_DIR, COOKIE_PATH, LLM_ENV_PATH
+    global WATCH_USERS_PATH, WATCH_CANDIDATES_PATH, GLOBAL_SETTINGS_PATH
+    global QR_IMAGE_PATH, ACCOUNT_CACHE_PATH
+    USER_HOME = user_home()
+    DATA_DIR = USER_HOME / "data"
+    CONFIG_DIR = USER_HOME / "config"
+    COOKIE_PATH = CONFIG_DIR / "cookies.txt"
+    LLM_ENV_PATH = CONFIG_DIR / "llm.env"
+    WATCH_USERS_PATH = CONFIG_DIR / "watch_users.json"
+    WATCH_CANDIDATES_PATH = CONFIG_DIR / "watch_users_candidates.json"
+    GLOBAL_SETTINGS_PATH = CONFIG_DIR / "participate_settings.json"
+    QR_IMAGE_PATH = DATA_DIR / "login_qrcode.png"
+    ACCOUNT_CACHE_PATH = DATA_DIR / "cache" / "account_profile.json"
+
 _SEEDED = False
 _BOOTSTRAPPED = False
 

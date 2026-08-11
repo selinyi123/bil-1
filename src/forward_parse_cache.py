@@ -7,12 +7,10 @@ import time
 
 from sqlmodel import select
 
-from src.app_paths import DATA_DIR
 from src.db.json_cols import dumps_json, loads_json
 from src.db.models import ForwardParseCacheRow
 from src.db.session import session_scope
 
-CACHE_PATH = DATA_DIR / "cache" / "forward_parse_cache.json"
 _lock = threading.Lock()
 
 
