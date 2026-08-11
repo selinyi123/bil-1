@@ -39,6 +39,8 @@ def _format_llm_http_error(exc: httpx.HTTPStatusError) -> str:
 
 
 def _llm_retryable(exc: BaseException) -> bool:
+    # 注：chat_json 对 JSON 解析不再重试（_extract_json_object 单次执行），此分支
+    # 仍服务于 _post_chat_completion 中 resp.json() 的解析失败，保留无副作用。
     if isinstance(exc, (json.JSONDecodeError, RuntimeError)):
         message = str(exc)
         if "无法解析为 JSON" in message or "不是对象" in message:
@@ -95,11 +97,12 @@ def test_llm_connection(config: LlmConfig) -> str:
     }
     url = f"{config.base_url}/chat/completions"
     try:
-        _post_chat_completion(url=url, headers=headers, payload=payload)
+        data = _post_chat_completion(url=url, headers=headers, payload=payload)
     except httpx.HTTPStatusError as exc:
         raise RuntimeError(_format_llm_http_error(exc)) from exc
     except httpx.RequestError as exc:
         raise RuntimeError(f"无法连接接口地址：{exc}") from exc
+    _extract_llm_content(data)
     return f"{config.model_name} @ {config.base_url}"
 
 
@@ -130,14 +133,22 @@ def chat_json(*, system: str, user: str, config: LlmConfig | None = None) -> dic
         except httpx.RequestError as exc:
             raise RuntimeError(f"无法连接 LLM 接口：{exc}") from exc
 
+    content = _extract_llm_content(data)
+    return _extract_json_object(content)
+
+
+def _extract_llm_content(data: dict[str, Any]) -> str:
+    """校验 OpenAI-compatible 响应结构并提取 choices[0].message.content。
+
+    结构不合法（缺 choices/message/content，或 content 非字符串/为空）时抛
+    RuntimeError，避免把空内容或非字符串内容送去 JSON 解析。
+    """
     content = (
         ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
-    ).strip()
-
-    def _parse() -> dict[str, Any]:
-        return _extract_json_object(content)
-
-    return retry_call(_parse, attempts=2, base_delay=0.5, multiplier=1.5)
+    )
+    if not isinstance(content, str) or not content.strip():
+        raise RuntimeError("LLM 响应格式不兼容：缺少 choices[0].message.content")
+    return content.strip()
 
 
 def _extract_json_object(text: str) -> dict[str, Any]:
@@ -145,17 +156,21 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*", "", text)
         text = re.sub(r"\s*```$", "", text)
-    try:
-        parsed = json.loads(text)
+
+    # 逐个扫描「{」并尝试解析完整 JSON 对象，取第一个。相比 re.search(r"\{.*\}", text, re.S)
+    # 的贪婪匹配，响应含多个 JSON 对象时只取第一个完整对象，不会吞掉整段导致解析失败。
+    decoder = json.JSONDecoder()
+    search_from = 0
+    while True:
+        start = text.find("{", search_from)
+        if start == -1:
+            break
+        try:
+            parsed, _ = decoder.raw_decode(text[start:])
+        except json.JSONDecodeError:
+            search_from = start + 1
+            continue
         if isinstance(parsed, dict):
             return parsed
-    except json.JSONDecodeError:
-        pass
-
-    match = re.search(r"\{.*\}", text, re.S)
-    if not match:
-        raise RuntimeError(f"LLM 返回无法解析为 JSON: {text[:200]}")
-    parsed = json.loads(match.group(0))
-    if not isinstance(parsed, dict):
-        raise RuntimeError("LLM 返回的 JSON 不是对象")
-    return parsed
+        search_from = start + 1
+    raise RuntimeError(f"LLM 返回无法解析为 JSON: {text[:200]}")

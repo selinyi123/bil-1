@@ -665,13 +665,15 @@ class JobRunner:
                         "failed_dynamic_id": exc.failed_dynamic_id,
                         "completed": exc.completed,
                     }
+                # error_kind 区分业务部分失败与内部程序异常（避免污染内部错误统计）
+                error_kind = "business_partial" if isinstance(exc, TripleParticipateFailed) else "internal"
                 self._apply_terminal(
                     job_id,
                     state="error",
                     message=friendly_error(exc),
                     log=sanitize_log(traceback.format_exc()) or friendly_error(exc),
                     result=result,
-                    error_kind="internal",
+                    error_kind=error_kind,
                     started_mono=started_mono,
                 )
 

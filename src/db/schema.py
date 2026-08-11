@@ -5,7 +5,7 @@ from collections.abc import Callable
 from sqlalchemy import text
 from sqlmodel import Session, SQLModel
 
-from src.db.engine import get_engine
+from src.db.engine import db_path, get_engine
 from src.db.models import SchemaMeta
 
 # 确保全部表注册到 metadata
@@ -82,6 +82,18 @@ def _table_exists(engine, name: str) -> bool:
         )
 
 
+def _session_table_exists(session: Session, name: str) -> bool:
+    """在既有事务连接内探测业务表是否存在（避免额外开连接/死锁风险）。"""
+    conn = session.connection()
+    return (
+        conn.execute(
+            text("SELECT 1 FROM sqlite_master WHERE type='table' AND name=:name"),
+            {"name": name},
+        ).fetchone()
+        is not None
+    )
+
+
 def init_db() -> None:
     """创建表结构并执行 schema_version 迁移。可重复调用。
 
@@ -105,26 +117,37 @@ def init_db() -> None:
     with Session(engine) as session:
         row = session.get(SchemaMeta, 1)
         if row is None:
-            # 异常态：meta 表存在但无记录，按全新库补齐（不动其他表）
+            # 异常态：meta 表存在但无记录。若已有业务表则说明是元数据损坏的
+            # 旧库——fail-closed 拒绝启动，绝不把旧库错误标记为最新版本；
+            # 若确认无任何业务表（真全新库/半初始化）→ 正常补齐并建表。
+            for table in ("jobs", "activities"):
+                if _session_table_exists(session, table):
+                    raise RuntimeError(
+                        f"数据库 schema_meta 元数据缺失但存在业务表（{table}），"
+                        "元数据已损坏，拒绝启动。\n\n"
+                        f"数据库文件：{db_path()}\n\n"
+                        "请备份 data 文件夹后删除 binggo.db 再启动，"
+                        "或先安装最新版 Release 后重试。"
+                    )
             session.add(SchemaMeta(id=1, version=SCHEMA_VERSION))
             session.commit()
-            return
-        current = int(row.version)
-        if current > SCHEMA_VERSION:
-            # 未来版本：在任何写操作之前拒绝打开
-            raise _schema_newer_than_code_error(current)
-        while current < SCHEMA_VERSION:
-            migrate = _MIGRATIONS.get(current)
-            if migrate is None:
-                raise RuntimeError(f"缺少 schema 迁移：{current} -> {current + 1}")
-            migrate(session)
-            current += 1
-            meta = session.get(SchemaMeta, 1)
-            if meta is None:
-                session.add(SchemaMeta(id=1, version=current))
-            else:
-                meta.version = current
-            session.commit()
+        else:
+            current = int(row.version)
+            if current > SCHEMA_VERSION:
+                # 未来版本：在任何写操作之前拒绝打开
+                raise _schema_newer_than_code_error(current)
+            while current < SCHEMA_VERSION:
+                migrate = _MIGRATIONS.get(current)
+                if migrate is None:
+                    raise RuntimeError(f"缺少 schema 迁移：{current} -> {current + 1}")
+                migrate(session)
+                current += 1
+                meta = session.get(SchemaMeta, 1)
+                if meta is None:
+                    session.add(SchemaMeta(id=1, version=current))
+                else:
+                    meta.version = current
+                session.commit()
 
     # 迁移完成后补建缺失表/索引（幂等；对"刚迁移完"的库是安全的）
     SQLModel.metadata.create_all(engine)

@@ -331,3 +331,47 @@ def test_ensure_participate_partition_creates_missing(monkeypatch) -> None:
             return 42
 
     assert _ensure_participate_partition(FakeClient(), "抽奖临时关注") == 42
+
+
+def test_owned_repost_excludes_already_reposted(isolated_home, monkeypatch) -> None:
+    """ownership 台账排除"已转发，跳过"：用户手动转发过的活动不得被 cleanup 删除。
+
+    只有 repost detail 不含"已转发"（Binggo 真实创建了转发）才纳入可删除集合。
+    """
+    from src.clear_follows import _owned_repost_dynamic_ids
+    from src.db.models import ParticipationActionRow
+    from src.db.session import session_scope
+
+    monkeypatch.setattr("src.db.uids.participation_uid", lambda: "u1")
+    with session_scope() as session:
+        session.add(
+            ParticipationActionRow(
+                uid="u1",
+                recorded_at=1,
+                dynamic_id="SRC-NEW",
+                lottery_type="转发抽奖",
+                status="joined",
+                message="",
+                action_text="",
+                actions_json='[{"action":"repost","ok":true,"detail":"转发内容"}]',
+                context_snapshot_json="{}",
+            )
+        )
+        session.add(
+            ParticipationActionRow(
+                uid="u1",
+                recorded_at=2,
+                dynamic_id="SRC-MANUAL",
+                lottery_type="转发抽奖",
+                status="joined",
+                message="",
+                action_text="",
+                actions_json='[{"action":"repost","ok":true,"detail":"已转发，跳过"}]',
+                context_snapshot_json="{}",
+            )
+        )
+        session.commit()
+
+    owned = _owned_repost_dynamic_ids()
+    assert "SRC-NEW" in owned        # 真实创建 → 可删
+    assert "SRC-MANUAL" not in owned  # 已转发跳过 → 用户手动转发，不可删

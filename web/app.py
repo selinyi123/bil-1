@@ -107,6 +107,10 @@ class AssetCacheMiddleware:
 # 纯 ASGI 中间件：勿用 BaseHTTPMiddleware，以免缓冲/打断 SSE
 app.add_middleware(AssetCacheMiddleware)
 app.add_middleware(ApiContractMiddleware)
+# localhost 控制面防护（Host/DNS rebinding + 跨站 mutation Origin 校验）
+from web.local_guard import LocalControlPlaneGuard
+
+app.add_middleware(LocalControlPlaneGuard)
 register_exception_handlers(app)
 
 _JOB_REQUIRES_LOGIN = frozenset(
@@ -117,6 +121,8 @@ _JOB_REQUIRES_LOGIN = frozenset(
         "refresh_source",
         "refresh_status",
         "refresh_watch",
+        "check_prize",
+        "clear_follows",
     }
 )
 _JOB_REQUIRES_LLM = frozenset(
@@ -632,6 +638,14 @@ def api_update_participate_text_mode(request: ParticipateTextRequest) -> dict[st
 
 @app.post("/api/logout", response_model=OkResponse, tags=["stable"])
 def api_logout() -> dict[str, Any]:
+    import os
+
+    if os.environ.get("BILI_COOKIE", "").strip():
+        # env 覆盖登录态：cookies.txt/active 的清除不影响实际身份，返回假成功会误导
+        raise AppError(
+            ErrorCode.VALIDATION_ERROR,
+            "检测到 BILI_COOKIE 环境变量管理登录态，无法从 UI 注销（请清除环境变量后重试）",
+        )
     try:
         clear_login_cookie()
     except OSError as exc:

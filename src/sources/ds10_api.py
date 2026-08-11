@@ -9,8 +9,9 @@
 - `{"links": ["https://www.bilibili.com/opus/..."]}`
 - 纯数组 `["<dyid 或链接>", ...]`
 
-增量语义（P2 #11）：按源 URL 分别保存 fingerprint（复用 `SourceCheckpointRow.cv_id`
-列存 JSON dict {url: {fp, etag, lm, mtime}}）。HTTP 源优先用 ETag / Last-Modified
+增量语义（P2 #11）：按源分别保存 fingerprint（复用 `SourceCheckpointRow.cv_id`
+列存 JSON dict {sha256(source): {fp, etag, lm, mtime}}，key 为完整源 URL 的
+sha256 摘要，绝不落明文 URL/凭据）。HTTP 源优先用 ETag / Last-Modified
 条件请求（304 → 未变化）；无条件头支持时回退到内容 sha256。file:// 源用内容
 sha256（主判据）+ mtime（记录）。全部源均未变化 → updated=False 且不触发流水线；
 任一源变化 → updated=True，activity_links 只含变化源的链接（未变化源的链接
@@ -37,6 +38,22 @@ SOURCE_ID = "DS-10"
 OUTPUT_PATH = DATA_DIR / "output" / "ds10_latest.json"
 CONFIG_FILE = config_dir() / "api_sources.txt"
 CONTAINER_PLACEHOLDER = "api://sources"
+
+_HEX_DIGITS = frozenset("0123456789abcdef")
+
+
+def _source_key(source: str) -> str:
+    """源指纹映射的稳定 key：完整 URL 的 sha256 摘要。
+
+    完整 URL 可能携带 ?token= 等凭据，绝不能以明文落库（cv_id 列），
+    因此用哈希作为 map 的 key。
+    """
+    return hashlib.sha256(str(source).encode("utf-8")).hexdigest()
+
+
+def _looks_like_hash_key(key: str) -> bool:
+    """判断 key 是否已是 sha256（64 位小写 hex）形式的指纹 key。"""
+    return len(key) == 64 and all(c in _HEX_DIGITS for c in key)
 
 
 def _read_sources() -> list[str]:
@@ -85,8 +102,11 @@ def _fetch_payload_with_meta(
         path = Path(raw_path)
         if not path.exists():
             raise RuntimeError(f"外部源文件不存在: {path}")
-        text = path.read_text(encoding="utf-8", errors="replace")
-        mtime = str(int(path.stat().st_mtime))
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+            mtime = str(int(path.stat().st_mtime))
+        except OSError as exc:
+            raise RuntimeError(f"外部源读取失败: {source}: {exc}") from exc
         try:
             payload = json.loads(text)
         except (ValueError, TypeError) as exc:
@@ -105,13 +125,19 @@ def _fetch_payload_with_meta(
         headers["If-None-Match"] = etag
     elif last_modified:
         headers["If-Modified-Since"] = last_modified
-    response = httpx.get(
-        source,
-        timeout=20.0,
-        follow_redirects=True,
-        proxy=proxy,
-        headers=headers,
-    )
+    try:
+        response = httpx.get(
+            source,
+            timeout=20.0,
+            follow_redirects=True,
+            proxy=proxy,
+            headers=headers,
+        )
+    except (httpx.HTTPError, OSError) as exc:
+        # ConnectError / TimeoutException 等 transport 异常统一包装为
+        # RuntimeError：外层 check_update 只捕获 RuntimeError 做单源降级，
+        # 避免某个源断连中断整个 DS-10。
+        raise RuntimeError(f"外部源请求失败: {source}: {exc}") from exc
     if response.status_code == 304:
         # 条件请求命中：内容与上次相同
         return None, {}
@@ -132,7 +158,11 @@ def _fetch_payload_with_meta(
 
 
 def _load_prev_fp_map() -> dict[str, dict[str, str]]:
-    """解析上次提交的按源 fingerprint 映射（cv_id 列 JSON）。"""
+    """解析上次提交的按源 fingerprint 映射（cv_id 列 JSON）。
+
+    旧版本曾以完整 URL（可能含 ?token= 凭据）为 key 写入；加载时统一
+    换算为 sha256 指纹 key，此后读写均不再出现明文 URL。
+    """
     raw = load_source_fingerprint(SOURCE_ID)
     if not raw:
         return {}
@@ -142,7 +172,14 @@ def _load_prev_fp_map() -> dict[str, dict[str, str]]:
         return {}
     if not isinstance(parsed, dict):
         return {}
-    return {str(key): value for key, value in parsed.items() if isinstance(value, dict)}
+    result: dict[str, dict[str, str]] = {}
+    for key, value in parsed.items():
+        if not isinstance(value, dict):
+            continue
+        raw_key = str(key)
+        norm_key = raw_key if _looks_like_hash_key(raw_key) else _source_key(raw_key)
+        result[norm_key] = value
+    return result
 
 
 def _extract_dynamic_ids(payload: object) -> list[str]:
@@ -178,29 +215,35 @@ def check_update(*, force: bool = False) -> CheckResult:
     now = int(time.time())
 
     prev_map = _load_prev_fp_map()
+    # 只保留当前 sources 对应的 key：配置里已移除的源（或指纹格式变化）
+    # 不得残留旧 fingerprint，避免 map 无限增长。
+    current_keys = {_source_key(source) for source in sources}
+    new_map: dict[str, dict[str, str]] = {
+        key: dict(value) for key, value in prev_map.items() if key in current_keys
+    }
     # 以旧映射为基底：部分源失败时保留其旧 fingerprint/条件请求头（否则
     # commit 会丢掉失败源的 meta，下次被迫全量拉取并重复触发流水线）
-    new_map: dict[str, dict[str, str]] = dict(prev_map)
     links: list[str] = []
     errors: list[str] = []
     changed = False
     for source in sources:
+        key = _source_key(source)
         try:
             # force 时不带上次条件头：必须拿到 200 全量内容，强制按"有变化"处理
-            prev_meta = None if force else prev_map.get(source)
+            prev_meta = None if force else prev_map.get(key)
             payload, meta = _fetch_payload_with_meta(source, prev_meta)
         except RuntimeError as exc:
             errors.append(str(exc))
             continue
         if payload is None:
             # HTTP 304：内容未变化，保留上次指纹与条件请求头
-            new_map[source] = dict(prev_map.get(source) or {})
+            new_map[key] = dict(prev_map.get(key) or {})
             continue
         fp = _payload_fingerprint(payload)
         entry: dict[str, str] = {"fp": fp}
         entry.update(meta)
-        new_map[source] = entry
-        prev_entry = prev_map.get(source) or {}
+        new_map[key] = entry
+        prev_entry = prev_map.get(key) or {}
         # 变化判定：内容指纹变化，或条件请求头（etag/lm）轮换。
         # mtime 不参与判定（file:// 源每次读取都会变，仅作记录）。
         # 链接只在内容真正变化时收集；etag 轮换仅推进指纹避免重复全量拉取。

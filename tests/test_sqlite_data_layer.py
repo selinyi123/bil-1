@@ -83,6 +83,106 @@ def test_init_db_hard_fails_on_future_schema(isolated_home: Path) -> None:
         assert int(meta.version) == SCHEMA_VERSION + 1
 
 
+def test_init_db_meta_row_missing_with_business_table_fails_closed(isolated_home: Path) -> None:
+    """#31：schema_meta 行缺失但存在业务表 → 拒绝启动（fail-closed），
+    绝不把元数据损坏的旧库标记为最新版本。"""
+    from sqlalchemy import text as sql_text
+
+    init_db()
+    with session_scope() as session:
+        session.execute(sql_text("DELETE FROM schema_meta WHERE id=1"))
+        session.commit()
+    with pytest.raises(RuntimeError, match="元数据"):
+        init_db()
+    # 拒绝启动时版本行必须保持缺失（未被写回"最新版本"）
+    with session_scope() as session:
+        assert session.get(SchemaMeta, 1) is None
+
+
+def test_init_db_meta_row_missing_fresh_db_initializes(isolated_home: Path) -> None:
+    """#31：仅 schema_meta 空表（无业务表）→ 视为真全新库，正常补齐并建表。"""
+    from sqlalchemy import text as sql_text
+
+    from src.db.engine import db_path, get_engine, reset_engine_for_tests
+
+    reset_engine_for_tests()
+    if db_path().exists():
+        db_path().unlink()
+    engine = get_engine()
+    with engine.begin() as conn:
+        conn.execute(sql_text("CREATE TABLE schema_meta (id INTEGER PRIMARY KEY, version INTEGER)"))
+    init_db()
+    with session_scope() as session:
+        meta = session.get(SchemaMeta, 1)
+        assert meta is not None
+        assert int(meta.version) == SCHEMA_VERSION
+        # create_all 已补建全部业务表
+        assert (
+            session.execute(
+                sql_text("SELECT 1 FROM sqlite_master WHERE type='table' AND name='jobs'")
+            ).fetchone()
+            is not None
+        )
+
+
+def test_load_watch_sync_dict_fallback_users_failed_type(isolated_home: Path) -> None:
+    """#24：raw_json 缺失走列 fallback 时，users_failed 必须保持 list 类型。"""
+    from sqlalchemy import text as sql_text
+
+    from src.db.snapshots import load_watch_sync_dict, save_watch_sync_dict
+
+    save_watch_sync_dict(
+        {
+            "source_id": "WATCH",
+            "synced_at": 1,
+            "window_start": 1,
+            "window_end": 2,
+            "checked_at": 1,
+            "activity_links": [],
+            "link_count": 0,
+            "users_total": 1,
+            "users_ok": 0,
+            "users_failed": [{"mid": 1, "name": "a", "message": "x"}],
+            "user_results": [],
+        }
+    )
+    # 清空 raw_json，强制走列 fallback 路径
+    with session_scope() as session:
+        session.execute(sql_text("UPDATE watch_sync_snapshots SET raw_json='' WHERE id=1"))
+        session.commit()
+    payload = load_watch_sync_dict()
+    assert isinstance(payload["users_failed"], list)
+    assert payload["users_failed"] == []
+    assert payload["users_ok"] == 0
+    assert payload["users_total"] == 1
+
+
+def test_get_engine_thread_safe_singleton(isolated_home: Path) -> None:
+    """#32：get_engine 全局 singleton 并发首次创建时返回同一实例、无竞态。"""
+    import threading
+
+    from src.db.engine import get_engine, reset_engine_for_tests
+
+    reset_engine_for_tests()
+    engines: list = []
+    errors: list = []
+
+    def worker() -> None:
+        try:
+            engines.append(get_engine())
+        except Exception as exc:  # noqa: BLE001 - 测试收集
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not errors
+    assert len(engines) == 8
+    assert all(e is engines[0] for e in engines)
+
+
 def test_activity_codec_preserves_business_type_int(isolated_home: Path) -> None:
     _ = isolated_home
     item = {

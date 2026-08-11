@@ -148,6 +148,10 @@ def set_active(uid: int) -> bool:
 
     `BILI_COOKIE` 环境变量生效时拒绝切换（env 显式覆盖身份，避免 UI 显示与
     实际请求身份再次分裂），返回 False 并记录警告。
+
+    原子性加固：先写 cookies.txt（实际请求身份），再写 active（UI 身份）。
+    active 写失败时回滚 cookies.txt 到旧值，避免"实际请求 UID != UI UID"
+    的 I/O 部分失败窗口重新出现。
     """
     with _lock:
         if os.environ.get("BILI_COOKIE", "").strip():
@@ -162,8 +166,24 @@ def set_active(uid: int) -> bool:
         cookie_str = account_path.read_text(encoding="utf-8", errors="replace").strip()
         if not cookie_str:
             return False
-        _materialize_cookie(cookie_str)
-        _write_active_locked(int(uid))
+        old_cookie = (
+            _cookie_path().read_text(encoding="utf-8", errors="replace").strip()
+            if _cookie_path().exists()
+            else None
+        )
+        try:
+            _materialize_cookie(cookie_str)
+            _write_active_locked(int(uid))
+        except OSError:
+            # 回滚：恢复旧 cookie（尽力而为），保持 cookies.txt 与 active 一致
+            try:
+                if old_cookie:
+                    _materialize_cookie(old_cookie)
+                else:
+                    _cookie_path().unlink(missing_ok=True)
+            except OSError:
+                pass
+            return False
         return True
 
 
@@ -172,6 +192,8 @@ def register_login_cookie(cookie_str: str) -> int | None:
 
     `BILI_COOKIE` 环境变量生效时仅登记账号（写入 {uid}.txt），不切换活跃、
     不镜像 cookies.txt——env 显式覆盖身份，避免登录后 UI 显示与实际身份分裂。
+
+    与 set_active 相同的原子性加固：active 写失败时回滚 cookies.txt。
     """
     cookie_str = (cookie_str or "").strip()
     uid = _uid_from_cookie(cookie_str)
@@ -188,13 +210,32 @@ def register_login_cookie(cookie_str: str) -> int | None:
                 uid,
             )
             return uid
-        _materialize_cookie(cookie_str)
-        _write_active_locked(uid)
+        old_cookie = (
+            _cookie_path().read_text(encoding="utf-8", errors="replace").strip()
+            if _cookie_path().exists()
+            else None
+        )
+        try:
+            _materialize_cookie(cookie_str)
+            _write_active_locked(uid)
+        except OSError:
+            try:
+                if old_cookie:
+                    _materialize_cookie(old_cookie)
+                else:
+                    _cookie_path().unlink(missing_ok=True)
+            except OSError:
+                pass
+            return None
         return uid
 
 
 def remove_account(uid: int) -> bool:
-    """删除账号；删除的是活跃账号时清空 cookies.txt 与 active。"""
+    """删除账号（凭据 + 账号级 proxy metadata）；删除的是活跃账号时清空 cookies.txt 与 active。
+
+    保留参与历史与本地活动库（"删除账号" = 移除凭据与账号专属配置，
+    不销毁历史数据；账号重新登录后历史仍可追溯）。
+    """
     with _lock:
         account_path = _accounts_dir() / f"{int(uid)}.txt"
         if not account_path.exists():
@@ -203,6 +244,11 @@ def remove_account(uid: int) -> bool:
             account_path.unlink()
         except OSError:
             return False
+        # 清理账号级 proxy metadata（accounts/{uid}.json），避免重新登录后旧代理复活
+        try:
+            _account_meta_path(uid).unlink(missing_ok=True)
+        except OSError:
+            pass
         active_uid = _read_active_uid_locked()
         if active_uid == int(uid):
             _cookie_path().unlink(missing_ok=True)

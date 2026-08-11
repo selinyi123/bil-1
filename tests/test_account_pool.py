@@ -209,3 +209,34 @@ def test_proxy_json_hot_reload(isolated_home, monkeypatch) -> None:
 
     path.unlink()
     assert get_proxy_url() is None
+
+
+def test_remove_account_cleans_proxy_metadata(isolated_home) -> None:
+    """删除账号必须同时清理账号级 proxy metadata（accounts/{uid}.json），
+    避免重新登录同一 uid 后旧代理复活。"""
+    account_pool.register_login_cookie(COOKIE_A)
+    assert account_pool.set_account_proxy(1001, "http://127.0.0.1:1080") is True
+    assert (app_paths.accounts_dir() / "1001.json").exists()
+
+    assert account_pool.remove_account(1001) is True
+    assert not (app_paths.accounts_dir() / "1001.txt").exists()
+    assert not (app_paths.accounts_dir() / "1001.json").exists()  # proxy metadata 已清
+    assert get_proxy_url(uid=1001) is None
+
+
+def test_set_active_rolls_back_cookie_on_active_write_failure(isolated_home, monkeypatch) -> None:
+    """set_active 原子性：active 文件写失败时回滚 cookies.txt 到旧值，
+    避免"实际请求 UID != UI UID"的 I/O 部分失败窗口。"""
+    account_pool.register_login_cookie(COOKIE_A)  # 活跃 A，cookies.txt=A
+    account_pool.register_login_cookie(COOKIE_B)  # 切到 B，cookies.txt=B
+    assert account_pool.get_active_uid() == 1002
+
+    def _fail_write_active(uid):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("src.account_pool._write_active_locked", _fail_write_active)
+    # 切回 A：active 写失败 → 整体失败，cookies.txt 回滚为 B（保持与 active=1002 一致）
+    assert account_pool.set_active(1001) is False
+    assert account_pool.get_active_uid() == 1002  # active 仍是 B
+    cookie_text = app_paths.cookie_file().read_text(encoding="utf-8")
+    assert "DedeUserID=1002" in cookie_text  # cookies.txt 回滚为 B，未分裂

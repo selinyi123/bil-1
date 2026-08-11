@@ -8,7 +8,7 @@ import json
 
 import pytest
 
-from src.sources.common import commit_source_checkpoint
+from src.sources.common import commit_source_checkpoint, load_source_fingerprint
 from src.sources.ds10_api import _extract_dynamic_ids as api_extract
 from src.sources.ds8_manual import _read_manual_ids, check_update as manual_check
 from src.sources.ds9_tags import _extract_dynamic_ids as tag_extract
@@ -431,7 +431,7 @@ def test_ds10_partial_failure_preserves_previous_meta(isolated_home, tmp_path, m
     """部分源失败时，失败源的旧 fingerprint 必须保留在提交结果中（下次可继续增量）。"""
     import json as json_mod
 
-    from src.sources.ds10_api import check_update
+    from src.sources.ds10_api import _source_key, check_update
 
     src_a = tmp_path / "a.json"
     src_a.write_text(json.dumps({"dynamic_ids": [VALID_ID]}), encoding="utf-8")
@@ -445,7 +445,7 @@ def test_ds10_partial_failure_preserves_previous_meta(isolated_home, tmp_path, m
     assert r1.updated is True
     commit_source_checkpoint(r1)
     prev_map = json_mod.loads(r1.cv_id)
-    key_b = f"file://{src_b.as_posix()}"
+    key_b = _source_key(f"file://{src_b.as_posix()}")
     assert key_b in prev_map
     b_old_fp = prev_map[key_b]["fp"]
 
@@ -456,3 +456,99 @@ def test_ds10_partial_failure_preserves_previous_meta(isolated_home, tmp_path, m
     assert r2.updated is True
     new_map = json_mod.loads(r2.cv_id)
     assert new_map[key_b]["fp"] == b_old_fp  # 失败源旧指纹未丢失
+
+
+def test_ds10_single_source_transport_error_does_not_abort(
+    isolated_home, tmp_path, monkeypatch
+) -> None:
+    """#20：单个 HTTP 源抛 httpx.ConnectError 时包装为 RuntimeError 降级，
+    不中断其它源；整体绝不静默伪装成"无更新"。"""
+    import httpx as _httpx
+
+    from src.sources.ds10_api import check_update
+
+    src_b = tmp_path / "b.json"
+    src_b.write_text(json.dumps({"dynamic_ids": [VALID_ID]}), encoding="utf-8")
+    _write_ds10_conf(tmp_path, "https://bad.example/feed.json", f"file://{src_b.as_posix()}")
+    monkeypatch.setattr("src.sources.ds10_api.CONFIG_FILE", tmp_path / "api_sources.txt")
+
+    def fake_get(url, timeout, follow_redirects, proxy, headers=None):
+        raise _httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(_httpx, "get", fake_get)
+
+    result = check_update()
+    assert result.updated is True
+    assert VALID_ID in " ".join(result.activity_links)
+
+
+def test_ds10_all_sources_transport_error_raises(isolated_home, tmp_path, monkeypatch) -> None:
+    """#20：所有源都因 transport 错误失败时，必须抛 RuntimeError（计入整体失败）。"""
+    import httpx as _httpx
+
+    from src.sources.ds10_api import check_update
+
+    _write_ds10_conf(tmp_path, "https://bad.example/feed.json")
+    monkeypatch.setattr("src.sources.ds10_api.CONFIG_FILE", tmp_path / "api_sources.txt")
+
+    def fake_get(url, timeout, follow_redirects, proxy, headers=None):
+        raise _httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(_httpx, "get", fake_get)
+
+    with pytest.raises(RuntimeError, match="全部外部源失败"):
+        check_update()
+
+
+def test_ds10_file_source_oserror_wrapped(isolated_home, tmp_path, monkeypatch) -> None:
+    """#20：file:// 源读取抛 OSError（如 read_text 对目录）时包装为 RuntimeError。"""
+    from src.sources.ds10_api import _fetch_payload_with_meta
+
+    src_dir = tmp_path / "feed_dir"
+    src_dir.mkdir()
+    with pytest.raises(RuntimeError, match="外部源读取失败"):
+        _fetch_payload_with_meta(f"file://{src_dir.as_posix()}", None)
+
+
+def test_ds10_fingerprint_key_is_hashed_not_plaintext(isolated_home, tmp_path, monkeypatch) -> None:
+    """#21：fingerprint map 的 key 是 URL 的 sha256；cv_id 落库内容不含明文 URL（token 不落库）。"""
+    from src.sources.ds10_api import _source_key, check_update
+
+    src_a = tmp_path / "a.json"
+    src_a.write_text(json.dumps({"dynamic_ids": [VALID_ID]}), encoding="utf-8")
+    _write_ds10_conf(tmp_path, f"file://{src_a.as_posix()}")
+    monkeypatch.setattr("src.sources.ds10_api.CONFIG_FILE", tmp_path / "api_sources.txt")
+
+    r1 = check_update()
+    assert r1.updated is True
+    commit_source_checkpoint(r1)
+    stored = load_source_fingerprint("DS-10")
+    assert stored is not None
+    parsed = json.loads(stored)
+    url = f"file://{src_a.as_posix()}"
+    assert _source_key(url) in parsed
+    assert url not in stored
+
+
+def test_ds10_removed_source_key_purged(isolated_home, tmp_path, monkeypatch) -> None:
+    """#22：配置里移除的源其旧 fingerprint key 必须被清理，不得残留在新映射中。"""
+    from src.sources.ds10_api import _source_key, check_update
+
+    src_a = tmp_path / "a.json"
+    src_a.write_text(json.dumps({"dynamic_ids": [VALID_ID]}), encoding="utf-8")
+    _write_ds10_conf(tmp_path, f"file://{src_a.as_posix()}")
+    monkeypatch.setattr("src.sources.ds10_api.CONFIG_FILE", tmp_path / "api_sources.txt")
+
+    r1 = check_update()
+    assert r1.updated is True
+    commit_source_checkpoint(r1)
+
+    # 移除 a，换成 b → b 是首次（updated=True），且 a 的 key 必须被清理
+    src_b = tmp_path / "b.json"
+    src_b.write_text(json.dumps({"dynamic_ids": [VALID_ID2]}), encoding="utf-8")
+    _write_ds10_conf(tmp_path, f"file://{src_b.as_posix()}")
+    r2 = check_update()
+    assert r2.updated is True
+    new_map = json.loads(r2.cv_id)
+    assert _source_key(f"file://{src_b.as_posix()}") in new_map
+    assert _source_key(f"file://{src_a.as_posix()}") not in new_map

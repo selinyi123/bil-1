@@ -89,10 +89,11 @@ def check_prize_draw(
 ) -> dict[str, Any]:
     """执行中奖深检。
 
-    返回 {at, reply, dm, total, pushed, send_result}：
+    返回 {at, reply, dm, total, pushed, delivered, acknowledged, send_result}：
     - at/reply：命中的通知条目列表
     - dm：命中的私信会话 [{talker_id, talker_name, entries}]
-    - pushed：是否触发推送
+    - delivered：是否至少一个通知渠道确认送达（不再"调用了 send_notify 就算成功"）
+    - acknowledged：私信是否已被标记已读（仅在确认送达后才标记，避免吞掉中奖提醒）
     """
     patterns = keywords if keywords is not None else DEFAULT_KEYWORDS
     results: dict[str, Any] = {"at": [], "reply": [], "dm": []}
@@ -115,8 +116,9 @@ def check_prize_draw(
     except RuntimeError:
         results["reply"] = []
 
-    # 私信（未读会话拉取 + 判定 + 标记已读）
+    # 私信（未读会话拉取 + 判定；标记已读推迟到确认送达之后，见下方）
     dm_hits: list[dict[str, Any]] = []
+    dm_pending_ack: list[tuple[int, int]] = []  # (talker_id, seqno)
     try:
         sessions = list_dm_sessions(client, size=max_dm_sessions)
         for session in sessions:
@@ -144,8 +146,8 @@ def check_prize_draw(
                         "entries": hits,
                     }
                 )
-                # 仅在命中关键词时标记已读：避免关键词漏判时吞掉真实中奖私信
-                mark_dm_read(client, session.talker_id, seqno=int(session.raw.get("last_msg_seqno") or 0) if session.raw else 0)
+                seqno = int(session.raw.get("last_msg_seqno") or 0) if session.raw else 0
+                dm_pending_ack.append((session.talker_id, seqno))
     except RuntimeError:
         pass
     results["dm"] = dm_hits
@@ -153,12 +155,26 @@ def check_prize_draw(
     total = len(results["at"]) + len(results["reply"]) + sum(len(item.get("entries") or []) for item in dm_hits)
     results["total"] = total
 
-    pushed = False
+    delivered = False
+    acknowledged = False
     send_result: dict[str, Any] = {"sent": [], "skipped": []}
     if push and total > 0:
         desp = _build_desp(results)
         send_result = send_notify("Binggo：账号可能中奖了", desp)
-        pushed = True
-    results["pushed"] = pushed
+        # 送达确认：至少一个渠道被 provider 确认成功才视为已送达。
+        # 未送达（全部渠道失败 / push=False）时**不标记私信已读**，
+        # 保留未读状态供下次扫描继续提醒（修复：此前送达前就 mark read 会吞掉中奖提醒）。
+        delivered = bool(send_result.get("sent"))
+        if delivered and dm_pending_ack:
+            ack_ok = True
+            for talker_id, seqno in dm_pending_ack:
+                try:
+                    mark_dm_read(client, talker_id, seqno=seqno)
+                except RuntimeError:
+                    ack_ok = False
+            acknowledged = ack_ok
+    results["pushed"] = delivered
+    results["delivered"] = delivered
+    results["acknowledged"] = acknowledged
     results["send_result"] = send_result
     return results

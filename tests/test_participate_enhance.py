@@ -168,14 +168,31 @@ def test_enhance_model_dedupes_at_users() -> None:
     assert dumped["at_users"] == [{"uid": 1, "name": "A"}, {"uid": 2, "name": "C"}]
 
 
-def test_enhance_model_unknown_fields_ignored() -> None:
-    """未知字段被忽略（宽容），不影响已知字段保存。"""
-    dumped = EnhanceSettingsModel.model_validate(
-        {"topic": "#抽奖#", "future_feature": {"x": 1}, "bogus": 42}
-    ).model_dump()
-    assert "future_feature" not in dumped
-    assert "bogus" not in dumped
-    assert dumped["topic"] == "#抽奖#"
+def test_enhance_model_unknown_fields_rejected() -> None:
+    """未知字段（如 shuffle_target 拼写错误）直接校验失败，不再静默吞掉。"""
+    with pytest.raises(ValidationError) as excinfo:
+        EnhanceSettingsModel.model_validate({"topic": "#抽奖#", "shuffle_target": True})
+    message = format_enhance_validation_error(excinfo.value)
+    assert "shuffle_target" in message
+    assert "未知字段" in message
+
+    # 嵌套对象内的未知字段同样拒绝
+    with pytest.raises(ValidationError):
+        EnhanceSettingsModel.model_validate({"copy_chat": {"enabled": True, "bogus_key": 1}})
+
+
+def test_sanitize_tolerates_unknown_fields_in_disk_config() -> None:
+    """磁盘容错加载路径保持宽容：含未知字段的旧配置静默丢弃未知字段，不抛错。"""
+    raw = {
+        "topic": "#抽奖#",
+        "shuffle_target": True,  # typo：模型已 forbid，但 sanitize 必须容忍
+        "future_feature": {"x": 1},
+    }
+    cfg = sanitize_participate_enhance(raw)
+    assert cfg["topic"] == "#抽奖#"
+    assert "shuffle_target" not in cfg
+    assert "future_feature" not in cfg
+    assert set(cfg) == set(DEFAULTS)
 
 
 @pytest.mark.parametrize(

@@ -158,18 +158,18 @@ PARSE_SYSTEM_PROMPT = """## 角色
 ### 示例 E
 正文：「关注并转发，随机揪一位幸运儿，福利见图」
 输出：
-{"is_lottery":false,"prize_description":"","winner_count":0,"lottery_time":null,"need_follow":true,"need_repost":true,"need_comment":false,"confidence":"low"}
+{"is_lottery":false,"prize_description":"","winner_count":0,"lottery_time":null,"need_follow":false,"need_repost":false,"need_comment":false,"confidence":"low"}
 
 ### 示例 F
 正文：「正是七月，本条🤏7位幸运鹅吃新品哦~ #万粉万粉万万粉#」
 输出：
 {"is_lottery":false,"prize_description":"","winner_count":0,"lottery_time":null,"need_follow":false,"need_repost":false,"need_comment":false,"confidence":"low"}
 
-### 示例 G（已过期开奖日仍须填日历串）
+### 示例 G
 正文：「关注并转发并评论即可参与；开奖日期：2026年7月8日」
 参考时间：2026-07-16 12:00:00（星期四，UTC+8）
 输出：
-{"is_lottery":true,"prize_description":"鼠标","winner_count":0,"lottery_time":"2026-07-08 00:00","need_follow":true,"need_repost":true,"need_comment":true,"confidence":"medium"}
+{"is_lottery":false,"prize_description":"","winner_count":0,"lottery_time":null,"need_follow":false,"need_repost":false,"need_comment":false,"confidence":"low"}
 
 ### 示例 H（相对日期）
 正文：「关注转发，下周五晚8点开奖，抽 3 人送周边」
@@ -609,7 +609,7 @@ def _normalize_classify_parsed(raw: dict[str, Any]) -> dict[str, Any]:
         confidence = "medium"
     return {
         "classify_parser_version": CLASSIFY_PARSER_VERSION,
-        "is_lottery": bool(raw.get("is_lottery", False)),
+        "is_lottery": _strict_bool(raw.get("is_lottery")),
         "confidence": confidence,
     }
 
@@ -642,6 +642,27 @@ def classify_forward_lottery(dynamic_id: str, content_text: str) -> dict[str, An
     return parsed
 
 
+def _strict_bool(value: Any, default: bool = False) -> bool:
+    """严格布尔解析：仅接受 True/False/"true"/"false"/1/0/"1"/"0"（字符串大小写不敏感）。
+
+    其它值（null、缺失、数字字符串、浮点等）一律返回 default，避免字符串
+    "false"/"0" 被 Python truthiness 误判为 True。
+    """
+    if isinstance(value, bool):
+        return value
+    if value == 1:
+        return True
+    if value == 0:
+        return False
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in {"true", "1"}:
+            return True
+        if text in {"false", "0"}:
+            return False
+    return default
+
+
 def _coerce_lottery_time(value: Any) -> str | None:
     """仅接受严格的 YYYY-MM-DD HH:mm；其它一律视为未识别。"""
     if value is None:
@@ -667,13 +688,13 @@ def _normalize_parsed(raw: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "parser_version": PARSER_VERSION,
-        "is_lottery": bool(raw.get("is_lottery", False)),
+        "is_lottery": _strict_bool(raw.get("is_lottery")),
         "prize_description": str(raw.get("prize_description") or "").strip(),
         "winner_count": winner_count,
         "lottery_time": _coerce_lottery_time(raw.get("lottery_time")),
-        "need_follow": bool(raw.get("need_follow")),
-        "need_repost": bool(raw.get("need_repost")),
-        "need_comment": bool(raw.get("need_comment")),
+        "need_follow": _strict_bool(raw.get("need_follow")),
+        "need_repost": _strict_bool(raw.get("need_repost")),
+        "need_comment": _strict_bool(raw.get("need_comment")),
         "confidence": confidence,
     }
 

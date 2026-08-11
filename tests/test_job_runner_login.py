@@ -183,6 +183,8 @@ def test_triple_internal_failure_becomes_error_with_partial_results(isolated_hom
     row = get_job(job_id)
     assert row is not None
     assert row["state"] == "error"
+    # 业务部分失败应有独立 error_kind，不得污染"内部程序异常"统计
+    assert row["error_kind"] == "business_partial"
 
 
 def test_a1_rejects_second_start(isolated_home: Path) -> None:

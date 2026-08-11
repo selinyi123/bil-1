@@ -1169,7 +1169,7 @@ def run_action(
         }
 
     if action == "check_prize":
-        # 中奖深检（@/回复/私信 + 关键词 + 标记已读 + 推送）
+        # 中奖深检（@/回复/私信 + 关键词 + 推送；送达确认后才标记私信已读）
         from src.draw_check import _build_desp, check_prize_draw
 
         def on_step(step: int, total: int, message: str, **_kwargs: Any) -> None:
@@ -1179,16 +1179,32 @@ def run_action(
         with BilibiliClient() as client:
             result = check_prize_draw(client, push=bool(params.get("push", True)))
         total_hits = result["total"]
-        pushed = result["pushed"]
-        message = f"中奖深检完成：命中 {total_hits} 条" + ("，已推送通知" if pushed else "")
+        delivered = result["delivered"]
+        acknowledged = result["acknowledged"]
+        if total_hits and not delivered:
+            delivery_note = "，命中但通知未送达（私信保留未读）"
+        elif delivered and not acknowledged:
+            delivery_note = "，已推送但私信标记已读失败（可能重复提醒）"
+        elif delivered:
+            delivery_note = "，已推送通知"
+        else:
+            delivery_note = ""
+        message = f"中奖深检完成：命中 {total_hits} 条{delivery_note}"
         progress(step=2, total=2, message=message)
-        logger.info("中奖深检 done total=%s pushed=%s", total_hits, pushed)
+        logger.info(
+            "中奖深检 done total=%s delivered=%s acknowledged=%s",
+            total_hits,
+            delivered,
+            acknowledged,
+        )
         return {
             "ok": True,
             "message": message,
             "result": {
                 "total": total_hits,
-                "pushed": pushed,
+                "pushed": delivered,
+                "delivered": delivered,
+                "acknowledged": acknowledged,
                 "at_count": len(result.get("at") or []),
                 "reply_count": len(result.get("reply") or []),
                 "dm_count": len(result.get("dm") or []),

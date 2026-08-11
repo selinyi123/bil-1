@@ -105,7 +105,9 @@ def load_watch_sync_dict() -> dict[str, Any] | None:
             "link_count": row.link_count,
             "users_total": row.users_total,
             "users_ok": row.users_ok,
-            "users_failed": row.users_failed,
+            # users_failed 列是 int（失败计数），无法还原失败明细；
+            # 固定返回 list[dict] 结构与 raw_json 路径保持一致（缺失时回退空列表）。
+            "users_failed": [],
             "user_results": loads_json(row.user_results_json, default=[]),
         }
 

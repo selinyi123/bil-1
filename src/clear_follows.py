@@ -26,10 +26,13 @@ DEFAULT_PARTITION_NAME = "抽奖临时关注"
 
 
 def _owned_repost_dynamic_ids() -> frozenset[str]:
-    """收集 Binggo 自己创建的转发动态 ID（归属台账）。
+    """收集 Binggo **真实创建**的转发动态 ID（归属台账）。
 
     判定：当前 uid 的 participation_actions 中存在该动态记录，
-    且 status == "joined"、actions_json 中 repost 动作 ok=True。
+    且 status == "joined"、actions_json 中 repost 动作 ok=True，
+    且 repost 的 detail **不含"已转发"**（Binggo 本次真实 POST 创建了新转发；
+    若参与前探测到用户已手动转发，repost 会记 ok=True 但 detail 为"已转发"，
+    那条转发并非 Binggo 创建，不得纳入可删除集合）。
     任何异常或无法确认时返回空集 —— **宁可不删，不可误删**。
     """
     try:
@@ -50,18 +53,23 @@ def _owned_repost_dynamic_ids() -> frozenset[str]:
                     ParticipationActionRow.status == "joined",
                 )
             ).all()
-        for row in rows:
-            if not row.dynamic_id:
-                continue
-            try:
-                actions = json.loads(row.actions_json or "[]")
-            except ValueError:
-                actions = []
-            if any(
-                isinstance(a, dict) and a.get("action") == "repost" and a.get("ok")
-                for a in actions
-            ):
-                owned.add(str(row.dynamic_id))
+            # 注意：必须在 session 存活期间读取字段（块外访问会触发
+            # DetachedInstanceError，被外层 except 吞掉导致整个函数静默返回空集）
+            for row in rows:
+                if not row.dynamic_id:
+                    continue
+                try:
+                    actions = json.loads(row.actions_json or "[]")
+                except ValueError:
+                    actions = []
+                if any(
+                    isinstance(a, dict)
+                    and a.get("action") == "repost"
+                    and a.get("ok")
+                    and "已转发" not in str(a.get("detail") or "")
+                    for a in actions
+                ):
+                    owned.add(str(row.dynamic_id))
         return frozenset(owned)
     except Exception:
         return frozenset()

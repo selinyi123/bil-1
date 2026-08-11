@@ -112,7 +112,11 @@ def test_telegram_http_401_not_fake_success(isolated_home, monkeypatch) -> None:
 
 
 def test_feishu_signature_correct(isolated_home, monkeypatch) -> None:
-    """飞书签名：HMAC-SHA256(key=secret, msg=f"{ts}\\n{secret}")，参数顺序不能颠倒。"""
+    """飞书官方签名：HMAC-SHA256(key=f"{timestamp}\\n{secret}", msg=空串) 再 Base64。
+
+    固定向量按官方协议独立计算（key 是 timestamp\\nsecret，消息体为空），
+    生产实现必须与之匹配；若把 key/msg 写反会得到 19021 sign match fail。
+    """
     import base64
     import hashlib
     import hmac
@@ -137,18 +141,49 @@ def test_feishu_signature_correct(isolated_home, monkeypatch) -> None:
         return FakeResponse()
 
     monkeypatch.setattr(httpx, "post", fake_post)
+    # 固定时间戳，保证签名可复现
+    monkeypatch.setattr(time_mod, "time", lambda: 1700000000)
 
     cfg = {"webhook": "https://open.feishu.cn/open-apis/bot/v2/hook/x", "secret": "my-secret"}
     result = module._feishu(cfg, "标题", "内容")
 
     assert result == "feishu"
     payload = captured["json"]
-    ts = payload["timestamp"]
-    string_to_sign = f"{ts}\nmy-secret"
+    assert payload["timestamp"] == "1700000000"
+    string_to_sign = "1700000000\nmy-secret"
+    # 官方算法：HMAC 的 key 是 string_to_sign，消息为空字节串
     expected = base64.b64encode(
-        hmac.new(b"my-secret", string_to_sign.encode(), hashlib.sha256).digest()
+        hmac.new(string_to_sign.encode(), digestmod=hashlib.sha256).digest()
     ).decode()
     assert payload["sign"] == expected
+    # 反向（错误）算法必须不匹配，防止回归到旧实现
+    wrong = base64.b64encode(
+        hmac.new(b"my-secret", string_to_sign.encode(), hashlib.sha256).digest()
+    ).decode()
+    assert payload["sign"] != wrong
+
+
+def test_http_ok_malformed_business_code_fails_closed(isolated_home, monkeypatch) -> None:
+    """provider 明确给了业务码但无法解析（如 code="ERROR"）→ 视为失败（fail-closed）。"""
+    import httpx
+
+    import src.notify as module
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"code": "ERROR", "message": "boom"}
+
+    assert module._http_ok(FakeResponse(), ok_codes=(0,)) is False
+    # 数字业务码正常判定不受影响
+    class OkResponse:
+        status_code = 200
+
+        def json(self):
+            return {"code": 0}
+
+    assert module._http_ok(OkResponse(), ok_codes=(0,)) is True
 
 
 def test_feishu_business_error_not_fake_success(isolated_home, monkeypatch) -> None:

@@ -132,7 +132,9 @@ def sync_watch_forwards(
     activity_links = _dedupe_activity_links(window_links)
     users_ok = len([u for u in user_results if u.ok])
 
-    if not activity_links and failed:
+    # 仅当全部用户均失败（users_ok == 0）才整体抛错；
+    # "部分用户成功但恰好没有转发"不视为整体失败。
+    if users_ok == 0 and total > 0:
         raise RuntimeError(
             f"全部 {total} 个监控用户扫描均失败，无可用链接"
         )

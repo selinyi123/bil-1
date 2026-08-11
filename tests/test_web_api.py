@@ -229,3 +229,56 @@ def test_switch_account_success(monkeypatch) -> None:
         resp = client.post("/api/accounts/switch", json={"uid": 1001})
     assert resp.status_code == 200
     assert resp.json()["active_uid"] == 1001
+
+
+# ---------- /api/logout（P1：BILI_COOKIE env 模式拒绝假成功） ----------
+
+
+def test_logout_rejects_under_env_cookie(monkeypatch) -> None:
+    """BILI_COOKIE env 管理登录态时，logout 返回明确错误而非假成功。"""
+    monkeypatch.setenv("BILI_COOKIE", "SESSDATA=x; DedeUserID=1001")
+    resp = client.post("/api/logout")
+    assert resp.status_code == 400
+    assert "BILI_COOKIE" in resp.json()["error"]["message"]
+
+
+# ---------- LocalControlPlaneGuard（P0/P1 #2：Host/Origin 校验） ----------
+
+
+def test_guard_rejects_foreign_host() -> None:
+    """Host 非回环地址（DNS rebinding 特征）→ 403，在路由前拦截。"""
+    resp = client.get("/api/activities", headers={"host": "evil.example.com"})
+    assert resp.status_code == 403
+
+
+def test_guard_rejects_foreign_origin_on_mutation() -> None:
+    """跨站 mutation（Origin 非本机）→ 403，恶意网页无法触发 /api 写操作。"""
+    resp = client.post("/api/jobs", json={}, headers={"origin": "https://evil.example.com"})
+    assert resp.status_code == 403
+
+
+def test_guard_allows_local_origin_and_host() -> None:
+    """本机 Origin + 本机 Host 放行到业务层（此处 /api/jobs 参数校验 422 而非 403）。"""
+    resp = client.post(
+        "/api/jobs",
+        json={},
+        headers={"origin": "http://127.0.0.1:8787", "host": "127.0.0.1:8787"},
+    )
+    assert resp.status_code != 403
+
+
+# ---------- /api/jobs 前置政策（P2 #25：check_prize/clear_follows 需登录） ----------
+
+
+def test_clear_follows_job_requires_login() -> None:
+    """clear_follows 属于登录前置集合：未登录时 401，不得先创建后台 job。"""
+    with patch("web.app.get_account_profile", return_value={"logged_in": False}):
+        resp = client.post("/api/jobs", json={"action": "clear_follows", "params": {}})
+    assert resp.status_code == 401
+
+
+def test_check_prize_job_requires_login() -> None:
+    """check_prize 属于登录前置集合：未登录时 401。"""
+    with patch("web.app.get_account_profile", return_value={"logged_in": False}):
+        resp = client.post("/api/jobs", json={"action": "check_prize", "params": {}})
+    assert resp.status_code == 401

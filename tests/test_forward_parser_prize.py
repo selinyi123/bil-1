@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from src.forward_parser import PARSER_VERSION, _normalize_parsed, parse_forward_content
+from src.forward_parser import (
+    PARSER_VERSION,
+    PARSE_SYSTEM_PROMPT,
+    _normalize_classify_parsed,
+    _normalize_parsed,
+    parse_forward_content,
+)
 
 HEIGU_CONTENT = """霜落之声，微不可察❄️
 子弹上膛，一触即发🚄
@@ -60,6 +66,54 @@ def test_normalize_parsed_lottery_time_strict_format() -> None:
         }
     )
     assert bad["lottery_time"] is None
+
+
+def test_normalize_parsed_strict_bool() -> None:
+    assert _normalize_parsed({"is_lottery": "false"})["is_lottery"] is False
+    assert _normalize_parsed({"is_lottery": "true"})["is_lottery"] is True
+    assert _normalize_parsed({"is_lottery": "TRUE"})["is_lottery"] is True
+    assert _normalize_parsed({"is_lottery": 1})["is_lottery"] is True
+    assert _normalize_parsed({"is_lottery": 0})["is_lottery"] is False
+    assert _normalize_parsed({})["is_lottery"] is False
+    assert _normalize_parsed({"is_lottery": None})["is_lottery"] is False
+    assert _normalize_parsed({"is_lottery": "2"})["is_lottery"] is False
+
+
+def test_normalize_parsed_need_fields_strict_bool() -> None:
+    parsed = _normalize_parsed(
+        {"need_follow": "false", "need_repost": "0", "need_comment": "true"}
+    )
+    assert parsed["need_follow"] is False
+    assert parsed["need_repost"] is False
+    assert parsed["need_comment"] is True
+    assert parsed["is_lottery"] is False
+
+
+def test_normalize_classify_parsed_strict_bool() -> None:
+    assert _normalize_classify_parsed({"is_lottery": "false"})["is_lottery"] is False
+    assert _normalize_classify_parsed({"is_lottery": "1"})["is_lottery"] is True
+    assert _normalize_classify_parsed({"is_lottery": 0})["is_lottery"] is False
+    assert _normalize_classify_parsed({})["is_lottery"] is False
+
+
+def test_parse_system_prompt_example_g_has_no_invented_prize() -> None:
+    g_block = PARSE_SYSTEM_PROMPT.split("### 示例 G")[1].split("### 示例 H")[0]
+    # 误导性标题说明已删除
+    assert "已过期开奖日仍须填日历串" not in g_block
+    # 正文无奖品 → is_lottery=false，prize_description 为空，与规则一致
+    assert (
+        '{"is_lottery":false,"prize_description":"","winner_count":0,'
+        '"lottery_time":null,"need_follow":false,"need_repost":false,'
+        '"need_comment":false,"confidence":"low"}' in g_block
+    )
+
+
+def test_parse_system_prompt_example_e_consistent_with_false_rules() -> None:
+    e_block = PARSE_SYSTEM_PROMPT.split("### 示例 E")[1].split("### 示例 F")[0]
+    # is_lottery=false 时 need_* 均为 false（规则一致性），不得再输出 true
+    assert '"need_follow":false' in e_block
+    assert '"need_repost":false' in e_block
+    assert '"confidence":"low"' in e_block
 
 
 def test_parse_forward_content_implicit_product_prize(monkeypatch) -> None:

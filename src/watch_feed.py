@@ -107,8 +107,13 @@ def collect_forward_links_for_user(
     since_ts: int,
     until_ts: int | None = None,
     max_pages: int = DEFAULT_MAX_PAGES,
+    stats: dict | None = None,
 ) -> list[ForwardLink]:
-    """扫描单个用户在时间窗口内的转发原动态（仅 DYNAMIC_TYPE_FORWARD）。"""
+    """扫描单个用户在时间窗口内的转发原动态（仅 DYNAMIC_TYPE_FORWARD）。
+
+    stats（可选）传入 dict 时记录 `skipped_no_pub_ts`：pub_ts 缺失而无法
+    判定是否落在时间窗口内的条目数（这些条目不收集、不伪造时间戳）。
+    """
     upper = int(until_ts if until_ts is not None else time.time())
     lower = int(since_ts)
     if lower > upper:
@@ -117,6 +122,7 @@ def collect_forward_links_for_user(
     offset = ""
     collected: list[ForwardLink] = []
     seen_dynamic: set[str] = set()
+    skipped_no_ts = 0
 
     for _ in range(max(1, max_pages)):
         data = _fetch_space_feed_page(client, mid=mid, offset=offset)
@@ -129,9 +135,13 @@ def collect_forward_links_for_user(
             if not isinstance(item, dict):
                 continue
             pub_ts = extract_feed_pub_ts(item)
-            if pub_ts is not None and pub_ts > upper:
+            if pub_ts is None:
+                # 无法判定时间窗口：不收集、不伪造时间戳，计入跳过计数
+                skipped_no_ts += 1
                 continue
-            if pub_ts is not None and pub_ts < lower:
+            if pub_ts > upper:
+                continue
+            if pub_ts < lower:
                 reached_older = True
                 continue
 
@@ -143,7 +153,7 @@ def collect_forward_links_for_user(
                 ForwardLink(
                     dynamic_id=dynamic_id,
                     url=opus_link(dynamic_id),
-                    pub_ts=int(pub_ts or upper),
+                    pub_ts=pub_ts,
                     forward_id=extract_forward_id(item),
                 )
             )
@@ -156,5 +166,8 @@ def collect_forward_links_for_user(
             break
         offset = next_offset
         time.sleep(PAGE_REQUEST_DELAY)
+
+    if stats is not None:
+        stats["skipped_no_pub_ts"] = skipped_no_ts
 
     return collected

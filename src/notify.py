@@ -78,10 +78,11 @@ def _http_ok(response: Any, *, ok_codes: tuple[int, ...] = (0,)) -> bool:
         return True
     if "errcode" in body:
         code = _as_int(body.get("errcode"))
-        return code is None or code in ok_codes
+        # fail-closed：provider 明确给了业务码但无法解析 → 视为失败（中奖通知链路宁严勿宽）
+        return code is not None and code in ok_codes
     if "code" in body:
         code = _as_int(body.get("code"))
-        return code is None or code in ok_codes
+        return code is not None and code in ok_codes
     if "success" in body:
         return body["success"] is True
     if "ok" in body:
@@ -426,9 +427,10 @@ def _feishu(cfg: dict, title: str, desp: str) -> str | None:
         if secret:
             timestamp = str(int(time.time()))
             string_to_sign = f"{timestamp}\n{secret}"
-            # 飞书签名：HMAC-SHA256(key=secret, msg=f"{timestamp}\n{secret}")
+            # 飞书官方签名：HMAC-SHA256(key=f"{timestamp}\n{secret}", msg=空串) 再 Base64。
+            # 注意：key 是 string_to_sign，消息体为空（此前把二者写反导致 19021 sign match fail）。
             sign = base64.b64encode(
-                hmac.new(secret.encode(), string_to_sign.encode(), hashlib.sha256).digest()
+                hmac.new(string_to_sign.encode(), digestmod=hashlib.sha256).digest()
             ).decode()
             payload["timestamp"] = timestamp
             payload["sign"] = sign

@@ -68,9 +68,12 @@ def _require_bool(value: object) -> bool:
 
 
 class AtUserModel(BaseModel):
-    """@ 用户：uid 为纯数字（接受数字/数字字符串，归一化为 int），name 为昵称。"""
+    """@ 用户：uid 为纯数字（接受数字/数字字符串，归一化为 int），name 为昵称。
 
-    model_config = ConfigDict(extra="ignore")
+    HTTP 写入路径：未知字段直接校验失败（拒绝 typo 静默吞掉）。
+    """
+
+    model_config = ConfigDict(extra="forbid")
 
     uid: int
     name: str = Field(default="", max_length=_MAX_NAME_LEN)
@@ -99,7 +102,7 @@ class AtUserModel(BaseModel):
 class CopyChatModel(BaseModel):
     """抄热评：enabled 开关、blockwords 屏蔽词表、exclude_author 剔除作者。"""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     enabled: bool = False
     blockwords: list[str] = Field(default_factory=list)
@@ -128,7 +131,7 @@ class CopyChatModel(BaseModel):
 class ActionIntervalModel(BaseModel):
     """五连动作间隔随机范围（秒）：0 < min <= max，且 max <= 600。"""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     min: float = Field(default=0.75, gt=0)
     max: float = Field(default=2.25, gt=0)
@@ -145,7 +148,7 @@ class ActionIntervalModel(BaseModel):
 class PartitionModel(BaseModel):
     """关注后自动移入的分区：enabled 开关、name 分区名。"""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     enabled: bool = False
     name: str = Field(default="抽奖临时关注", max_length=_MAX_NAME_LEN)
@@ -162,9 +165,14 @@ class PartitionModel(BaseModel):
 
 
 class EnhanceSettingsModel(BaseModel):
-    """参与增强配置完整结构（字段与 DEFAULTS 一一对应，PUT 保存前强校验）。"""
+    """参与增强配置完整结构（字段与 DEFAULTS 一一对应，PUT 保存前强校验）。
 
-    model_config = ConfigDict(extra="ignore")
+    extra="forbid"：HTTP 写入路径上任何未知字段（如 shuffle_target 拼写错误）
+    都直接校验失败，不再静默吞掉。磁盘容错加载由 sanitize_participate_enhance
+    的逐字段 try 兜底，保持宽容。
+    """
+
+    model_config = ConfigDict(extra="forbid")
 
     copy_chat: CopyChatModel = Field(default_factory=CopyChatModel)
     at_users: list[AtUserModel] = Field(default_factory=list)
@@ -260,6 +268,8 @@ def format_enhance_validation_error(exc: ValidationError) -> str:
             msg = "必须是列表"
         elif msg.startswith("Input should be a valid dictionary"):
             msg = "必须是 JSON 对象"
+        elif msg.startswith("Extra inputs are not permitted"):
+            msg = "未知字段"
         elif msg.startswith("String should have at most"):
             msg = "长度超出限制"
         elif msg.startswith("Input should be greater than"):

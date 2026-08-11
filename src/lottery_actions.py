@@ -626,18 +626,21 @@ def execute_full_participation(
     if context.followed:
         actions.append(ActionResult("follow", True, f"uid={context.sender_uid} 已关注，跳过"))
     else:
-        actions.append(follow_user(client, uid=context.sender_uid, csrf=csrf, referer=context.referer))
-        # 关注后自动移入"抽奖临时关注"分区（源自 LAS partition 机制，失败静默）
-        partition_cfg = enhance.get("partition") or {}
-        if partition_cfg.get("enabled", False) and context.sender_uid:
-            try:
-                tagid = _ensure_participate_partition(
-                    client, str(partition_cfg.get("name") or "抽奖临时关注")
-                )
-                if tagid:
-                    client.move_to_relation_tag(context.sender_uid, tagid)
-            except RuntimeError:
-                pass
+        follow_result = follow_user(client, uid=context.sender_uid, csrf=csrf, referer=context.referer)
+        actions.append(follow_result)
+        # 仅关注成功后才移入"抽奖临时关注"分区；关注失败不产生额外副作用
+        # （修复：此前不看 follow_result.ok，失败也会创建/移动分区）
+        if follow_result.ok:
+            partition_cfg = enhance.get("partition") or {}
+            if partition_cfg.get("enabled", False) and context.sender_uid:
+                try:
+                    tagid = _ensure_participate_partition(
+                        client, str(partition_cfg.get("name") or "抽奖临时关注")
+                    )
+                    if tagid:
+                        client.move_to_relation_tag(context.sender_uid, tagid)
+                except RuntimeError:
+                    pass
     _action_sleep()
 
     report_step(3, "favorite")
