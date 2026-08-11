@@ -183,7 +183,7 @@ test.describe("Frontend contract safety", () => {
     await preview.click();
 
     await expect.poll(() => posted).not.toBeNull();
-    const captured = posted as Record<string, any>;
+    const captured = posted as unknown as Record<string, any>;
     expect(captured.action).toBe("participate");
     expect(captured.params?.dry_run).toBe(true);
 
