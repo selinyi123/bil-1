@@ -1,7 +1,8 @@
 """Settings / Data Sources 正式产品路由。
 
 与历史 /api/settings/enhance/notify 分离：这里仅负责新的 typed source settings
-和账号级 Proxy。所有 mutation 在 Job 运行中 fail-closed，避免任务执行期间改变
+和账号级 Proxy。数据源配置属于本地控制面，不要求 B 站登录；Proxy 是账号级配置，
+必须绑定有效账号。所有 mutation 在 Job 运行中 fail-closed，避免任务执行期间改变
 数据源/网络上下文。
 """
 from __future__ import annotations
@@ -40,7 +41,7 @@ router = APIRouter()
 
 def _require_local_account() -> int:
     account = get_account_profile()
-    require_login(account, message="请先扫码登录后再修改设置")
+    require_login(account, message="请先扫码登录后再修改账号级设置")
     ensure_legacy_account()
     uid = resolve_effective_uid()
     if not uid:
@@ -118,13 +119,11 @@ def _proxy_payload(uid: int) -> dict:
 
 @router.get("/api/source-settings", tags=["data-sources"])
 def api_source_settings() -> dict:
-    _require_local_account()
     return {"ok": True, **get_source_settings_payload()}
 
 
 @router.put("/api/source-settings/ds8", tags=["data-sources"])
 def api_update_ds8(request: Ds8SettingsRequest) -> dict:
-    _require_local_account()
     _reject_mutation_while_job_running()
     try:
         values = set_ds8_dynamic_ids(request.dynamic_ids)
@@ -136,7 +135,6 @@ def api_update_ds8(request: Ds8SettingsRequest) -> dict:
 
 @router.put("/api/source-settings/ds9", tags=["data-sources"])
 def api_update_ds9(request: Ds9SettingsRequest) -> dict:
-    _require_local_account()
     _reject_mutation_while_job_running()
     try:
         values = set_ds9_tags(request.tags)
@@ -148,7 +146,6 @@ def api_update_ds9(request: Ds9SettingsRequest) -> dict:
 
 @router.post("/api/source-settings/ds10", tags=["data-sources"])
 def api_add_ds10(request: Ds10SourceRequest) -> dict:
-    _require_local_account()
     _reject_mutation_while_job_running()
     try:
         entry = add_ds10_source(request.source)
@@ -160,7 +157,6 @@ def api_add_ds10(request: Ds10SourceRequest) -> dict:
 
 @router.delete("/api/source-settings/ds10/{source_id}", tags=["data-sources"])
 def api_remove_ds10(source_id: str) -> dict:
-    _require_local_account()
     _reject_mutation_while_job_running()
     try:
         removed = remove_ds10_source(source_id)
