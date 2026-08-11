@@ -11,6 +11,8 @@ import { sidebarLogoutBtn, sidebarRefreshBtn } from "./dom";
 import { bindActionButtons, setLogDockOpen, startPolling } from "./jobs/index";
 import { startRealtime } from "./realtime/sse";
 import { bindLlmApiKeyToggle, bindParticipateSettings, bindSettingsDirtyTracking, loadSettings, refreshLlmSettings, resetParticipateText, saveLlmSettings, saveParticipateText, testLlmSettings } from "./settings/index";
+import { mountSettingsArchitecture } from "./settings/page";
+import { mountDataSourceSettings } from "./sources/settings";
 import { bindNavigation } from "./shell/nav";
 import { initSystemPreferences } from "./shell/theme";
 import { showToast } from "./shell/toast";
@@ -25,6 +27,10 @@ export async function init() {
   initSystemPreferences();
   setLogDockOpen(false);
   setAutoDockOpen(false);
+
+  // 信息架构必须先于 bindNavigation 创建：新增 Settings nav/section 才能进入统一导航绑定。
+  mountSettingsArchitecture();
+  mountDataSourceSettings();
   bindNavigation();
   bindAutoDock();
   window.addEventListener("binggo:auth-expired", () => {
@@ -42,6 +48,9 @@ export async function init() {
   bindDiagnosticsExport();
   bindCheckUpdates();
   loadRuntimeInfo().catch(() => {});
+
+  // participate-settings 已迁入 Settings section，因此历史 Extra Panels 会跟随 anchor
+  // 挂入 Settings，不再继续堆叠在 Overview。
   mountExtraPanels().catch(() => {});
   await syncProjectState();
   renderAccountPool().catch(() => {});
