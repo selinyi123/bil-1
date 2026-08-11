@@ -40,9 +40,10 @@
 }
 
 .settings-action-row,
-.managed-source-add-row {
+.managed-source-add-row,
+.activity-participate-actions {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
   flex-wrap: wrap;
 }
@@ -125,6 +126,17 @@
 
 .managed-source-add-row .input {
   flex: 1 1 420px;
+}
+
+.participation-result-steps.is-preview .participation-result-step.preview {
+  border-color: rgba(59, 130, 246, 0.24);
+  background: rgba(59, 130, 246, 0.08);
+  color: var(--text-secondary, inherit);
+}
+
+.dry-run-copy {
+  margin-top: 10px;
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 900px) {
