@@ -74,10 +74,10 @@ test.describe("Frontend contract safety", () => {
           uid: 123456,
           editable: true,
           effective_source: "account",
-          effective_proxy: "http://***@proxy.example.com:8080",
+          effective_proxy: "http://proxy.example.com:8080",
           env_override: false,
           account_configured: true,
-          account_proxy: "http://***@proxy.example.com:8080",
+          account_proxy: "http://proxy.example.com:8080",
           global_configured: false,
           global_proxy: null,
         }),
@@ -97,7 +97,7 @@ test.describe("Frontend contract safety", () => {
               {
                 id: "a".repeat(64),
                 kind: "https",
-                display: "https://api.example.com/lottery.json?token=%2A%2A%2A",
+                display: "https://api.example.com/…?…",
               },
             ],
             count: 1,
@@ -119,14 +119,14 @@ test.describe("Frontend contract safety", () => {
     await expect(page.locator("#section-settings #extra-panel-enhance")).toBeVisible();
     await expect(page.locator("#section-settings #extra-panel-notify")).toBeVisible();
     await expect(page.locator("#section-settings #settings-proxy-panel")).toBeVisible();
-    await expect(page.locator("[data-proxy-effective]")).toHaveText("http://***@proxy.example.com:8080");
+    await expect(page.locator("[data-proxy-effective]")).toHaveText("http://proxy.example.com:8080");
     await expect(page.locator("[data-proxy-input]")).toHaveAttribute("type", "password");
 
     await openSources(page);
     await expect(page.locator("#managed-source-settings")).toBeVisible();
     await expect(page.locator("[data-ds8-input]")).toHaveValue("123456789012345678");
     await expect(page.locator("[data-ds9-input]")).toHaveValue("抽奖");
-    await expect(page.locator("[data-ds10-list]")).toContainText("token=%2A%2A%2A");
+    await expect(page.locator("[data-ds10-list]")).toContainText("https://api.example.com/…?…");
     await expect(page.locator("[data-ds10-input]")).toHaveAttribute("type", "password");
   });
 
