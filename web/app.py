@@ -48,6 +48,7 @@ from web.api_contract import API_CONTRACT_VERSION, ApiContractMiddleware, patch_
 from web.api_errors import AppError, ErrorCode, register_exception_handlers, require_llm_ready, require_login
 from web.auto_scheduler import auto_scheduler
 from web.job_runner import runner
+from web.product_routes import install_product_routes
 from web.schemas import (
     ALLOWED_JOB_ACTIONS,
     AccountSwitchRequest,
@@ -113,6 +114,7 @@ from web.local_guard import LocalControlPlaneGuard
 
 app.add_middleware(LocalControlPlaneGuard)
 register_exception_handlers(app)
+install_product_routes(app)
 
 _JOB_REQUIRES_LOGIN = frozenset(
     {
