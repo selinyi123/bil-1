@@ -1,6 +1,5 @@
 import { fetchJSON } from "../api/client";
 import { showToast } from "../shell/toast";
-import { escapeHtml } from "../utils/text";
 
 interface ProxySettingsPayload {
   ok?: boolean;
@@ -209,7 +208,7 @@ export async function loadProxySettings(): Promise<ProxySettingsPayload | null> 
     const notice = panel.querySelector<HTMLElement>("[data-proxy-notice]");
     if (notice) {
       notice.hidden = false;
-      notice.textContent = `Proxy 配置加载失败，保存已禁用：${escapeHtml(error instanceof Error ? error.message : String(error))}`;
+      notice.textContent = `Proxy 配置加载失败，保存已禁用：${error instanceof Error ? error.message : String(error)}`;
     }
     return null;
   }
