@@ -5,10 +5,22 @@ import { logDockToggle, qrcodeModal } from "../dom";
 import { hideQrcodeModal, toggleLogDock, trapQrcodeFocus } from "../jobs/index";
 import { playActivitiesEnter, playOverviewEnter, playSourcesEnter, prefersReducedMotion } from "../utils/motion";
 import { loadWatchUsers } from "../watch/index";
-import { loadDataSourceSettings } from "../sources/settings";
-import { loadProxySettings } from "../settings/page";
 
 let sectionSwitchTimer: number | null = null;
+
+function refreshSectionData(sectionId: string): void {
+  if (sectionId === "sources") {
+    loadWatchUsers().catch(() => {});
+    void import("../sources/settings")
+      .then(({ loadDataSourceSettings }) => loadDataSourceSettings())
+      .catch(() => {});
+  }
+  if (sectionId === "settings") {
+    void import("../settings/page")
+      .then(({ loadProxySettings }) => loadProxySettings())
+      .catch(() => {});
+  }
+}
 
 export function activateSection(sectionId: string) {
   const target = document.getElementById(`section-${sectionId}`);
@@ -40,13 +52,7 @@ export function activateSection(sectionId: string) {
     }
   });
   document.getElementById("sidebar")?.classList.remove("open");
-  if (sectionId === "sources") {
-    loadWatchUsers().catch(() => {});
-    loadDataSourceSettings().catch(() => {});
-  }
-  if (sectionId === "settings") {
-    loadProxySettings().catch(() => {});
-  }
+  refreshSectionData(sectionId);
 }
 
 export function switchSection(sectionId: string) {
