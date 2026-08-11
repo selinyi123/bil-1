@@ -23,6 +23,15 @@ import { bindCheckUpdates, loadRuntimeInfo } from "./runtime/index";
 import { bindWatchUsers, loadWatchUsers } from "./watch/index";
 import { mountExtraPanels, renderAccountPool } from "./extra/index";
 
+function placeOperationalPanels(): void {
+  const overview = document.getElementById("section-overview");
+  if (!overview) return;
+  const tools = document.querySelector<HTMLElement>(".extra-tools-panel");
+  const logs = document.getElementById("extra-panel-logs");
+  if (tools && tools.parentElement !== overview) overview.appendChild(tools);
+  if (logs && logs.parentElement !== overview) overview.appendChild(logs);
+}
+
 export async function init() {
   initSystemPreferences();
   setLogDockOpen(false);
@@ -49,9 +58,11 @@ export async function init() {
   bindCheckUpdates();
   loadRuntimeInfo().catch(() => {});
 
-  // participate-settings 已迁入 Settings section，因此历史 Extra Panels 会跟随 anchor
-  // 挂入 Settings，不再继续堆叠在 Overview。
-  mountExtraPanels().catch(() => {});
+  // 配置类 Extra Panels（Enhance / Notify）跟随 participate-settings 进入 Settings；
+  // 中奖深检 / Cleanup / 运行日志是操作工具，仍属于 Overview，不混入 Settings。
+  await mountExtraPanels().catch(() => {});
+  placeOperationalPanels();
+
   await syncProjectState();
   renderAccountPool().catch(() => {});
   try {
