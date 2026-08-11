@@ -40,13 +40,29 @@ def _load_json() -> dict:
     return _cache
 
 
+def get_env_proxy_url() -> str | None:
+    """返回环境变量代理；未配置返回 None。"""
+    value = os.environ.get(PROXY_ENV, "").strip()
+    return value or None
+
+
+def get_global_proxy_url() -> str | None:
+    """只读取 proxy.json 的全局代理，不叠加环境变量/账号覆盖。"""
+    cfg = _load_json()
+    for key in ("url", "http", "https", "proxy"):
+        value = str(cfg.get(key) or "").strip()
+        if value:
+            return value
+    return None
+
+
 def get_proxy_url(uid: int | None = None) -> str | None:
     """返回当前代理 URL；未配置返回 None。
 
     优先级：`BINGGO_PROXY` 环境变量 > 账号级代理（uid 非 None 时）> proxy.json。
     不带 uid 调用时跳过账号级代理，行为与旧版完全一致（向后兼容）。
     """
-    env = os.environ.get(PROXY_ENV, "").strip()
+    env = get_env_proxy_url()
     if env:
         return env
     if uid is not None:
@@ -55,9 +71,4 @@ def get_proxy_url(uid: int | None = None) -> str | None:
         account_proxy = get_account_proxy(uid)
         if account_proxy:
             return account_proxy
-    cfg = _load_json()
-    for key in ("url", "http", "https", "proxy"):
-        value = str(cfg.get(key) or "").strip()
-        if value:
-            return value
-    return None
+    return get_global_proxy_url()
