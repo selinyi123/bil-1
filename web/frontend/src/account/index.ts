@@ -75,7 +75,7 @@ export function requireSetup(action: string) {
   }
   if (!LLM_REQUIRED_ACTIONS.has(action)) return true;
   if (!isLlmConfigured()) {
-    showToast("请先配置 LLM", "info", "在概览页填写 API Key 与模型名称并保存");
+    showToast("请先配置 LLM", "info", "在设置页填写 API Key 与模型名称并保存");
     return false;
   }
   if (!isLlmTested()) {
@@ -174,7 +174,7 @@ export function getOnboardingCurrentIndex(completion: OnboardingCompletion) {
 }
 
 export function scrollToLlmSettings({ focusTest = false }: { focusTest?: boolean } = {}) {
-  switchSection("overview");
+  switchSection("settings");
   const panel = document.getElementById("llm-settings-panel");
   panel?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
   window.setTimeout(() => {
