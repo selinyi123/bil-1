@@ -12,8 +12,11 @@ from src.user_settings import (
     DEFAULT_PARTICIPATE_TEXT,
     MAX_PARTICIPATE_TEXT_LEN,
     get_participate_fallback_text,
+    get_participate_fallback_text_for_uid,
     get_participate_text,
+    get_participate_text_for_uid,
     get_participate_text_mode,
+    get_participate_text_mode_for_uid,
 )
 
 ParticipateTextSource = Literal["custom", "random_comment", "custom_fallback"]
@@ -175,9 +178,16 @@ def resolve_participate_text_for_activity(
     *,
     dynamic_id: str,
     explicit_text: str | None = None,
+    account_uid: str | int | None = None,
 ) -> ParticipateTextResolution:
-    custom_text = get_participate_text()
-    fallback_text = get_participate_fallback_text()
+    if account_uid is None:
+        custom_text = get_participate_text()
+        fallback_text = get_participate_fallback_text()
+        text_mode = get_participate_text_mode()
+    else:
+        custom_text = get_participate_text_for_uid(account_uid)
+        fallback_text = get_participate_fallback_text_for_uid(account_uid)
+        text_mode = get_participate_text_mode_for_uid(account_uid)
     if explicit_text is not None:
         return ParticipateTextResolution(
             text=_finalize_participate_text(explicit_text),
@@ -187,7 +197,7 @@ def resolve_participate_text_for_activity(
     # participate_text_mode 是文案来源的唯一业务开关。copy_chat.enabled 仍保留在
     # 配置模型中用于旧配置兼容，但不再作为第二个运行期开关，避免 UI 选择了
     # random_comment 却因另一个隐藏开关为 false 而静默退回固定文案。
-    if get_participate_text_mode() != "random_comment":
+    if text_mode != "random_comment":
         return ParticipateTextResolution(text=custom_text, source="custom")
 
     from src.participate_enhance import load_participate_enhance

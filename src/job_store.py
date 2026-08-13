@@ -96,6 +96,7 @@ def row_to_dict(row: JobRow) -> dict[str, Any]:
         "label": row.label or "",
         "state": row.state or "",
         "source": row.source or "ui",
+        "account_uid": str(row.account_uid) if row.account_uid is not None else None,
         "params": loads_json(row.params_json, default={}) or {},
         "progress_step": int(row.progress_step or 0),
         "progress_total": int(row.progress_total or 0),
@@ -115,6 +116,7 @@ def insert_running_job(
     label: str,
     source: str,
     params: dict[str, Any] | None,
+    account_uid: str | int | None = None,
     message: str = "任务已启动…",
     now: int | None = None,
 ) -> int:
@@ -125,6 +127,7 @@ def insert_running_job(
             label=label,
             state="running",
             source=source or "ui",
+            account_uid=str(account_uid) if account_uid is not None else None,
             params_json=dumps_json(sanitize_params(params)),
             progress_step=0,
             progress_total=0,

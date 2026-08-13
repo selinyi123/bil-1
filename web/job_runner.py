@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from src.app_logging import get_logger
+from src.account_context import AccountContextUnavailable, capture_current_account_context
+from src.bilibili_auth import resolve_effective_uid
 from src.bilibili_login import LoginCancelledError
 from src.writer_lock import WriterLock
 from src.job_store import (
@@ -28,6 +30,8 @@ from web.user_messages import JOB_ACTION_LABELS, friendly_error, sanitize_log
 
 logger = get_logger("job")
 
+_ACCOUNT_CONTEXT_ACTIONS = frozenset({"participate", "participate_triple"})
+
 
 def _publish_job_event(event: str, data: dict[str, Any]) -> None:
     try:
@@ -43,6 +47,16 @@ _PROGRESS_DB_INTERVAL_SEC = 1.0
 _MEMORY_LOG_MAX_BYTES = 256 * 1024
 
 
+class JobIdentityMismatch(RuntimeError):
+    """Job 创建时绑定的账号与执行前实际身份不一致。"""
+
+    def __init__(self, *, bound_uid: str, effective_uid: int | None) -> None:
+        effective = str(effective_uid) if effective_uid is not None else "未检测到"
+        super().__init__(f"任务账号身份已变化：绑定 UID={bound_uid}，当前有效 UID={effective}")
+        self.bound_uid = bound_uid
+        self.effective_uid = effective_uid
+
+
 @dataclass
 class JobStatus:
     id: int | None = None
@@ -50,6 +64,7 @@ class JobStatus:
     action: str = ""
     label: str = ""
     source: str = "ui"
+    account_uid: str | None = None
     started_at: int | None = None
     finished_at: int | None = None
     message: str = ""
@@ -66,6 +81,7 @@ class JobStatus:
             "action": self.action,
             "label": self.label,
             "source": self.source,
+            "account_uid": self.account_uid,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
             "message": self.message,
@@ -113,6 +129,7 @@ def _status_from_row(row: dict[str, Any]) -> JobStatus:
         action=str(row.get("action") or ""),
         label=str(row.get("label") or ""),
         source=str(row.get("source") or "ui"),
+        account_uid=(str(row["account_uid"]) if row.get("account_uid") is not None else None),
         started_at=row.get("started_at"),
         finished_at=row.get("finished_at"),
         message=str(row.get("message") or ""),
@@ -131,6 +148,7 @@ def _copy_status(status: JobStatus) -> JobStatus:
         action=status.action,
         label=status.label,
         source=status.source,
+        account_uid=status.account_uid,
         started_at=status.started_at,
         finished_at=status.finished_at,
         message=status.message,
@@ -197,8 +215,9 @@ class JobRunner:
         params: dict[str, Any] | None = None,
         *,
         source: JobSource | str = "ui",
+        account_uid: str | int | None = None,
     ) -> bool:
-        return self.try_start(action, params, source=source) is not None
+        return self.try_start(action, params, source=source, account_uid=account_uid) is not None
 
     def try_start(
         self,
@@ -206,11 +225,13 @@ class JobRunner:
         params: dict[str, Any] | None = None,
         *,
         source: JobSource | str = "ui",
+        account_uid: str | int | None = None,
     ) -> int | None:
         params = params or {}
         label = _build_label(action, params)
         now = int(time.time())
         source_s = str(source or "ui")
+        account_uid_s = str(account_uid) if account_uid is not None else None
 
         # 跨进程写者锁：Web 单任务槽只管本进程，CLI（docs/cli.md 的正式入口）
         # 同样会写 B 站与本地状态。拿不到就当作"已有任务在跑"，与内存槽被占同义。
@@ -233,6 +254,7 @@ class JobRunner:
                 action=action,
                 label=label,
                 source=source_s,
+                account_uid=account_uid_s,
                 started_at=now,
                 message="任务已启动…",
             )
@@ -243,6 +265,7 @@ class JobRunner:
                 label=label,
                 source=source_s,
                 params=params,
+                account_uid=account_uid_s,
                 message="任务已启动…",
                 now=now,
             )
@@ -287,6 +310,7 @@ class JobRunner:
                 "state": "running",
                 "action": action,
                 "source": source_s,
+                "account_uid": account_uid_s,
                 "label": label,
                 "message": "任务已启动",
                 "progress_step": 0,
@@ -509,6 +533,7 @@ class JobRunner:
             progress_step = self._status.progress_step
             progress_total = self._status.progress_total
             action_name = self._status.action
+            account_uid = self._status.account_uid
             if progress_total:
                 progress_step = progress_total
 
@@ -581,6 +606,7 @@ class JobRunner:
                     "id": job_id,
                     "state": state,
                     "action": action_name,
+                    "account_uid": account_uid,
                     "message": message,
                     "log": log,
                     "result": result,
@@ -620,6 +646,7 @@ class JobRunner:
     ) -> None:
         with self._lock:
             job_source = str(self._status.source or "ui")
+            account_uid = self._status.account_uid
             started_mono = time.perf_counter()
             self._run_started_mono = started_mono
         with job_log_context(job_id=job_id, action=action, job_source=job_source):
@@ -631,12 +658,26 @@ class JobRunner:
             )
             on_progress = self._make_progress_callback(job_id)
             try:
-                payload = run_action(
-                    action,
-                    params,
-                    on_progress=on_progress,
-                    cancel_event=cancel_event,
-                )
+                # account_uid 为空表示 login 或历史/内部兼容任务；新建的 UI/auto
+                # 任务由上层在创建时绑定 UID，这里只在真正执行动作前 fail-closed。
+                if account_uid is not None and action != "login":
+                    effective_uid = resolve_effective_uid()
+                    if str(effective_uid) != account_uid:
+                        raise JobIdentityMismatch(
+                            bound_uid=account_uid,
+                            effective_uid=effective_uid,
+                        )
+                account_context = None
+                if account_uid is not None and action in _ACCOUNT_CONTEXT_ACTIONS:
+                    account_context = capture_current_account_context(expected_uid=account_uid)
+
+                run_kwargs = {
+                    "on_progress": on_progress,
+                    "cancel_event": cancel_event,
+                }
+                if account_context is not None:
+                    run_kwargs["account_context"] = account_context
+                payload = run_action(action, params, **run_kwargs)
                 if not isinstance(payload, dict):
                     raise RuntimeError("run_action 返回值无效")
 
@@ -723,7 +764,12 @@ class JobRunner:
                         "completed": exc.completed,
                     }
                 # error_kind 区分业务部分失败与内部程序异常（避免污染内部错误统计）
-                error_kind = "business_partial" if isinstance(exc, TripleParticipateFailed) else "internal"
+                if isinstance(exc, (JobIdentityMismatch, AccountContextUnavailable)):
+                    error_kind = "identity"
+                elif isinstance(exc, TripleParticipateFailed):
+                    error_kind = "business_partial"
+                else:
+                    error_kind = "internal"
                 self._apply_terminal(
                     job_id,
                     state="error",

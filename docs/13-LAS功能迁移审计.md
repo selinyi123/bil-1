@@ -3,7 +3,7 @@
 > 基线：`0f3cfcb`（"LAS 全功能批次"）起，Binggo 一次性吸收 LAS（LotteryAutoScript）
 > 的多账号/代理、DS-8/9/10、OCR、抄热评、@与话题、乱序与随机延迟、15 渠道通知、
 > 中奖深检、关注分区、清理与 Line 等能力；本文档跟踪这些能力的迁移状态与剩余 gap。
-> 当前数据层为 schema v3；回归状态以仓库 CI 为准，不在文档中硬编码测试数量。
+> 当前数据层为 schema v4；回归状态以仓库 CI 为准，不在文档中硬编码测试数量。
 
 ## 迁移矩阵
 
@@ -78,7 +78,8 @@
 ## 剩余 gap / roadmap
 
 ### P1（产品契约，需决策后实施）
-- **多账号编排**：当前是 multi-account **management**（账号池+切换+添加），非 LAS 的
+- **多账号编排**：当前已完成 Job 创建时的服务端 `account_uid` 绑定与执行前身份 fail-closed；仍是
+  multi-account **management**（账号池+切换+添加），非 LAS 的
   multi-account **orchestration**（无人值守逐账号自动执行）。是否提供“自动逐账号
   轮转”需产品拍板；若做，建议以 `AccountContext`（uid/cookie/proxy/参与配置/通知
   身份/限速状态）为执行单元，Job 绑定 `account_uid` 而非进程当前身份。

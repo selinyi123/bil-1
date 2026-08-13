@@ -6,6 +6,7 @@ export interface JobStatus {
   action?: string;
   label?: string;
   source?: string;
+  account_uid?: string | null;
   message?: string;
   progress_step?: number;
   progress_total?: number;

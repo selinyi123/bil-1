@@ -19,13 +19,13 @@ from src.job_store import (
 )
 
 
-def test_schema_version_is_v3(isolated_home: Path) -> None:
+def test_schema_version_is_v4(isolated_home: Path) -> None:
     _ = isolated_home
-    assert SCHEMA_VERSION == 3
+    assert SCHEMA_VERSION == 4
     with session_scope() as session:
         meta = session.get(SchemaMeta, 1)
         assert meta is not None
-        assert int(meta.version) == 3
+        assert int(meta.version) == 4
 
 
 def test_insert_progress_finish_roundtrip(isolated_home: Path) -> None:
@@ -35,6 +35,7 @@ def test_insert_progress_finish_roundtrip(isolated_home: Path) -> None:
         label="刷新任务状态",
         source="ui",
         params={"x": 1},
+        account_uid="123456",
     )
     assert job_id > 0
     update_job_progress(
@@ -57,6 +58,7 @@ def test_insert_progress_finish_roundtrip(isolated_home: Path) -> None:
     assert row is not None
     assert row["state"] == "success"
     assert row["source"] == "ui"
+    assert row["account_uid"] == "123456"
     assert row["params"]["x"] == 1
     assert row["result"]["ok"] is True
     assert get_latest_job()["id"] == job_id
