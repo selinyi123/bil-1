@@ -105,7 +105,7 @@ python scripts/run_dashboard.py        # 或 python binggo_launcher.py
 │   ├── account_pool.py       # 多账号池
 │   ├── sources/              # DS-1~10 数据源
 │   ├── pipeline/             # 发现流水线（分类→详情→状态→入库）
-│   └── db/                   # SQLite 数据层（schema v3 + 迁移）
+│   └── db/                   # SQLite 数据层（schema v4 + 迁移）
 ├── web/                      # FastAPI 控制台 + 前端
 │   ├── app.py                # 全部 REST API + SSE
 │   ├── actions.py            # 任务动作执行器（login/refresh/participate/…）

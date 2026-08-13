@@ -11,6 +11,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from typing import Any, Callable
 
 from src.app_logging import get_logger
+from src.account_context import AccountContext
 from src.bilibili_client import BilibiliClient
 from src.bilibili_login import login_with_qrcode
 from src.fetch_activity_info import mark_enriched_joined
@@ -110,24 +111,23 @@ def _participate_dynamic_payload(
     lottery_type_hint: str | None = None,
     client: BilibiliClient | None = None,
     dry_run: bool = False,
+    account_context: AccountContext | None = None,
 ) -> dict[str, Any]:
     resolved_type = resolve_participate_lottery_type(dynamic_id, hint=lottery_type_hint)
     if client is not None:
-        payload = _execute_participate(
-            dynamic_id,
-            on_step,
-            lottery_type=resolved_type,
-            client=client,
-            dry_run=dry_run,
-        )
+        execute_kwargs: dict[str, Any] = {
+            "lottery_type": resolved_type,
+            "client": client,
+            "dry_run": dry_run,
+        }
+        if account_context is not None:
+            execute_kwargs["account_context"] = account_context
+        payload = _execute_participate(dynamic_id, on_step, **execute_kwargs)
     else:
-        payload, _detail = _capture_output(
-            _execute_participate,
-            dynamic_id,
-            on_step,
-            lottery_type=resolved_type,
-            dry_run=dry_run,
-        )
+        execute_kwargs = {"lottery_type": resolved_type, "dry_run": dry_run}
+        if account_context is not None:
+            execute_kwargs["account_context"] = account_context
+        payload, _detail = _capture_output(_execute_participate, dynamic_id, on_step, **execute_kwargs)
     return _normalize_participate_payload(payload)
 
 
@@ -150,6 +150,7 @@ def _execute_participate(
     lottery_type: str | None = None,
     client: BilibiliClient | None = None,
     dry_run: bool = False,
+    account_context: AccountContext | None = None,
 ) -> dict[str, Any]:
     dynamic_id = str(dynamic_id or "").strip()
     if not is_valid_dynamic_id(dynamic_id):
@@ -167,6 +168,7 @@ def _execute_participate(
             dry_run=dry_run,
             persist=not dry_run,
             on_step=on_step,
+            account_uid=getattr(account_context, "uid", None),
         )
         payload = result.to_dict()
         payload["lottery_type"] = resolved_type
@@ -174,6 +176,9 @@ def _execute_participate(
 
     if client is not None:
         return _run(client)
+    if account_context is not None:
+        with BilibiliClient(account_context=account_context) as owned_client:
+            return _run(owned_client)
     with BilibiliClient() as owned_client:
         return _run(owned_client)
 
@@ -375,6 +380,7 @@ def run_action(
     *,
     on_progress: ProgressCallback | None = None,
     cancel_event: threading.Event | None = None,
+    account_context: AccountContext | None = None,
 ) -> dict[str, Any]:
     params = params or {}
     progress = on_progress or _noop_progress
@@ -897,9 +903,16 @@ def run_action(
             progress(step=step, total=total, message=message, log_append=message)
 
         dry_run = _parse_bool(params.get("dry_run"), default=False)
-        with BilibiliClient() as client:
+        account_uid = getattr(account_context, "uid", None)
+        client_kwargs = {"account_context": account_context} if account_context is not None else {}
+        with BilibiliClient(**client_kwargs) as client:
             _raise_if_cancelled(cancel_event)
-            ensure_activity_participatable(client, dynamic_id, lottery_type_hint=lottery_type)
+            ensure_activity_participatable(
+                client,
+                dynamic_id,
+                lottery_type_hint=lottery_type,
+                account_uid=account_uid,
+            )
             _raise_if_cancelled(cancel_event)
             progress(step=0, total=total_steps, message="检查通过，开始参与…", log_append="活动可参与，开始执行参与步骤")
             payload = _participate_dynamic_payload(
@@ -908,11 +921,13 @@ def run_action(
                 lottery_type_hint=lottery_type,
                 client=client,
                 dry_run=dry_run,
+                account_context=account_context,
             )
 
-        if not dry_run:
+        if not dry_run and account_uid is None:
             mark_enriched_joined(dynamic_id)
-        refresh_local_activity_statuses()
+        if account_uid is None:
+            refresh_local_activity_statuses()
         logger.info("参与活动成功 %s", dynamic_id)
         action_log = format_participation_log(payload)
         invalidate_activity_cache()
@@ -1060,6 +1075,9 @@ def run_action(
                         continue
                     task_states[other_id] = reason
 
+        account_uid = getattr(account_context, "uid", None)
+        client_kwargs = {"account_context": account_context} if account_context is not None else {}
+
         def _participate_triple_target(target: dict[str, Any]) -> dict[str, Any]:
             if cancel_event and cancel_event.is_set():
                 raise ValueError("任务已取消")
@@ -1074,11 +1092,12 @@ def run_action(
                 task_states[dynamic_id] = "正在检查活动状态…"
             _emit_triple_progress(log_append=f"{title}：正在检查活动状态…")
 
-            with BilibiliClient() as client:
+            with BilibiliClient(**client_kwargs) as client:
                 ensure_activity_participatable(
                     client,
                     dynamic_id,
                     lottery_type_hint=target_lottery_type,
+                    account_uid=account_uid,
                 )
                 if cancel_event and cancel_event.is_set():
                     raise ValueError("任务已取消")
@@ -1093,9 +1112,11 @@ def run_action(
                     on_step,
                     lottery_type_hint=target_lottery_type,
                     client=client,
+                    account_context=account_context,
                 )
 
-            mark_enriched_joined(dynamic_id)
+            if account_uid is None:
+                mark_enriched_joined(dynamic_id)
             with progress_lock:
                 task_states[dynamic_id] = str(payload.get("message") or "参与成功")
             plan_entry = progress_plan.get(dynamic_id)

@@ -302,7 +302,9 @@ def test_clear_follows_rejects_invalid_max_days() -> None:
 
 def test_clear_follows_accepts_valid_max_days() -> None:
     """clear_follows params.max_days=30 合法 → 登录态下创建任务成功（200）。"""
-    with patch("web.app.get_account_profile", return_value={"logged_in": True}):
+    with patch("web.app.get_account_profile", return_value={"logged_in": True}), patch(
+        "web.app.resolve_effective_uid", return_value=999001
+    ):
         with patch("web.app.runner.try_start", return_value=1) as start_mock:
             resp = client.post(
                 "/api/jobs",
@@ -311,6 +313,20 @@ def test_clear_follows_accepts_valid_max_days() -> None:
     assert resp.status_code == 200
     start_mock.assert_called_once()
     assert start_mock.call_args.args[0] == "clear_follows"
+    assert start_mock.call_args.kwargs["account_uid"] == "999001"
+
+
+def test_job_rejects_client_owned_account_uid() -> None:
+    with patch("web.app.get_account_profile", return_value={"logged_in": True}), patch(
+        "web.app.runner.try_start", return_value=1
+    ) as start_mock:
+        resp = client.post(
+            "/api/jobs",
+            json={"action": "refresh_status", "params": {"account_uid": "654321"}},
+        )
+    assert resp.status_code == 400
+    assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+    start_mock.assert_not_called()
 
 
 def test_participate_requires_dynamic_id_field() -> None:

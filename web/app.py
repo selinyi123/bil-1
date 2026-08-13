@@ -13,6 +13,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from src.app_logging import get_logger, setup_logging
 from src.app_paths import __version__, ensure_user_dirs
+from src.bilibili_auth import resolve_effective_uid
 from src.bilibili_login import QR_IMAGE_PATH
 from src.llm_client import test_llm_connection
 from src.llm_settings import (
@@ -353,7 +354,13 @@ def api_start_job(request: JobRequest) -> dict[str, Any]:
         dynamic_id = str(params.get("dynamic_id") or "").strip()
         if not is_valid_dynamic_id(dynamic_id):
             raise AppError(ErrorCode.VALIDATION_ERROR, "活动 ID 无效")
-    if runner.try_start(request.action, params, source="ui") is None:
+    account_uid: str | None = None
+    if request.action != "login":
+        effective_uid = resolve_effective_uid()
+        if effective_uid is None:
+            raise AppError(ErrorCode.AUTH_REQUIRED, "未检测到当前有效账号身份")
+        account_uid = str(effective_uid)
+    if runner.try_start(request.action, params, source="ui", account_uid=account_uid) is None:
         raise AppError(ErrorCode.JOB_BUSY, "已有任务正在运行")
     return {"ok": True, "job": runner.get_status().to_dict()}
 

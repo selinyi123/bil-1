@@ -36,7 +36,11 @@ def test_refresh_source_api_accepts_valid_id() -> None:
     client = TestClient(app)
     with patch("web.app.get_account_profile", return_value={"logged_in": True}), patch(
         "web.api_errors.is_llm_ready", return_value=True
-    ), patch("web.app.runner.try_start", return_value=1) as start_mock:
+    ), patch("web.app.resolve_effective_uid", return_value=999001), patch(
+        "web.app.runner.try_start", return_value=1
+    ) as start_mock:
         resp = client.post("/api/jobs", json={"action": "refresh_source", "params": {"source_id": "DS-3"}})
     assert resp.status_code == 200
-    start_mock.assert_called_once_with("refresh_source", {"source_id": "DS-3"}, source="ui")
+    start_mock.assert_called_once_with(
+        "refresh_source", {"source_id": "DS-3"}, source="ui", account_uid="999001"
+    )

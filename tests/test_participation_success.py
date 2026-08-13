@@ -177,6 +177,34 @@ def test_record_participation_outcome_skips_status_tables_when_not_joined(
         assert activity_row.activity_status == "未参加"
 
 
+def test_account_bound_participation_does_not_mutate_shared_activity_status(
+    isolated_home,
+) -> None:
+    baseline = _activity("1000000000000000099")
+    baseline_status = baseline["activity_status"]
+    replace_all_activities([baseline])
+    record = _record("1000000000000000099")
+
+    record_participation_outcome_unlocked(
+        record,
+        account_uid="123456",
+        mark_joined=True,
+    )
+
+    with session_scope() as session:
+        action_rows = session.exec(
+            select(ParticipationActionRow).where(ParticipationActionRow.uid == "123456")
+        ).all()
+        part_row = session.get(ParticipationRow, ("123456", "1000000000000000099"))
+        activity_row = session.get(ActivityRow, "1000000000000000099")
+        shared_status = activity_row.activity_status if activity_row is not None else None
+
+    assert len(action_rows) == 1
+    assert part_row is not None
+    assert activity_row is not None
+    assert shared_status == baseline_status
+
+
 def test_record_participation_outcome_rolls_back_when_activity_write_fails(
     isolated_home, monkeypatch
 ) -> None:

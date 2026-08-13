@@ -215,6 +215,7 @@ class JobRow(SQLModel, table=True):
         Index("ix_jobs_state", "state"),
         Index("ix_jobs_finished_at", "finished_at"),
         Index("ix_jobs_created_at", "created_at"),
+        Index("ix_jobs_account_uid", "account_uid"),
     )
 
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -222,6 +223,8 @@ class JobRow(SQLModel, table=True):
     label: str = ""
     state: str = ""
     source: str = "ui"
+    # 服务端在 Job 创建时绑定的实际账号；NULL 仅用于 login/历史遗留任务。
+    account_uid: Optional[str] = Field(default=None, max_length=64)
     params_json: str = Field(default="{}", sa_column=Column(Text, nullable=False))
     progress_step: int = 0
     progress_total: int = 0
