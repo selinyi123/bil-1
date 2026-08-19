@@ -94,12 +94,19 @@ def _prize_summary(item: dict) -> str:
 
 
 def _resolve_activity_status(item: dict, participation: ParticipationRecord | None) -> str:
+    """解析展示状态。
+
+    共享 ActivityRow 的 activity_status **不是账号状态权威**：它由
+    apply_initial_status / status_refresh / participation 等多条路径写入，
+    在多账号模型下会跨账号污染（账号 A 参与后写入"已参加"，账号 B 读到同一行）。
+    因此可参与活动一律走 resolve_activity_status()，由它按
+    「已结束 > per-UID participation > 平台事实 > 默认」的优先级判定；
+    只有不可参与类型（付费/充电等）才回落共享字段。
+    """
     if is_charging_lottery_activity(item):
         return str(item.get("activity_status") or "未参加")
     if is_activity_past_end(item, participation):
         return "已结束"
-    if item.get("status_classified") and item.get("activity_status"):
-        return str(item.get("activity_status"))
     lottery_type = item.get("lottery_type")
     if lottery_type not in PARTICIPATABLE_TYPES:
         return str(item.get("activity_status") or "未参加")
