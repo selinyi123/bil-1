@@ -59,6 +59,11 @@ Web 控制台（仅 127.0.0.1）浏览与参与 → 定时自动参与 → 中�
 - BILI_COOKIE env 生效时：`set_active` 拒绝切换、扫码登录仅登记、legacy 收养跳过、`has_login_cookie` 识别 env、logout 返回明确错误。
 - `set_active`/`register_login_cookie`：先写 cookies.txt 再写 active，失败回滚（原子性加固）。
 - 账号级 Proxy：`accounts/{uid}.json`；`get_proxy_url(uid)` 三层优先 env > account > global；proxy.json mtime 热更新。
+- **共享 `ActivityRow` 的账号态字段一律需要溯源**：`activity_status` 由多条路径写入、
+  `platform_participated`（`notice.participated`）与 `reserve_reserved`
+  （`fetch_reserve_button_status`）来自带登录态的接口，三者都是**账号态事实**却存在共享行。
+  平台事实随写入记录 `platform_observed_uid`，读侧仅在观测账号 == 当前账号时才采信；
+  遗留数据无溯源一律不信任（fail-closed，代价是重复一次幂等参与动作）。
 - **共享 `ActivityRow.activity_status` 不是账号状态权威**：它由 `apply_initial_status` /
   `status_refresh` / `participation` 多条路径写入，跨账号共用同一行。账号态的唯一权威是
   `ParticipationRow(uid, dynamic_id)`。读侧（`web/activity_service._resolve_activity_status`）

@@ -5,6 +5,7 @@ from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from typing import Literal
 
+from src.db.uids import participation_uid
 from src.activity_status import ActivityStatus, StatusSource, resolve_activity_status
 from src.bilibili_client import BilibiliClient
 from src.forward_parser import (
@@ -122,6 +123,9 @@ class EnrichedActivity:
     skipped: bool = False
     skip_reason: str | None = None
     from_cache: bool = False
+    # platform_participated / reserve_reserved 来自带登录态的接口，是**账号态事实**。
+    # 记录观测账号，读侧只在观测账号 == 当前账号时才把它们当作参与依据。
+    platform_observed_uid: str = ""
 
     def to_dict(self) -> dict:
         payload = asdict(self)
@@ -277,6 +281,11 @@ def _build_from_notice(
     reserve_reserved: bool | None = None,
     participation: ParticipationRecord | None = None,
 ) -> EnrichedActivity:
+    platform_participated = bool(notice.get("participated")) if "participated" in notice else None
+    # 平台事实由带登录态的接口取得；没有取到任何账号态事实时不必记录观测账号。
+    observed_uid = (
+        participation_uid() if (platform_participated is not None or reserve_reserved is not None) else ""
+    )
     activity = EnrichedActivity(
         dynamic_id=dynamic_id,
         source_url=opus_link(dynamic_id),
@@ -290,11 +299,12 @@ def _build_from_notice(
         participants=int(notice.get("participants") or 0),
         conditions=_build_conditions(notice),
         winners=_parse_winners(notice),
-        platform_participated=bool(notice.get("participated")) if "participated" in notice else None,
+        platform_participated=platform_participated,
         reserve_reserved=reserve_reserved,
         lottery_detail_url=str(notice.get("lottery_detail_url") or ""),
         status_code=int(notice.get("status") or 0),
         from_cache=from_cache,
+        platform_observed_uid=observed_uid,
     )
     return apply_p2_to_activity(activity, participation=participation)
 
@@ -485,6 +495,7 @@ def activity_from_cache(dynamic_id: str, lottery_type: LotteryType, cached: dict
                 heat_from_reserve=bool(cached.get("heat_from_reserve")),
                 conditions=dict(cached.get("conditions") or {}),
                 winners=winners,
+                platform_observed_uid=str(cached.get("platform_observed_uid") or ""),
                 platform_participated=cached.get("platform_participated"),
                 reserve_reserved=cached.get("reserve_reserved"),
                 activity_status=cached.get("activity_status") or "未参加",
