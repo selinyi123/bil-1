@@ -19,6 +19,7 @@ from src.lottery_time import lottery_time_unix
 from src.participation_store import ParticipationRecord, load_participations
 from src.sources.common import is_valid_dynamic_id, load_previous_output
 from src.status_refresh import persist_activity_record
+from src.db.uids import participation_uid
 
 
 def _load_activity_item(dynamic_id: str) -> dict | None:
@@ -32,6 +33,8 @@ def _load_activity_item(dynamic_id: str) -> dict | None:
 def _apply_notice_fields(item: dict, notice: dict) -> None:
     if "participated" in notice:
         item["platform_participated"] = bool(notice.get("participated"))
+        # 平台事实是账号态事实：谁观测到的就记谁，读侧据此决定是否信任。
+        item["platform_observed_uid"] = participation_uid()
     lottery_time = int(notice.get("lottery_time") or 0)
     if lottery_time:
         item["lottery_time"] = lottery_time
@@ -67,6 +70,7 @@ def _sync_live_fields(
 
     if lottery_type == "预约抽奖":
         item["reserve_reserved"] = fetch_reserve_button_status(client, dynamic_id)
+        item["platform_observed_uid"] = participation_uid()
         try:
             resolved = fetch_notice_for_reserve(client, dynamic_id)
         except RuntimeError:

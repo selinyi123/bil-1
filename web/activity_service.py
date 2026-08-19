@@ -13,6 +13,7 @@ from src.draw_reminder import matches_draw_window_filter
 from src.lottery_classifier import PARTICIPATABLE_TYPES, is_charging_lottery_activity
 from src.lottery_time import format_timestamp, is_activity_past_end, lottery_time_text
 from src.participation_log import load_action_entries_for_uid
+from src.db.uids import participation_uid
 from src.participation_store import ParticipationRecord, load_participations
 from src.sources.common import is_valid_dynamic_id
 from src.state_store import DATA_DIR, get_last_pipeline_persisted
@@ -93,21 +94,59 @@ def _prize_summary(item: dict) -> str:
     return description or (f"×{count}" if count else "")
 
 
-def _resolve_activity_status(item: dict, participation: ParticipationRecord | None) -> str:
+def _trusted_platform_facts(item: dict, viewer_uid: str) -> tuple[bool | None, bool | None]:
+    """只有当平台事实由**当前账号**观测到时才可信。
+
+    `platform_participated` 来自 `notice.participated`、`reserve_reserved` 来自
+    `fetch_reserve_button_status`，两者都是带登录态的接口返回，即**账号态事实**，
+    却与活动一起存在共享 ActivityRow 里。若不校验观测账号，账号 A enrich 出来的
+    "已参与"会被账号 B 读到——这与共享 activity_status 是同一类污染，只是低一层。
+
+    遗留数据没有 `platform_observed_uid`，一律**不信任**（fail-closed）：
+    代价只是重复一次幂等参与动作，收益是不会把别的账号的状态显示成你的。
+    重新 enrich（`scripts/rebuild_all_activity_details.py`）或任意一次参与前置
+    同步都会补上溯源。
+    """
+    observed = str(item.get("platform_observed_uid") or "")
+    if not observed or observed != viewer_uid:
+        return None, None
+    return item.get("platform_participated"), item.get("reserve_reserved")
+
+
+def _resolve_activity_status(
+    item: dict,
+    participation: ParticipationRecord | None,
+    *,
+    viewer_uid: str | None = None,
+) -> str:
+    """解析展示状态。
+
+    共享 ActivityRow 的 activity_status **不是账号状态权威**：它由
+    apply_initial_status / status_refresh / participation 等多条路径写入，
+    在多账号模型下会跨账号污染（账号 A 参与后写入"已参加"，账号 B 读到同一行）。
+    因此可参与活动一律走 resolve_activity_status()，由它按
+    「已结束 > per-UID participation > 平台事实 > 默认」的优先级判定；
+    只有不可参与类型（付费/充电等）才回落共享字段。
+
+    平台事实同样是账号态的，经 `_trusted_platform_facts` 按观测账号过滤后才入参。
+    `viewer_uid` 由调用方解析一次并传入（`participation_uid()` 会读 Cookie，
+    不能放进逐条循环）。
+    """
     if is_charging_lottery_activity(item):
         return str(item.get("activity_status") or "未参加")
     if is_activity_past_end(item, participation):
         return "已结束"
-    if item.get("status_classified") and item.get("activity_status"):
-        return str(item.get("activity_status"))
     lottery_type = item.get("lottery_type")
     if lottery_type not in PARTICIPATABLE_TYPES:
         return str(item.get("activity_status") or "未参加")
+    if viewer_uid is None:
+        viewer_uid = participation_uid()
+    platform_participated, reserve_reserved = _trusted_platform_facts(item, viewer_uid)
     status, _ = resolve_activity_status(
         draw_status=item.get("draw_status") or "active",
         lottery_type=lottery_type,
-        platform_participated=item.get("platform_participated"),
-        reserve_reserved=item.get("reserve_reserved"),
+        platform_participated=platform_participated,
+        reserve_reserved=reserve_reserved,
         conditions=item.get("conditions") or {},
         participation=participation,
     )
@@ -155,10 +194,12 @@ def _normalize_activity(
     item: dict,
     action_map: dict[str, dict],
     participation: ParticipationRecord | None,
+    *,
+    viewer_uid: str | None = None,
 ) -> dict[str, Any]:
     dynamic_id = str(item.get("dynamic_id") or "")
     last_action = action_map.get(dynamic_id)
-    activity_status = _resolve_activity_status(item, participation)
+    activity_status = _resolve_activity_status(item, participation, viewer_uid=viewer_uid)
     can_participate = _can_participate(item, activity_status)
     repost_count = int(item.get("repost_count") or 0)
     repost_fetched = bool(item.get("repost_fetched"))
@@ -215,6 +256,7 @@ def _load_activities_payload() -> dict:
 def get_summary() -> dict[str, Any]:
     enriched = _load_activities_payload()
     participations = load_participations()
+    viewer_uid = participation_uid()
     activities = [
         item for item in (enriched.get("activities") or []) if _participatable_stored(item)
     ]
@@ -222,7 +264,9 @@ def get_summary() -> dict[str, Any]:
     draw_counts = {"active": 0, "ended": 0}
     for item in activities:
         dynamic_id = str(item.get("dynamic_id") or "")
-        status = _resolve_activity_status(item, participations.get(dynamic_id))
+        status = _resolve_activity_status(
+            item, participations.get(dynamic_id), viewer_uid=viewer_uid
+        )
         if status in status_counts:
             status_counts[status] += 1
         if str(item.get("draw_status") or "") == "ended":
@@ -311,6 +355,7 @@ def _filtered_activity_rows(
     enriched = _load_activities_payload()
     action_map = _load_participation_actions()
     participations = load_participations()
+    viewer_uid = participation_uid()
     items = [item for item in (enriched.get("activities") or []) if isinstance(item, dict)]
 
     normalized: list[dict[str, Any]] = []
@@ -324,11 +369,11 @@ def _filtered_activity_rows(
             item, participation, draw_window_value
         ):
             continue
-        activity_status = _resolve_activity_status(item, participation)
+        activity_status = _resolve_activity_status(item, participation, viewer_uid=viewer_uid)
         can_participate = _can_participate(item, activity_status)
         if not _should_list_activity(item, activity_status, can_participate):
             continue
-        row = _normalize_activity(item, action_map, participation)
+        row = _normalize_activity(item, action_map, participation, viewer_uid=viewer_uid)
         normalized.append(row)
 
     if draw_window_value:
