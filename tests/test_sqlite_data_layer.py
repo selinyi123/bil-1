@@ -325,3 +325,28 @@ def test_import_json_archives_sources(isolated_home: Path) -> None:
     )
     assert archived.is_file()
     assert (isolated_home / "data" / "binggo.db").is_file()
+
+
+def test_activity_codec_string_false_stays_false(isolated_home: Path) -> None:
+    """迁移/导入数据里的字符串假值不得被 bool() 翻成 True。"""
+    _ = isolated_home
+    base = {
+        "dynamic_id": "1234567890123456789",
+        "lottery_type": "预约抽奖",
+        "prizes": [{"description": "奖", "winner_count": 1}],
+    }
+    for raw in ("false", "False", "0", "", "no", "off", "null"):
+        item = dict(base, skipped=raw, status_classified=raw, platform_participated=raw, reserve_reserved=raw)
+        back = row_to_activity_dict(activity_dict_to_row(item, updated_at=1))
+        assert back["skipped"] is False, raw
+        assert back["status_classified"] is False, raw
+        assert back["platform_participated"] is False, raw
+        assert back["reserve_reserved"] is False, raw
+
+    for raw in ("true", "1", "yes"):
+        item = dict(base, skipped=raw)
+        assert row_to_activity_dict(activity_dict_to_row(item, updated_at=1))["skipped"] is True, raw
+
+    # None 仍表示"未知"，不能被压成 False
+    item = dict(base, platform_participated=None)
+    assert row_to_activity_dict(activity_dict_to_row(item, updated_at=1))["platform_participated"] is None

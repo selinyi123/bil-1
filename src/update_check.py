@@ -12,7 +12,7 @@ import httpx
 from src.log_redact import redact_text
 from src.version_info import compare_versions, get_version, strip_v_prefix
 
-GITHUB_REPO = "luovicter-collab/bilibinggo"
+GITHUB_REPO = "selinyi123/bil-1"
 GITHUB_API_LATEST = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 GITHUB_RELEASES_PAGE = f"https://github.com/{GITHUB_REPO}/releases"
 TIMEOUT_SEC = 8.0

@@ -7,7 +7,6 @@ from src.draw_reminder import (
     classify_participated_draw,
     compute_draw_reminders,
     matches_draw_window_filter,
-    should_recommend_at_check,
 )
 from src.participation_store import ParticipationRecord
 
@@ -29,7 +28,6 @@ def test_classify_past_participated_activity_not_drawn() -> None:
     }
     participation = _participation("123")
     assert classify_participated_draw(item, participation, now=now) is None
-    assert should_recommend_at_check(item, participation, now=now) is False
 
 
 def test_classify_drawing_soon_activity() -> None:
@@ -41,7 +39,6 @@ def test_classify_drawing_soon_activity() -> None:
     }
     participation = _participation("456")
     assert classify_participated_draw(item, participation, now=now) == "soon"
-    assert should_recommend_at_check(item, participation, now=now) is False
 
 
 def test_compute_draw_reminders_groups_counts() -> None:

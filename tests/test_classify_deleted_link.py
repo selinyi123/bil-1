@@ -17,10 +17,6 @@ def test_is_deleted_link_reuses_detail_probe(monkeypatch) -> None:
         "src.pipeline.classify_fetch_context.probe_dynamic_detail_api",
         fake_probe,
     )
-    monkeypatch.setattr(
-        "src.pipeline.classify_fetch_context.is_detail_api_enabled",
-        lambda: True,
-    )
 
     ctx = ClassifyFetchContext(_Client(), "123")
     assert ctx.is_deleted_link() is True

@@ -25,10 +25,6 @@ def test_classify_context_reuses_detail_api_for_additional_and_detail(monkeypatc
         raise AssertionError(f"unexpected url {url}")
 
     monkeypatch.setattr(
-        "src.pipeline.classify_fetch_context.is_detail_api_enabled",
-        lambda: True,
-    )
-    monkeypatch.setattr(
         "src.pipeline.classify_fetch_context._fetch_opus_detail_item",
         lambda client, dynamic_id: calls.__setitem__("opus", calls["opus"] + 1) or None,
     )
@@ -90,7 +86,6 @@ def test_classify_context_reserve_notice_called_once(monkeypatch) -> None:
         notice_calls["n"] += 1
         return None
 
-    monkeypatch.setattr("src.pipeline.classify_fetch_context.is_detail_api_enabled", lambda: True)
     monkeypatch.setattr("src.pipeline.classify_fetch_context._has_reserve_from_page", lambda *args: False)
     monkeypatch.setattr("src.pipeline.classify_fetch_context._fetch_opus_detail_item", lambda *args: None)
     monkeypatch.setattr("src.pipeline.classify_fetch_context.fetch_lottery_notice", fake_notice)
@@ -123,10 +118,6 @@ def test_fetch_content_reuses_detail_api_item_without_second_request(monkeypatch
         return raw_item, 0, "0"
 
     monkeypatch.setattr(
-        "src.pipeline.classify_fetch_context.is_detail_api_enabled",
-        lambda: True,
-    )
-    monkeypatch.setattr(
         "src.pipeline.classify_fetch_context.probe_dynamic_detail_api",
         fake_probe,
     )
@@ -156,10 +147,6 @@ def test_resolve_classify_content_skips_fetch_when_detail_has_text(monkeypatch) 
         "modules": {"module_dynamic": {"desc": {"text": "转"}}},
     }
 
-    monkeypatch.setattr(
-        "src.pipeline.classify_fetch_context.is_detail_api_enabled",
-        lambda: True,
-    )
     monkeypatch.setattr(
         "src.pipeline.classify_fetch_context.probe_dynamic_detail_api",
         lambda *args, **kwargs: (raw_item, 0, "0"),

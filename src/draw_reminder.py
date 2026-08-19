@@ -80,16 +80,6 @@ def matches_draw_window_filter(
     return classify_participated_draw(item, participation, now=now) == "soon"
 
 
-def should_recommend_at_check(
-    item: dict,
-    participation: ParticipationRecord | None,
-    *,
-    now: int | None = None,
-) -> bool:
-    _ = (item, participation, now)
-    return False
-
-
 def compute_draw_reminders(
     activities: list[dict],
     participations: dict[str, ParticipationRecord],

@@ -11,7 +11,7 @@ from src.db.models import ParticipationActionRow
 from src.db.session import session_scope
 from src.db.uids import participation_uid
 from src.lottery_actions import ActionResult
-from src.user_data_lock import user_data_lock
+from src.user_data_lock import user_data_thread_lock
 
 ParticipationOutcome = Literal["joined", "failed", "skipped", "dry_run"]
 CORE_ACTIONS = ("like", "follow", "favorite", "repost", "comment")
@@ -101,7 +101,7 @@ def append_action_record_unlocked(record: ParticipationActionRecord) -> None:
 
 
 def append_action_record(record: ParticipationActionRecord) -> None:
-    with user_data_lock():
+    with user_data_thread_lock():
         append_action_record_unlocked(record)
 
 

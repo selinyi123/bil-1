@@ -28,26 +28,6 @@ RESERVE_RESERVED_STATUS = 2
 
 RESERVE_RID_RE = re.compile(r'"rid"\s*:\s*(\d+)')
 
-_detail_api_lock = threading.Lock()
-_detail_api_enabled = True
-
-
-def is_detail_api_enabled() -> bool:
-    return _detail_api_enabled
-
-
-def disable_detail_api() -> None:
-    global _detail_api_enabled
-    with _detail_api_lock:
-        _detail_api_enabled = False
-
-
-def reset_detail_api_state() -> None:
-    global _detail_api_enabled
-    with _detail_api_lock:
-        _detail_api_enabled = True
-
-
 def fetch_lottery_notice(
     client: BilibiliClient,
     *,
@@ -196,8 +176,6 @@ def probe_dynamic_detail_api(
     retries: int = 2,
 ) -> tuple[dict | None, int | None, str]:
     """请求 web-dynamic/v1/detail，返回 (item, code, message)。网络/限流失败时 code 为 None。"""
-    if not is_detail_api_enabled():
-        return None, None, ""
     referer = opus_link(dynamic_id)
     try:
         data = client.get_json(
@@ -250,8 +228,6 @@ def fetch_opus_detail_item(client: BilibiliClient, dynamic_id: str) -> dict | No
 
 
 def fetch_dynamic_detail(client: BilibiliClient, dynamic_id: str) -> dict | None:
-    if not is_detail_api_enabled():
-        return None
     referer = opus_link(dynamic_id)
     item: dict | None = _fetch_dynamic_api_item(client, dynamic_id)
     if not item:

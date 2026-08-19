@@ -29,12 +29,24 @@ _PROMOTED_KEYS = (
 )
 
 
+_FALSE_STRINGS = frozenset({"", "0", "false", "no", "off", "none", "null"})
+
+
 def _as_bool(value: Any) -> bool | None:
+    """宽松转 bool；字符串按字面量判定，避免 bool("false") 被翻成 True。"""
     if value is None:
         return None
     if isinstance(value, bool):
         return value
+    if isinstance(value, str):
+        return value.strip().lower() not in _FALSE_STRINGS
     return bool(value)
+
+
+def _as_bool_strict(value: Any, *, default: bool = False) -> bool:
+    """非空 bool 列用：沿用 _as_bool 的字符串判定，None 回落 default。"""
+    coerced = _as_bool(value)
+    return default if coerced is None else coerced
 
 
 def activity_dict_to_row(item: dict[str, Any], *, updated_at: int | None = None) -> ActivityRow:
@@ -72,8 +84,8 @@ def activity_dict_to_row(item: dict[str, Any], *, updated_at: int | None = None)
         lottery_time=lottery_time_i,
         activity_status=str(item["activity_status"]) if item.get("activity_status") is not None else None,
         draw_tag=str(item["draw_tag"]) if item.get("draw_tag") is not None else None,
-        status_classified=bool(item.get("status_classified")),
-        skipped=bool(item.get("skipped")),
+        status_classified=_as_bool_strict(item.get("status_classified")),
+        skipped=_as_bool_strict(item.get("skipped")),
         platform_participated=_as_bool(item.get("platform_participated")),
         reserve_reserved=_as_bool(item.get("reserve_reserved")),
         repost_count=repost_count_i,

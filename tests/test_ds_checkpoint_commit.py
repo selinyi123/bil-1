@@ -145,7 +145,6 @@ def test_refresh_source_commits_checkpoint_only_after_pipeline_success(
     with (
         patch("web.actions._run_ds_check", side_effect=fake_run_ds_check),
         patch("web.actions.run_refresh_all_pipeline", return_value=pipeline_ok) as pipeline_mock,
-        patch("web.actions.invalidate_activity_cache"),
         patch("web.actions.set_last_pipeline_persisted"),
     ):
         payload = run_action("refresh_source", {"source_id": "DS-3"})
@@ -186,7 +185,6 @@ def test_refresh_source_keeps_checkpoint_when_pipeline_fails(
             "web.actions.run_refresh_all_pipeline",
             side_effect=RuntimeError("无法获取动态正文: 1220000000000000001"),
         ),
-        patch("web.actions.invalidate_activity_cache"),
         patch("web.actions.set_last_pipeline_persisted"),
     ):
         with pytest.raises(RuntimeError, match="无法获取动态正文"):

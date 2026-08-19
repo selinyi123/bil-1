@@ -3,7 +3,6 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from src.update_check import UpdateCheckResult
-from web.api_contract import API_CONTRACT_HEADER, API_CONTRACT_VERSION
 from web.app import app
 
 client = TestClient(app)
@@ -27,7 +26,6 @@ def test_updates_check_api_shape(monkeypatch) -> None:
 
     resp = client.post("/api/updates/check")
     assert resp.status_code == 200
-    assert resp.headers.get(API_CONTRACT_HEADER) == str(API_CONTRACT_VERSION)
     data = resp.json()
     assert data["ok"] is True
     assert data["current"] == "4.0.2"

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from web.api_contract import API_CONTRACT_HEADER, API_CONTRACT_VERSION
 from web.app import app
 
 client = TestClient(app)
@@ -13,7 +12,6 @@ def test_runtime_api_ok() -> None:
 
     resp = client.get("/api/runtime")
     assert resp.status_code == 200
-    assert resp.headers.get(API_CONTRACT_HEADER) == str(API_CONTRACT_VERSION)
     data = resp.json()
     assert data["ok"] is True
     assert data["version"] == __version__

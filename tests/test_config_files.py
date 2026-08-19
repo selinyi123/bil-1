@@ -95,3 +95,29 @@ def test_sanitize_covers_notify_channel_secrets(isolated_home) -> None:
     assert restored["channels"]["email"]["pass"] == "SMTP-REAL"
     # 空字符串表示清除，不恢复
     assert restored["channels"]["bark"]["push"] == ""
+
+
+def test_restore_secrets_in_list_uses_same_index(isolated_home) -> None:
+    """列表内的占位符必须按同索引恢复，不能拿整个 saved 列表去比对。"""
+    from src.config_files import restore_config_secrets
+
+    saved = {
+        "channels": [
+            {"name": "a", "token": "TOKEN-A"},
+            {"name": "b", "token": "TOKEN-B"},
+        ]
+    }
+    incoming = {
+        "channels": [
+            {"name": "a", "token": "****"},
+            {"name": "b", "token": "****"},
+        ]
+    }
+    restored = restore_config_secrets(saved, incoming)
+    assert restored["channels"][0]["token"] == "TOKEN-A"
+    assert restored["channels"][1]["token"] == "TOKEN-B"
+
+    # incoming 比 saved 长时，多出来的项没有旧值可恢复，占位符原样保留
+    longer = {"channels": incoming["channels"] + [{"name": "c", "token": "****"}]}
+    restored_longer = restore_config_secrets(saved, longer)
+    assert restored_longer["channels"][2]["token"] == "****"

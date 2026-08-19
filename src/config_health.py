@@ -50,7 +50,8 @@ def _perms_too_open(path: Any) -> bool:
     try:
         mode = path.stat().st_mode
     except OSError:
-        return False
+        # 检查不了不等于没问题：按"疑似过宽"上报，避免漏报密钥暴露。
+        return True
     return bool(mode & (stat.S_IRGRP | stat.S_IROTH | stat.S_IWGRP | stat.S_IWOTH))
 
 
@@ -80,16 +81,29 @@ def run_config_health_checks() -> HealthReport:
             )
         )
 
-    for path in (cookie_path, llm_path):
-        if path.is_file() and _perms_too_open(path):
-            findings.append(
-                HealthFinding(
-                    code="secret_file_perms",
-                    severity="warning",
-                    message=f"密钥文件权限可能过宽：{path.name}",
-                    path=str(path),
+    if sys.platform == "win32":
+        # harden_file_permissions() 在 Windows 上是 no-op；如实告知，不假装已收紧。
+        for path in (cookie_path, llm_path):
+            if path.is_file():
+                findings.append(
+                    HealthFinding(
+                        code="secret_file_perms_unenforced",
+                        severity="info",
+                        message=f"Windows 平台未收紧密钥文件权限：{path.name}（同机其他用户可能可读）",
+                        path=str(path),
+                    )
                 )
-            )
+    else:
+        for path in (cookie_path, llm_path):
+            if path.is_file() and _perms_too_open(path):
+                findings.append(
+                    HealthFinding(
+                        code="secret_file_perms",
+                        severity="warning",
+                        message=f"密钥文件权限可能过宽：{path.name}",
+                        path=str(path),
+                    )
+                )
 
     if cookie_path.is_file():
         try:

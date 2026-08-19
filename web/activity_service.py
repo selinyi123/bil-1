@@ -135,11 +135,6 @@ def _should_list_activity(item: dict, activity_status: str, can_participate: boo
     return False
 
 
-def invalidate_activity_cache() -> None:
-    """兼容旧调用点；活动数据已走 DB，无需文件 mtime 缓存。"""
-    return None
-
-
 def _sort_key(item: dict, *, sort: str, order: str) -> tuple:
     if sort == "heat":
         repost = int(item.get("repost_count") or 0)

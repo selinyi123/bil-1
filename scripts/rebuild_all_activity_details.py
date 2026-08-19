@@ -20,7 +20,6 @@ from src.fetch_activity_info import (
     _load_existing_activities,
     save_enriched,
 )
-from src.lottery_api import reset_detail_api_state
 from src.lottery_classifier import PARTICIPATABLE_TYPES, LotteryType, is_charging_lottery_activity
 from src.participation_store import load_participations
 from src.status_refresh import refresh_local_activity_statuses
@@ -47,7 +46,6 @@ def main() -> int:
 
     existing_by_id = _load_existing_activities()
     participations = load_participations()
-    reset_detail_api_state()
 
     enriched_at = int(time.time())
     newly_enriched: dict = {}

@@ -13,7 +13,6 @@ from starlette.requests import ClientDisconnect
 
 from src.app_logging import get_logger
 from src.llm_settings import is_llm_ready
-from web.api_contract import attach_contract_header
 from web.user_messages import friendly_error
 
 logger = get_logger("api")
@@ -99,7 +98,6 @@ def error_response(
         status_code=status_code,
         content=build_error_payload(str(code), message, detail),
     )
-    attach_contract_header(response)
     return response
 
 
@@ -224,3 +222,42 @@ def register_exception_handlers(app: FastAPI) -> None:
             status_code=500,
             detail=None,
         )
+
+
+def patch_openapi_schema(schema: dict) -> dict:
+    """在 OpenAPI 中补齐统一错误体（ErrorObject / ErrorBody）定义。"""
+    info = schema.setdefault("info", {})
+    description = str(info.get("description") or "").strip()
+    error_note = "失败响应统一为 ErrorBody（error.code / error.message / detail）。"
+    if error_note not in description:
+        info["description"] = f"{description}\n\n{error_note}".strip()
+
+    components = schema.setdefault("components", {})
+    schemas = components.setdefault("schemas", {})
+    schemas.setdefault(
+        "ErrorObject",
+        {
+            "type": "object",
+            "properties": {
+                "code": {"type": "string"},
+                "message": {"type": "string"},
+                "detail": {},
+            },
+            "required": ["code", "message"],
+        },
+    )
+    schemas.setdefault(
+        "ErrorBody",
+        {
+            "type": "object",
+            "properties": {
+                "error": {"$ref": "#/components/schemas/ErrorObject"},
+                "detail": {
+                    "type": "string",
+                    "description": "兼容字段，等于 error.message",
+                },
+            },
+            "required": ["error", "detail"],
+        },
+    )
+    return schema
