@@ -101,7 +101,12 @@ def test_wait_until_terminal_never_calls_cancel() -> None:
     runner.try_start.assert_called_once_with("refresh_status", {}, source="auto")
 
 
-def test_collision_in_refresh_batch_propagates() -> None:
+def test_collision_skips_slot_instead_of_stopping_scheduler() -> None:
+    """撞车只跳过本时间槽：不停机、不取消对方任务、下个槽照常。
+
+    旧行为是 CollisionError → fatal 停机，属于"一次失败长期降级"；
+    「同一时刻只有一个写者」的正确性现由 src/writer_lock.py 保证。
+    """
     runner = MagicMock()
     runner.is_running.return_value = True
     runner.get_status.return_value.to_dict.return_value = {
@@ -110,8 +115,31 @@ def test_collision_in_refresh_batch_propagates() -> None:
         "message": "busy",
     }
     scheduler = AutoScheduler(job_runner=runner)
-    with pytest.raises(CollisionError):
-        scheduler._run_refresh_batch("2026-07-17-3")
+    key = "2026-07-17-3"
+
+    scheduler._run_refresh_batch(key)  # 不抛异常
+
+    assert scheduler._status.state != "fatal"
+    assert scheduler._status.fatal_error in (None, "")
+    assert key in scheduler._done_refresh  # 本槽跳过，不在同一小时内反复重试
+    runner.cancel.assert_not_called()  # 绝不取消对方正在跑的任务
+
+
+def test_collision_in_triple_slot_skips_without_stopping() -> None:
+    runner = MagicMock()
+    runner.is_running.return_value = True
+    runner.get_status.return_value.to_dict.return_value = {
+        "state": "running",
+        "action": "participate",
+        "message": "busy",
+    }
+    scheduler = AutoScheduler(job_runner=runner)
+    key = "2026-07-17-03-05"
+
+    scheduler._run_triple_slot(key)
+
+    assert scheduler._status.state != "fatal"
+    assert key in scheduler._done_triple
     runner.cancel.assert_not_called()
 
 
@@ -138,7 +166,8 @@ def test_probe_only_reads_runner_status() -> None:
 def test_soft_failure_for_empty_triple() -> None:
     assert _is_hard_failure(RuntimeError("当前列表没有可参与的未参加活动")) is False
     assert _is_hard_failure(RuntimeError("当前没有可参与的未参加活动，已跳过")) is False
-    assert _is_hard_failure(CollisionError("撞车")) is True
+    # 撞车是"资源忙"，不是致命错误：交由调用方跳过本时间槽
+    assert _is_hard_failure(CollisionError("撞车")) is False
     assert _is_hard_failure(RuntimeError("请先扫码登录")) is True
 
 

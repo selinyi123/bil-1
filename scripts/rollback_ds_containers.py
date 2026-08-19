@@ -12,6 +12,7 @@ if str(ROOT) not in sys.path:
 from src.bilibili_client import BilibiliClient
 from src.sources.common import opus_link
 from src.state_store import get_last_container, set_last_container
+from src.writer_lock import cli_writer_lock
 
 SOURCES = {
     "DS-1": {"mid": 885439, "type": "video"},
@@ -105,4 +106,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    # 跨进程写者锁：与 Web 任务及其他 CLI 互斥（docs/cli.md）。
+    with cli_writer_lock("cli:rollback_ds_containers"):
+        main()

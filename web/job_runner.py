@@ -9,6 +9,7 @@ from typing import Any, Literal
 
 from src.app_logging import get_logger
 from src.bilibili_login import LoginCancelledError
+from src.writer_lock import WriterLock
 from src.job_store import (
     finish_job,
     get_job,
@@ -211,8 +212,16 @@ class JobRunner:
         now = int(time.time())
         source_s = str(source or "ui")
 
+        # 跨进程写者锁：Web 单任务槽只管本进程，CLI（docs/cli.md 的正式入口）
+        # 同样会写 B 站与本地状态。拿不到就当作"已有任务在跑"，与内存槽被占同义。
+        writer_lock = WriterLock(owner=f"web:{action}")
+        if not writer_lock.acquire():
+            logger.warning("写者锁被本机其他进程持有，拒绝启动 action=%s", action)
+            return None
+
         with self._lock:
             if self._status.state == "running":
+                writer_lock.release()
                 return None
             previous = _copy_status(self._status)
             self._cancel_event = threading.Event()
@@ -238,6 +247,7 @@ class JobRunner:
                 now=now,
             )
         except Exception:
+            writer_lock.release()
             logger.exception("创建任务行失败 action=%s", action)
             with self._lock:
                 if (
@@ -253,6 +263,7 @@ class JobRunner:
         with self._lock:
             if self._status.state != "running" or self._status.action != action:
                 # 占槽已被清掉：避免留下幽灵 running 行
+                writer_lock.release()
                 logger.error("任务占槽状态异常，放弃启动 action=%s job_id=%s", action, job_id)
                 try:
                     finish_job(
@@ -286,7 +297,7 @@ class JobRunner:
         logger.info("任务启动 job_id=%s action=%s source=%s", job_id, action, source_s)
         thread = threading.Thread(
             target=self._run_worker,
-            args=(job_id, action, params, cancel_event),
+            args=(job_id, action, params, cancel_event, writer_lock),
             daemon=True,
             name=f"job-{job_id}-{action}",
         )
@@ -555,6 +566,20 @@ class JobRunner:
         )
 
     def _run_worker(
+        self,
+        job_id: int,
+        action: str,
+        params: dict[str, Any],
+        cancel_event: threading.Event | None,
+        writer_lock: WriterLock | None = None,
+    ) -> None:
+        try:
+            self._run_worker_body(job_id, action, params, cancel_event)
+        finally:
+            if writer_lock is not None:
+                writer_lock.release()
+
+    def _run_worker_body(
         self,
         job_id: int,
         action: str,

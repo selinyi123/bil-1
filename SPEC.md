@@ -74,8 +74,20 @@ Web 控制台（仅 127.0.0.1）浏览与参与 → 定时自动参与 → 中�
 - 流水线：分类（LLM 兜底）→ enrich（每 worker 独立 client，池式取还）→ 落库；只处理新链接。
 
 ### 4.4 任务模型
-- `JobRunner`：单槽互斥、状态机（running/success/error/cancelled/interrupted）、`error_kind` 分类（internal/business/business_partial/cancelled/network）、SSE 事件、启动恢复。
+- **写者锁（`src/writer_lock.py`）**：`data/binggo.writer.lock`，跨平台非阻塞文件锁，
+  保证**同一时刻本机只有一个写者**。`JobRunner.try_start` 与四个有副作用的 CLI
+  （participate / maintain_local_activities / purge_all_dead_links / rollback_ds_containers）
+  共用同一把锁。`JobRunner` 的单槽只是 Web 进程内互斥，管不到 CLI；跨进程正确性由本锁承担。
+  无 `--force`，无阻塞等待；CLI 拿不到锁即退出码 2。与 `binggo_launcher` 的单实例锁
+  是两件事（那把答"只跑一个 launcher"，这把答"只有一个写者"）。
+- `JobRunner`：先取写者锁再占内存槽；取不到锁等同"已有任务在跑"（返回 None → API 报 JOB_BUSY）。
+  单槽互斥、状态机（running/success/error/cancelled/interrupted）、`error_kind` 分类
+  （internal/business/business_partial/cancelled/network）、SSE 事件、启动恢复。
+  锁在 worker 线程 finally 中释放，异常路径同样释放。
 - `AutoScheduler`：时间槽触发（refresh_all 批次 + participate_triple）；`_is_hard_failure` 按 error_kind 判定（字符串兜底）；触发前校验 `validate_job_prerequisites`（未登录/LLM 未就绪 soft skip）。
+- **撞车不再停机**：`CollisionError` 由 fatal 改为**跳过本时间槽**（标记该 slot key 已处理，
+  下个槽照常）。一次撞车让调度器死到人工重启属于"一次失败长期降级"；正确性归锁，韧性归调度器。
+  调度器**从不** `cancel` 对方正在运行的任务。
 - refresh_all 三态：全失败 → `ok=False`；无更新+部分失败 → 消息明示 + `sources_failed`；**已知 gap**：有更新+部分失败时 result 仍缺 `sources_failed`（待完善）。
 
 ### 4.5 安全边界

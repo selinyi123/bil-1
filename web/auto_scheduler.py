@@ -45,7 +45,12 @@ _AUTO_SNAPSHOT_LOG_LIMIT = 30
 
 
 class CollisionError(RuntimeError):
-    """抽奖端已有任务在跑，自动调度必须立即停机。"""
+    """本机已有写任务在跑（Web 任务或 CLI），本时间槽跳过。
+
+    不再触发停机：一次撞车让调度器死到人工重启，属于 AGENTS.md 机制判据里
+    拒绝的"一次失败长期降级"。「同一时刻只有一个写者」的正确性由
+    src/writer_lock.py 的跨进程锁保证，调度器只负责韧性。
+    """
 
 
 @dataclass
@@ -333,7 +338,9 @@ class AutoScheduler:
                     self._set_phase("等待下一刻度", "调度器运行中")
                 self._stop_event.wait(1.0)
         except CollisionError as exc:
-            self._fatal(f"任务撞车：{exc}")
+            # 兜底：正常路径已在批次/刻度内部消化撞车，走到这里也只跳过不停机。
+            self._log("warn", f"任务撞车，本次调度跳过：{exc}")
+            self._set_phase("等待下一刻度", "已有写任务在运行，跳过本次")
         except Exception as exc:
             logger.exception("定时调度未预期错误")
             self._fatal(f"未预期错误：{friendly_error(exc)}")
@@ -351,8 +358,6 @@ class AutoScheduler:
                 self._set_pipeline(active=True, step_index=index, waiting=False)
                 try:
                     self._click_and_wait(action, pipeline_index=index)
-                except CollisionError:
-                    raise
                 except Exception as exc:
                     if _is_hard_failure(exc):
                         raise
@@ -363,8 +368,13 @@ class AutoScheduler:
             self._log("info", f"刷新批次完成 {key}")
             self._set_pipeline(active=False)
             self._set_phase("等待下一刻度", "刷新批次已完成")
-        except CollisionError:
-            raise
+        except CollisionError as exc:
+            # 已有写任务在跑（Web 或 CLI）：跳过本时间槽，下个槽照常，不停机。
+            self._log("warn", f"刷新批次 {key} 撞车已跳过：{exc}")
+            self._done_refresh.add(key)
+            self._set_pipeline(active=False)
+            self._set_phase("等待下一刻度", "已有写任务在运行，跳过本批次")
+            return
         except Exception as exc:
             if _is_hard_failure(exc):
                 self._fatal(str(exc))
@@ -389,8 +399,11 @@ class AutoScheduler:
                 self._set_phase("等待下一刻度", msg)
             else:
                 self._set_phase("等待下一刻度", "三连参与已完成")
-        except CollisionError:
-            raise
+        except CollisionError as exc:
+            self._log("warn", f"三连参与刻度 {key} 撞车已跳过：{exc}")
+            self._done_triple.add(key)
+            self._set_phase("等待下一刻度", "已有写任务在运行，跳过本刻度")
+            return
         except Exception as exc:
             if _is_hard_failure(exc):
                 self._fatal(str(exc))
@@ -540,7 +553,8 @@ _SOFT_ERROR_KINDS = frozenset({"business_partial", "cancelled"})
 # P2 #19：优先按 error_kind 结构化判定严重程度；无 error_kind 时保留字符串兜底。
 def _is_hard_failure(exc: BaseException) -> bool:
     if isinstance(exc, CollisionError):
-        return True
+        # 撞车是"资源忙"，不是系统致命错误：由调用方跳过本时间槽处理。
+        return False
     error_kind = getattr(exc, "error_kind", None)
     if isinstance(error_kind, str) and error_kind:
         if error_kind in _HARD_ERROR_KINDS:

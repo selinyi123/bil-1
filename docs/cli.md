@@ -1,5 +1,31 @@
 # CLI 命令手册
 
+## ⚠️ CLI 与 Web 控制台互斥
+
+会写 B 站或本地持久状态的 CLI 与 Web 任务**共用一把跨进程写者锁**
+（`<用户数据目录>/data/binggo.writer.lock`）。同一时刻本机只允许一个写者。
+
+受锁保护的命令：
+
+| 命令 | 副作用 |
+|---|---|
+| `participate.py` | 真实参与抽奖（点赞/关注/收藏/转发/评论、预约） |
+| `maintain_local_activities.py` | 改写活动库 |
+| `purge_all_dead_links.py` | 从活动库删除失效动态 |
+| `rollback_ds_containers.py` | 回退数据源 checkpoint |
+
+**拿不到锁时的行为**：立即打印 `已有写任务正在运行，请稍后再试。` 到 stderr，
+并以**退出码 2** 退出。**不阻塞等待**——`refresh_all` 可能跑几十分钟，
+等待等于挂死终端。
+
+**没有 `--force`**：一把可以绕过的锁，在事故复盘时提供不了任何保证。
+要跑 CLI 请先在控制台停掉正在运行的任务，或等它结束。
+
+反过来同样成立：CLI 持锁期间，Web 控制台启动任务会被拒绝（提示任务忙），
+定时调度器会**跳过本时间槽**并在下一个槽照常继续——不会停机。
+
+> 只读命令（`check_ds*.py`、`check_messages.py` 等）不加锁，随时可跑。
+
 ## 总览
 ```bash
 python scripts/bili_login.py # 哔哩哔哩扫码登录

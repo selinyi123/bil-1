@@ -15,6 +15,7 @@ from src.bilibili_client import BilibiliClient
 from src.fetch_activity_info import ENRICHED_OUTPUT_PATH
 from src.participation import participate_activity
 from src.sources.common import load_previous_output
+from src.writer_lock import cli_writer_lock
 
 SUPPORTED_TYPES = {"互动抽奖", "转发抽奖", "预约抽奖"}
 
@@ -67,4 +68,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # 跨进程写者锁：与 Web 任务及其他 CLI 互斥（docs/cli.md）。
+    with cli_writer_lock("cli:participate"):
+        raise SystemExit(main())
