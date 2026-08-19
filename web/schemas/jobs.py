@@ -35,7 +35,6 @@ class _ParticipateParams(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     dynamic_id: str
-    dry_run: bool | None = None
     push: bool | None = None
 
 

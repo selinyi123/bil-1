@@ -567,7 +567,6 @@ def execute_full_participation(
     dynamic_id: str,
     sender_uid: int | None = None,
     action_text: str = DEFAULT_PARTICIPATE_TEXT,
-    dry_run: bool = False,
     on_step: Callable[[int, int, str, ActionName], None] | None = None,
 ) -> tuple[list[ActionResult], DynamicContext]:
     text = (action_text or DEFAULT_PARTICIPATE_TEXT).strip() or DEFAULT_PARTICIPATE_TEXT
@@ -588,25 +587,6 @@ def execute_full_participation(
         if detail:
             message = f"{message} · {detail}"
         on_step(step_index, total_steps, message, action_name)
-
-    if dry_run:
-        return [
-            ActionResult("like", True, "跳过" if context.liked else "将点赞"),
-            ActionResult("follow", True, "跳过" if context.followed else f"将关注 uid={context.sender_uid}"),
-            ActionResult(
-                "favorite",
-                True,
-                "跳过"
-                if context.favorited
-                else ("无收藏入口，跳过" if not context.favorite_available else f"将收藏 rid={context.comment_rid}"),
-            ),
-            ActionResult("repost", True, "跳过" if context.reposted else f"将转发 {text[:40]}"),
-            ActionResult(
-                "comment",
-                True,
-                "跳过" if context.commented else f"将评论 type={context.comment_type}",
-            ),
-        ], context
 
     csrf, my_uid = require_login()
     actions: list[ActionResult] = []

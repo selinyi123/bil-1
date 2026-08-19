@@ -72,7 +72,10 @@ Web 控制台（仅 127.0.0.1）浏览与参与 → 定时自动参与 → 中�
   新增读路径不得再以共享 `activity_status` 短路，否则会跨账号污染。
 
 ### 4.2 参与链路
-- `run_action("participate", {dynamic_id, dry_run})`：**dry_run 贯穿到底层**——预演零副作用（不写接口、`persist=False`、不改活动库 joined、`mark_enriched_joined` 跳过）。
+- `run_action("participate", {dynamic_id})`：**无预演模式**，调用即真实执行并写入参与记录。
+  参与是幂等探测过的低风险动作，预演只能复述固定的五个步骤，提供不了决策信息，
+  却要求 `dry_run` 在 HTTP → action → domain 四层正确透传——该契约历史上被中层写死过一次，
+  行为与声明完全相反。预演仅保留给 `clear_follows` 这类真·破坏性操作。
 - 动作顺序：like → follow → favorite → repost → comment（各动作独立，失败继续，actions 精确记录）；follow 失败后不建/移关注分区。
 - 结果持久化：`record_participation_outcome_unlocked` **单事务**写 participation_actions + participations + activities。
 - 三连：`fail_fast_event`（内部失败）与 `cancel_event`（用户取消）分离；失败终态 `error`（`error_kind=business_partial`），`partial_failure` 结果携带已完成活动摘要 + 已开始动作（partial:true）。

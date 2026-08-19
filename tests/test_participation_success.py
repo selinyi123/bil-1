@@ -205,35 +205,6 @@ def test_record_participation_outcome_rolls_back_when_activity_write_fails(
         assert part_rows == []
 
 
-def test_persist_result_skips_writes_on_dry_run(isolated_home) -> None:
-    """dry_run 不得写库：actions / participations / activities 均无变化。"""
-    replace_all_activities([_activity("1000000000000000004")])
-    uid = participation_uid()
-    result = ParticipateResult(
-        dynamic_id="1000000000000000004",
-        lottery_type="互动抽奖",
-        status="dry_run",
-        message="预演完成，未实际请求 B 站",
-        action_text="测试文案",
-        actions=[],
-        context_snapshot={},
-    )
-
-    _persist_result(result=result, persist=True, dry_run=True)
-
-    with session_scope() as session:
-        action_rows = session.exec(
-            select(ParticipationActionRow).where(ParticipationActionRow.uid == uid)
-        ).all()
-        assert action_rows == []
-        part_rows = session.exec(
-            select(ParticipationRow).where(ParticipationRow.uid == uid)
-        ).all()
-        assert part_rows == []
-        activity_row = session.get(ActivityRow, "1000000000000000004")
-        assert activity_row.activity_status == "未参加"
-
-
 def test_record_participation_outcome_trims_to_max_entries(isolated_home) -> None:
     """复用 append 逻辑：按 uid 裁剪超量动作日志（最多 _MAX_ENTRIES_PER_UID 条）。"""
     uid = participation_uid()

@@ -13,7 +13,7 @@ from src.db.uids import participation_uid
 from src.lottery_actions import ActionResult
 from src.user_data_lock import user_data_thread_lock
 
-ParticipationOutcome = Literal["joined", "failed", "skipped", "dry_run"]
+ParticipationOutcome = Literal["joined", "failed", "skipped"]
 CORE_ACTIONS = ("like", "follow", "favorite", "repost", "comment")
 INTERACT_REQUIRED_ACTIONS = ("like", "follow", "favorite", "repost")
 RESERVE_REQUIRED_ACTIONS = ("follow", "reserve")

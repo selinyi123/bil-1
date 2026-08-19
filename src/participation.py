@@ -186,9 +186,8 @@ def _persist_result(
     *,
     result: ParticipateResult,
     persist: bool,
-    dry_run: bool,
 ) -> None:
-    if not persist or dry_run:
+    if not persist:
         return
     joined = result.status == "joined" and participation_succeeded(
         result.actions,
@@ -251,7 +250,6 @@ def participate_five_action_lottery(
     dynamic_id: str,
     lottery_type: Literal["互动抽奖", "转发抽奖"],
     action_text: str | None = None,
-    dry_run: bool = False,
     persist: bool = True,
     on_step: Callable[[int, int, str, str], None] | None = None,
 ) -> ParticipateResult:
@@ -271,7 +269,7 @@ def participate_five_action_lottery(
                 actions=[],
                 context_snapshot={},
             )
-            _persist_result(result=result, persist=persist, dry_run=dry_run)
+            _persist_result(result=result, persist=persist)
             return result
     except RuntimeError:
         pass
@@ -288,7 +286,7 @@ def participate_five_action_lottery(
                 actions=[],
                 context_snapshot={},
             )
-            _persist_result(result=result, persist=persist, dry_run=dry_run)
+            _persist_result(result=result, persist=persist)
             return result
         notice, _, _ = resolved
         active, reason = _is_notice_active(notice)
@@ -302,7 +300,7 @@ def participate_five_action_lottery(
                 actions=[],
                 context_snapshot=_notice_snapshot(notice),
             )
-            _persist_result(result=result, persist=persist, dry_run=dry_run)
+            _persist_result(result=result, persist=persist)
             return result
         sender_uid = int(notice.get("sender_uid") or 0) or None
 
@@ -312,7 +310,6 @@ def participate_five_action_lottery(
             dynamic_id=dynamic_id,
             sender_uid=sender_uid,
             action_text=text,
-            dry_run=dry_run,
             on_step=on_step,
         )
     except RuntimeError as exc:
@@ -328,14 +325,11 @@ def participate_five_action_lottery(
             actions=[],
             context_snapshot=_notice_snapshot(notice),
         )
-        _persist_result(result=result, persist=persist, dry_run=dry_run)
+        _persist_result(result=result, persist=persist)
         return result
 
-    if dry_run:
-        status: ParticipationOutcome = "dry_run"
-        message = "预演完成：已读取当前状态，未执行点赞、关注、收藏、转发或评论写操作"
-    elif participation_succeeded(actions, lottery_type=lottery_type):
-        status = "joined"
+    if participation_succeeded(actions, lottery_type=lottery_type):
+        status: ParticipationOutcome = "joined"
         comment = next((item for item in actions if item.action == "comment"), None)
         if lottery_type == "互动抽奖" and comment and not comment.ok:
             message = "核心操作已完成（评论受限，已视为参与成功）"
@@ -359,7 +353,7 @@ def participate_five_action_lottery(
         actions=actions,
         context_snapshot=snapshot,
     )
-    _persist_result(result=result, persist=persist, dry_run=dry_run)
+    _persist_result(result=result, persist=persist)
     return result
 
 
@@ -395,13 +389,9 @@ def _reserve_click(
     reserve_id: int,
     reserve_total: int,
     button_status: int,
-    dry_run: bool,
 ) -> ActionResult:
     if button_status == RESERVE_RESERVED_STATUS:
         return ActionResult("reserve", True, "已预约，跳过")
-
-    if dry_run:
-        return ActionResult("reserve", True, f"将预约 reserve_id={reserve_id}")
 
     csrf, _ = require_login()
     referer = opus_link(dynamic_id)
@@ -444,7 +434,6 @@ def participate_reserve_lottery(
     client: BilibiliClient,
     *,
     dynamic_id: str,
-    dry_run: bool = False,
     persist: bool = True,
     on_step: Callable[[int, int, str, str], None] | None = None,
 ) -> ParticipateResult:
@@ -464,7 +453,7 @@ def participate_reserve_lottery(
                     actions=[],
                     context_snapshot=_notice_snapshot(notice),
                 )
-                _persist_result(result=result, persist=persist, dry_run=dry_run)
+                _persist_result(result=result, persist=persist)
                 return result
     except RuntimeError:
         notice = None
@@ -481,7 +470,7 @@ def participate_reserve_lottery(
             actions=[],
             context_snapshot=_notice_snapshot(notice),
         )
-        _persist_result(result=result, persist=persist, dry_run=dry_run)
+        _persist_result(result=result, persist=persist)
         return result
 
     total_steps = RESERVE_PARTICIPATE_STEPS
@@ -504,7 +493,7 @@ def participate_reserve_lottery(
                 "title": reserve_info["title"],
             },
         )
-        _persist_result(result=result, persist=persist, dry_run=dry_run)
+        _persist_result(result=result, persist=persist)
         return result
 
     referer = str(reserve_info["referer"])
@@ -512,18 +501,10 @@ def participate_reserve_lottery(
     if on_step:
         on_step(1, total_steps, f"正在关注（1/{total_steps}）", "follow")
     try:
-        if dry_run:
-            followed = is_following(client, uid=sender_uid, referer=referer)
-            follow_action = ActionResult(
-                "follow",
-                True,
-                f"uid={sender_uid} 已关注，跳过" if followed else f"将关注 uid={sender_uid}",
-            )
+        csrf, _ = require_login()
+        if is_following(client, uid=sender_uid, referer=referer):
+            follow_action = ActionResult("follow", True, f"uid={sender_uid} 已关注，跳过")
         else:
-            csrf, _ = require_login()
-            if is_following(client, uid=sender_uid, referer=referer):
-                follow_action = ActionResult("follow", True, f"uid={sender_uid} 已关注，跳过")
-            else:
                 follow_action = follow_user(client, uid=sender_uid, csrf=csrf, referer=referer)
     except RuntimeError as exc:
         follow_action = ActionResult("follow", False, str(exc).strip() or "关注失败")
@@ -551,11 +532,10 @@ def participate_reserve_lottery(
             actions=actions,
             context_snapshot=snapshot,
         )
-        _persist_result(result=result, persist=persist, dry_run=dry_run)
+        _persist_result(result=result, persist=persist)
         return result
 
-    if not dry_run:
-        time.sleep(ACTION_INTERVAL_SEC)
+    time.sleep(ACTION_INTERVAL_SEC)
 
     if on_step:
         on_step(2, total_steps, f"正在预约（2/{total_steps}）", "reserve")
@@ -565,15 +545,11 @@ def participate_reserve_lottery(
         reserve_id=reserve_info["reserve_id"],
         reserve_total=reserve_info["reserve_total"],
         button_status=reserve_info["button_status"],
-        dry_run=dry_run,
     )
     actions.append(reserve_action)
 
-    if dry_run:
-        status: ParticipationOutcome = "dry_run"
-        message = "预演完成：已读取当前状态，未执行关注或预约写操作"
-    elif participation_succeeded(actions, lottery_type="预约抽奖"):
-        status = "joined"
+    if participation_succeeded(actions, lottery_type="预约抽奖"):
+        status: ParticipationOutcome = "joined"
         message = "关注与预约均已完成"
     else:
         status = "failed"
@@ -588,7 +564,7 @@ def participate_reserve_lottery(
         actions=actions,
         context_snapshot=snapshot,
     )
-    _persist_result(result=result, persist=persist, dry_run=dry_run)
+    _persist_result(result=result, persist=persist)
     return result
 
 
@@ -598,7 +574,6 @@ def participate_activity(
     dynamic_id: str,
     lottery_type: str,
     action_text: str | None = None,
-    dry_run: bool = False,
     persist: bool = True,
     on_step: Callable[[int, int, str, str], None] | None = None,
 ) -> ParticipateResult:
@@ -614,7 +589,7 @@ def participate_activity(
             actions=[],
             context_snapshot={},
         )
-        _persist_result(result=result, persist=persist, dry_run=dry_run)
+        _persist_result(result=result, persist=persist)
         return result
     if lottery_type not in PARTICIPATABLE_TYPES:
         raise RuntimeError(f"不支持的抽奖类型: {lottery_type}")
@@ -624,7 +599,6 @@ def participate_activity(
             dynamic_id=dynamic_id,
             lottery_type="互动抽奖",
             action_text=action_text,
-            dry_run=dry_run,
             persist=persist,
             on_step=on_step,
         )
@@ -634,7 +608,6 @@ def participate_activity(
             dynamic_id=dynamic_id,
             lottery_type="转发抽奖",
             action_text=action_text,
-            dry_run=dry_run,
             persist=persist,
             on_step=on_step,
         )
@@ -642,7 +615,6 @@ def participate_activity(
         return participate_reserve_lottery(
             client,
             dynamic_id=dynamic_id,
-            dry_run=dry_run,
             persist=persist,
             on_step=on_step,
         )

@@ -32,7 +32,7 @@ Binggo —— 本机（local-first）B 站抽奖助手：自动发现抽奖活�
 binggo_launcher.py       入口：launcher 守护 serve 子进程（--serve 跑 dashboard_server）
 src/                    领域层（不依赖 web）
   bilibili_*.py         B 站客户端：WBI 签名、限流、身份 resolve_effective_uid
-  participation*.py     参与链路：五连/预约、dry_run、单事务持久化
+  participation*.py     参与链路：五连/预约、单事务持久化
   lottery_actions.py    动作执行（like/follow/favorite/repost/comment）、ActionResult(extra)
   sources/              DS-1~10 数据源（fingerprint 增量、checkpoint）
   source_settings.py    DS-8/9/10 Web 受控配置（file:// 仅限 BINGGO_HOME、URL 脱敏）
@@ -87,7 +87,7 @@ powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1
 - **清理/删除类操作**：默认 `dry_run=True`；删除前必须归属校验（只删 Binggo 创建的动态，`created_dynamic_id` 精确匹配，旧记录按源 id 兼容）；白名单同时保护删除与取关。
 - **凭据**：GET 永不回显真实 secret（`sanitize_config_secrets` 覆盖 bot_token/pass/push）；PUT 恢复后响应**再次 sanitize**；`notify.json` 走 `write_text_secret`。
 - **读函数不写库**：`load_payload` 纯读；seed/过期状态更新用显式函数（`seed_activities_if_empty`/`refresh_expired_activity_statuses`）。
-- **参与副作用**：`dry_run` 必须贯穿到底层（HTTP → `participate_activity`）；`follow` 失败后不创建/移动关注分区；内部业务失败**绝不 set cancel_event**（终态 `error`/`error_kind=business_partial`）。
+- **参与副作用**：参与无预演模式，调用即真实执行（预演只保留给清理这类破坏性操作）；`follow` 失败后不创建/移动关注分区；内部业务失败**绝不 set cancel_event**（终态 `error`/`error_kind=business_partial`）。
 - **schema**：未来版本 DB 在任何写操作前 hard fail，绝不自动降级；`init_db` 顺序 = 读版本→hard fail→迁移→create_all。
 - **Web mutation**：Job 运行中 fail-closed（`_reject_mutation_while_job_running`）；不得绕过 Host/Origin 校验。
 - **事务**：参与结果三表（actions/participations/activities）必须同一 session 事务。
