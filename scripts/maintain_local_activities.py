@@ -21,6 +21,7 @@ from src.lottery_classifier import is_charging_lottery_activity, PARTICIPATABLE_
 from src.lottery_enricher import enrich_activity
 from src.participation_store import load_participations
 from src.pipeline.status_step import apply_initial_status
+from src.writer_lock import cli_writer_lock
 
 
 def _needs_enrich(item: dict) -> bool:
@@ -163,4 +164,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # 跨进程写者锁：与 Web 任务及其他 CLI 互斥（docs/cli.md）。
+    with cli_writer_lock("cli:maintain_local_activities"):
+        raise SystemExit(main())

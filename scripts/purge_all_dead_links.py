@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
 from src.bilibili_client import BilibiliClient
 from src.dead_links import collect_all_local_dynamic_ids, partition_alive_dynamic_ids, purge_dynamic_ids
 from src.status_refresh import refresh_local_activity_statuses
+from src.writer_lock import cli_writer_lock
 
 
 def main() -> int:
@@ -43,4 +44,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # 跨进程写者锁：与 Web 任务及其他 CLI 互斥（docs/cli.md）。
+    with cli_writer_lock("cli:purge_all_dead_links"):
+        raise SystemExit(main())
