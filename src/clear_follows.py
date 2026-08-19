@@ -21,6 +21,9 @@ from typing import Any
 
 from src.bilibili_client import BilibiliClient
 
+PARTITION_PAGE_SIZE = 50
+"""关注分区接口的每页条数：不足一页即视为最后一页。"""
+
 DEFAULT_MAX_DAYS = 30
 DEFAULT_PARTITION_NAME = "抽奖临时关注"
 
@@ -320,17 +323,29 @@ def clear_follows(
             tagid = int(tag.get("tagid"))
         except (TypeError, ValueError):
             continue
+        # 先把分区成员分页读完，再执行取关。
+        # 边翻页边取关会让分区集合在遍历过程中收缩：删掉第 1 页后，原本的
+        # 第 2 页成员会补位成新的第 1 页，而循环已经在请求 pn=2 —— 于是整批
+        # 成员被静默跳过。更隐蔽的是 dry_run 分支不产生删除，集合不收缩，
+        # 因此预演结果与真实执行结果不一致，预演反而给出错误的预期。
+        member_uids: list[int] = []
+        seen: set[int] = set()
         for pn in range(1, 101):
-            uids = client.get_partition_uids(tagid, pn=pn)
-            if not uids:
+            page = client.get_partition_uids(tagid, pn=pn)
+            if not page:
                 break
-            for uid in uids:
-                if uid in white_uids:
-                    result["skipped"] += 1
-                    continue
-                if dry_run or client.cancel_attention(uid):
-                    result["unfollowed"] += 1
-            if len(uids) < 50:
+            for uid in page:
+                if uid not in seen:
+                    seen.add(uid)
+                    member_uids.append(uid)
+            if len(page) < PARTITION_PAGE_SIZE:
                 break
+
+        for uid in member_uids:
+            if uid in white_uids:
+                result["skipped"] += 1
+                continue
+            if dry_run or client.cancel_attention(uid):
+                result["unfollowed"] += 1
 
     return result
