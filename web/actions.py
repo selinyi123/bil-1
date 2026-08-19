@@ -88,9 +88,6 @@ def _payload_joined_success(payload: dict[str, Any]) -> bool:
 
 def _require_participate_success(payload: dict[str, Any]) -> None:
     status = str(payload.get("status") or "")
-    if status == "dry_run":
-        # 预演模式：返回"将执行"的清单即视为成功，不要求真实 joined
-        return
     if status == "skipped":
         raise RuntimeError(str(payload.get("message") or "该活动不可参与"))
     if status != "joined" or not _payload_joined_success(payload):
@@ -108,7 +105,6 @@ def _participate_dynamic_payload(
     *,
     lottery_type_hint: str | None = None,
     client: BilibiliClient | None = None,
-    dry_run: bool = False,
 ) -> dict[str, Any]:
     resolved_type = resolve_participate_lottery_type(dynamic_id, hint=lottery_type_hint)
     if client is not None:
@@ -117,7 +113,6 @@ def _participate_dynamic_payload(
             on_step,
             lottery_type=resolved_type,
             client=client,
-            dry_run=dry_run,
         )
     else:
         payload, _detail = _capture_output(
@@ -125,7 +120,6 @@ def _participate_dynamic_payload(
             dynamic_id,
             on_step,
             lottery_type=resolved_type,
-            dry_run=dry_run,
         )
     return _normalize_participate_payload(payload)
 
@@ -148,7 +142,6 @@ def _execute_participate(
     *,
     lottery_type: str | None = None,
     client: BilibiliClient | None = None,
-    dry_run: bool = False,
 ) -> dict[str, Any]:
     dynamic_id = str(dynamic_id or "").strip()
     if not is_valid_dynamic_id(dynamic_id):
@@ -162,9 +155,7 @@ def _execute_participate(
             active_client,
             dynamic_id=dynamic_id,
             lottery_type=resolved_type,
-            # 预演模式贯穿到底层：dry_run=true 时绝不产生真实副作用（点赞/关注/转发/评论）
-            dry_run=dry_run,
-            persist=not dry_run,
+            persist=True,
             on_step=on_step,
         )
         payload = result.to_dict()
@@ -891,7 +882,6 @@ def run_action(
             _raise_if_cancelled(cancel_event)
             progress(step=step, total=total, message=message, log_append=message)
 
-        dry_run = _parse_bool(params.get("dry_run"), default=False)
         with BilibiliClient() as client:
             _raise_if_cancelled(cancel_event)
             ensure_activity_participatable(client, dynamic_id, lottery_type_hint=lottery_type)
@@ -902,11 +892,9 @@ def run_action(
                 on_step,
                 lottery_type_hint=lottery_type,
                 client=client,
-                dry_run=dry_run,
             )
 
-        if not dry_run:
-            mark_enriched_joined(dynamic_id)
+        mark_enriched_joined(dynamic_id)
         refresh_local_activity_statuses()
         logger.info("参与活动成功 %s", dynamic_id)
         action_log = format_participation_log(payload)

@@ -91,7 +91,6 @@ export function buildActivityParticipateBtn(item: ActivityItem) {
   if (item.can_participate) {
     const dynamicId = escapeHtml(item.dynamic_id);
     return `<span class="activity-participate-actions">
-      <button class="btn btn-secondary btn-compact btn-pill" data-action="participate" data-dynamic-id="${dynamicId}" data-dry-run="true" title="仅检查并展示将执行的参与步骤，不向 B 站发送点赞、关注、转发或评论请求">预演</button>
       <button class="btn btn-primary btn-compact btn-pill" data-action="participate" data-dynamic-id="${dynamicId}">参与</button>
     </span>`;
   }

@@ -59,7 +59,6 @@ def main() -> int:
             client,
             dynamic_id=args.dynamic_id,
             lottery_type=lottery_type,
-            dry_run=False,
             persist=True,
         )
 

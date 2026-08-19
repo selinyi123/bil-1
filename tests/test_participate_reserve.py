@@ -191,38 +191,6 @@ def test_participate_reserve_lottery_fails_without_sender_uid() -> None:
     reserve_mock.assert_not_called()
 
 
-def test_participate_reserve_lottery_dry_run_skips_sleep_and_write() -> None:
-    client = MagicMock()
-
-    with (
-        patch("src.participation.fetch_notice_for_reserve", return_value=None),
-        patch("src.participation._resolve_reserve_info", return_value=_reserve_info()),
-        patch("src.participation.is_following", return_value=False),
-        patch("src.participation.follow_user") as follow_mock,
-        patch(
-            "src.participation._reserve_click",
-            return_value=ActionResult("reserve", True, "将预约"),
-        ) as reserve_mock,
-        patch("src.participation.time.sleep") as sleep_mock,
-        patch("src.participation._persist_result") as persist_mock,
-    ):
-        result = participate_reserve_lottery(
-            client,
-            dynamic_id="100000000000000001",
-            dry_run=True,
-            persist=True,
-        )
-
-    assert result.status == "dry_run"
-    assert [item.action for item in result.actions] == ["follow", "reserve"]
-    follow_mock.assert_not_called()
-    reserve_mock.assert_called_once()
-    assert reserve_mock.call_args.kwargs.get("dry_run") is True
-    sleep_mock.assert_not_called()
-    persist_mock.assert_called_once()
-    assert persist_mock.call_args.kwargs.get("dry_run") is True
-
-
 def test_participate_reserve_lottery_follow_network_error_becomes_failed_action() -> None:
     client = MagicMock()
 

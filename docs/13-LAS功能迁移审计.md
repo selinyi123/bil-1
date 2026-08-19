@@ -42,7 +42,7 @@
 
 ## 已完成的语义接线与产品化修复
 
-1. **`participate.dry_run` 贯穿到底层**：HTTP dry_run=true 曾在中层被写死
+1. ~~**`participate.dry_run` 贯穿到底层**~~（2026-08 已整体移除参与预演，见下方「已移除功能」）：HTTP dry_run=true 曾在中层被写死
    `dry_run=False, persist=True`（安全契约与真实行为相反）。现 `_execute_participate` /
    `_participate_dynamic_payload` 全程透传 dry_run；单活动页提供独立“预演”入口与
    `status=dry_run` 结果态。预演允许只读获取当前点赞/关注/转发等状态，以决定哪些步骤
@@ -91,3 +91,23 @@
 - **per-account 行为配置 / 通知身份上下文**：Proxy 已完成账号级化，但参与增强配置与
   通知仍是全局配置。若后续做自动多账号编排，应让参与策略、通知 NOTE/标题和限速状态
   绑定 `AccountContext`，并在通知中明确中奖账号 UID/备注。
+
+## 已移除功能
+
+### 参与预演（`participate` 的 `dry_run`）—— 2026-08 移除
+
+参与的五个动作是固定的，预演只能复述"将点赞、将关注、将收藏、将转发、将评论"，
+提供不了任何决策信息；而它要求 `dry_run` 在 HTTP → `run_action` →
+`_execute_participate` → `participate_activity` → `_persist_result` 四层正确透传，
+任何一层写死即静默失效——本文档上一节记录的正是这类事故（中层写死
+`dry_run=False, persist=True`，安全契约与真实行为完全相反）。
+
+移除范围：`participation.py` / `lottery_actions.py` 的 `dry_run` 形参与分支、
+`ParticipationOutcome` 的 `"dry_run"` 态、`web/actions.py` 的透传、
+`_ParticipateParams.dry_run`、`scripts/participate.py`、前端"预演"按钮与
+预演结果面板。生产代码净 -104 行。
+
+**清理预演保留**：`clear_follows` 的 `dry_run` 默认 True，守的是删动态 + 批量取关
+这类真·破坏性操作，且回答的是"会删几条、会取关几人"这种每次都不同、无法预知的数字。
+PR-5 恰好证明了它的价值——旧代码预演说 120 人、真实只取关 70 人，
+正是靠这个对照面才发现分页收缩缺陷。

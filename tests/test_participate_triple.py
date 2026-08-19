@@ -187,7 +187,7 @@ def test_run_action_participate_triple_concurrent(monkeypatch: pytest.MonkeyPatc
         def __exit__(self, *_args):
             return False
 
-    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None, dry_run: bool = False) -> dict:
+    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None) -> dict:
         calls.append(dynamic_id)
         on_step(1, 5, f"{dynamic_id} 点赞", "like")
         return {
@@ -230,7 +230,7 @@ def test_run_action_participate_triple_fail_fast_stops_other_targets() -> None:
     targets = [_row(_id(401), can_participate=True), _row(_id(402), can_participate=True)]
     progress_messages: list[str] = []
 
-    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None, dry_run: bool = False) -> dict:
+    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None) -> dict:
         if dynamic_id == _id(401):
             time.sleep(0.4)
         if dynamic_id == _id(402):
@@ -296,7 +296,7 @@ def test_run_action_participate_triple_uses_mixed_progress_budget() -> None:
     ]
     progress_totals: list[int] = []
 
-    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None, dry_run: bool = False) -> dict:
+    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None) -> dict:
         if dynamic_id == _id(1):
             on_step(1, 2, "正在关注（1/2）", "follow")
             on_step(2, 2, "正在预约（2/2）", "reserve")
@@ -343,7 +343,7 @@ def test_run_action_participate_triple_emits_targets_in_initial_progress() -> No
     ]
     progress_targets: list[list[dict]] = []
 
-    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None, dry_run: bool = False) -> dict:
+    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None) -> dict:
         on_step(1, 2 if dynamic_id == _id(1) else 5, "进行中", "follow")
         return {
             "dynamic_id": dynamic_id,
@@ -395,7 +395,6 @@ def test_run_action_participate_triple_uses_lookup_type_for_execution() -> None:
         *,
         lottery_type: str | None = None,
         client=None,
-        dry_run: bool = False,
     ) -> dict:
         captured_types.append(lottery_type)
         on_step(1, 2, "正在关注（1/2）", "follow")
@@ -449,7 +448,7 @@ def test_run_action_participate_triple_internal_failure_does_not_set_cancel_even
     targets = [_row(_id(501), can_participate=True), _row(_id(502), can_participate=True)]
     cancel_event = threading.Event()
 
-    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None, dry_run: bool = False) -> dict:
+    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None) -> dict:
         if dynamic_id == _id(502):
             raise RuntimeError("评论 API 报错")
         return {
@@ -484,7 +483,7 @@ def test_run_action_participate_triple_partial_failure_carries_completed() -> No
 
     targets = [_row(_id(601), can_participate=True), _row(_id(602), can_participate=True)]
 
-    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None, dry_run: bool = False) -> dict:
+    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None) -> dict:
         if dynamic_id == _id(601):
             # 601 先完成，产生真实外部副作用
             return {
@@ -531,7 +530,7 @@ def test_run_action_participate_triple_partial_reports_started_actions(
 
     targets = [_row(_id(701), can_participate=True), _row(_id(702), can_participate=True)]
 
-    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None, dry_run: bool = False) -> dict:
+    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None) -> dict:
         if dynamic_id == _id(701):
             return {
                 "dynamic_id": dynamic_id,
@@ -586,7 +585,7 @@ def test_run_action_participate_triple_partial_dedupes_started_actions(
 
     targets = [_row(_id(801), can_participate=True), _row(_id(802), can_participate=True)]
 
-    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None, dry_run: bool = False) -> dict:
+    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None) -> dict:
         if dynamic_id == _id(801):
             return {
                 "dynamic_id": dynamic_id,
@@ -622,56 +621,3 @@ def test_run_action_participate_triple_partial_dedupes_started_actions(
     ]
 
 
-def test_run_action_participate_dry_run_propagates_to_core() -> None:
-    """P1-1 dry_run 贯穿：HTTP dry_run=true 必须传到底层 participate_activity(dry_run=True, persist=False)，
-    且不改活动库状态（mark_enriched_joined 不被调用）。"""
-    from src.participation import ParticipateResult
-    from web.actions import run_action
-
-    captured: dict = {}
-
-    def fake_participate(client, *, dynamic_id, lottery_type, dry_run, persist, on_step=None, **kwargs):
-        captured["dry_run"] = dry_run
-        captured["persist"] = persist
-        return ParticipateResult(
-            dynamic_id=dynamic_id,
-            lottery_type=lottery_type,
-            status="dry_run",
-            message="预演完成，未实际请求 B 站",
-            action_text="",
-            actions=[],
-            context_snapshot={},
-        )
-
-    with (
-        patch("web.actions.participate_activity", side_effect=fake_participate),
-        patch("web.actions.lookup_lottery_type", return_value="互动抽奖"),
-        patch("web.actions.resolve_participate_lottery_type", return_value="互动抽奖"),
-        patch("web.actions.ensure_activity_participatable"),
-        patch("web.actions.mark_enriched_joined") as mark_joined,
-        patch("web.actions.refresh_local_activity_statuses"),
-        patch("web.actions.BilibiliClient"),
-        patch("web.actions.participate_step_budget", return_value=5),
-    ):
-        payload = run_action("participate", {"dynamic_id": _id(901), "dry_run": True})
-
-    assert payload["ok"] is True
-    assert captured["dry_run"] is True
-    assert captured["persist"] is False
-    mark_joined.assert_not_called()  # 预演绝不推进活动库"已参加"状态
-
-    # 默认（不传 dry_run）保持真实参与
-    captured.clear()
-    with (
-        patch("web.actions.participate_activity", side_effect=fake_participate),
-        patch("web.actions.lookup_lottery_type", return_value="互动抽奖"),
-        patch("web.actions.resolve_participate_lottery_type", return_value="互动抽奖"),
-        patch("web.actions.ensure_activity_participatable"),
-        patch("web.actions.mark_enriched_joined"),
-        patch("web.actions.refresh_local_activity_statuses"),
-        patch("web.actions.BilibiliClient"),
-        patch("web.actions.participate_step_budget", return_value=5),
-    ):
-        run_action("participate", {"dynamic_id": _id(902)})
-    assert captured["dry_run"] is False
-    assert captured["persist"] is True

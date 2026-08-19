@@ -130,14 +130,14 @@ test.describe("Frontend contract safety", () => {
     await expect(page.locator("[data-ds10-input]")).toHaveAttribute("type", "password");
   });
 
-  test("single activity dry-run sends dry_run=true and renders preview success semantics", async ({ page, request }) => {
+  test("single activity participate renders success semantics over polling fallback", async ({ page, request }) => {
     await setE2EState(request, { account: "logged_in", llm: "ready" });
     // 本用例只 mock REST Job 契约，因此显式关闭 EventSource，验证产品真实支持的 polling fallback。
     await page.addInitScript(() => {
       Object.defineProperty(window, "EventSource", { value: undefined, configurable: true });
     });
     let posted: Record<string, any> | null = null;
-    const dryRunMessage = "预演完成：已读取当前状态，未执行点赞、关注、收藏、转发或评论写操作";
+    const joinedMessage = "五项操作均已完成";
 
     await page.route("**/api/jobs", async (route) => {
       if (route.request().method() !== "POST") return route.continue();
@@ -156,22 +156,22 @@ test.describe("Frontend contract safety", () => {
           id: 9901,
           state: "success",
           action: "participate",
-          message: dryRunMessage,
+          message: joinedMessage,
           progress_step: 5,
           progress_total: 5,
           finished_at: "2026-08-11T09:00:00Z",
           result: {
             dynamic_id: "123456789012345678",
             lottery_type: "转发抽奖",
-            status: "dry_run",
-            message: dryRunMessage,
+            status: "joined",
+            message: joinedMessage,
             action_text: "好运连连！",
             actions: [
-              { action: "like", ok: true, detail: "将点赞" },
-              { action: "follow", ok: true, detail: "将关注 uid=123" },
-              { action: "favorite", ok: true, detail: "无收藏入口，跳过" },
-              { action: "repost", ok: true, detail: "将转发 好运连连！" },
-              { action: "comment", ok: true, detail: "将评论 type=17" },
+              { action: "like", ok: true, detail: "已点赞" },
+              { action: "follow", ok: true, detail: "已关注 uid=123" },
+              { action: "favorite", ok: true, detail: "已收藏" },
+              { action: "repost", ok: true, detail: "已转发 好运连连！" },
+              { action: "comment", ok: true, detail: "已评论 type=17" },
             ],
           },
         }),
@@ -183,21 +183,24 @@ test.describe("Frontend contract safety", () => {
     await expect(page.locator("#section-activities")).toHaveClass(/active/);
 
     // 桌面表格与移动卡片都会渲染同一个动作，测试只操作当前布局真正可见的副本。
-    const preview = page.locator("[data-action='participate'][data-dry-run='true']:visible").first();
-    await expect(preview).toBeVisible({ timeout: 10_000 });
-    await preview.click();
+    const participate = page.locator("[data-action='participate'][data-dynamic-id]:visible").first();
+    await expect(participate).toBeVisible({ timeout: 10_000 });
+    // 不写死 ID：断言发出去的就是这个按钮自己的活动，随种子数据变化仍成立。
+    const expectedDynamicId = await participate.getAttribute("data-dynamic-id");
+    await participate.click();
 
     await expect.poll(() => posted).not.toBeNull();
     const captured = posted as unknown as Record<string, any>;
     expect(captured.action).toBe("participate");
-    expect(captured.params?.dry_run).toBe(true);
+    expect(captured.params?.dynamic_id).toBe(expectedDynamicId);
+    // 参与预演已移除：前端不得再发送 dry_run 参数
+    expect(captured.params?.dry_run).toBeUndefined();
 
     await expect(page.locator("#job-result-banner")).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator("#job-result-eyebrow")).toHaveText("参与预演");
-    await expect(page.locator("#job-result-title")).toHaveText("预演完成");
-    await expect(page.locator("#job-result-summary")).toContainText("未执行点赞、关注、收藏、转发或评论写操作");
-    await expect(page.locator("#job-result-hint")).toContainText("不会写入参与记录");
-    await expect(page.locator("#job-result-body")).toContainText("将点赞");
-    await expect(page.locator("#job-result-body")).toContainText("预演文案：好运连连！");
+    await expect(page.locator("#job-result-eyebrow")).toHaveText("参与结果");
+    await expect(page.locator("#job-result-title")).toHaveText("参与成功");
+    await expect(page.locator("#job-result-summary")).toContainText("五项操作均已完成");
+    await expect(page.locator("#job-result-body")).toContainText("点赞");
   });
+
 });

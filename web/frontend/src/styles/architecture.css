@@ -134,11 +134,6 @@
   color: var(--text-secondary, inherit);
 }
 
-.dry-run-copy {
-  margin-top: 10px;
-  overflow-wrap: anywhere;
-}
-
 @media (max-width: 900px) {
   .settings-state-grid,
   .managed-source-grid {
