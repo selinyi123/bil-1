@@ -10,9 +10,10 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
 from src.app_logging import get_logger
+from src.bilibili_auth import resolve_effective_uid
 from src.job_store import get_job
 from web.account_service import get_account_profile
-from web.api_errors import AppError
+from web.api_errors import AppError, ErrorCode
 from web.auto_config import (
     ACTION_LABELS,
     ALLOWED_CLICK_ACTIONS,
@@ -419,12 +420,20 @@ class AutoScheduler:
 
         try:
             validate_job_prerequisites(action, get_account_profile())
+            effective_uid = resolve_effective_uid()
+            if effective_uid is None:
+                raise AppError(ErrorCode.AUTH_REQUIRED, "未检测到当前有效账号身份")
         except AppError as exc:
             self._log("warn", f"跳过「{label}」：{exc}（本次调度不执行）")
             return {"skipped": True, "message": str(exc), "job": None}
 
         params = {"from_auto": True} if action == "participate_triple" else {}
-        job_id = self._runner.try_start(action, params, source="auto")
+        job_id = self._runner.try_start(
+            action,
+            params,
+            source="auto",
+            account_uid=str(effective_uid),
+        )
         if job_id is None:
             raise CollisionError(f"点击「{label}」失败：已有任务正在运行")
 
@@ -533,7 +542,7 @@ def _is_triple_empty_skip(message: str) -> bool:
     return any(marker in text for marker in markers)
 
 
-_HARD_ERROR_KINDS = frozenset({"internal", "business", "network"})
+_HARD_ERROR_KINDS = frozenset({"internal", "business", "network", "identity"})
 _SOFT_ERROR_KINDS = frozenset({"business_partial", "cancelled"})
 
 

@@ -16,7 +16,11 @@ from src.lottery_api import (
 )
 from src.lottery_classifier import PARTICIPATABLE_TYPES, is_charging_lottery_activity
 from src.lottery_time import lottery_time_unix
-from src.participation_store import ParticipationRecord, load_participations
+from src.participation_store import (
+    ParticipationRecord,
+    load_participations,
+    load_participations_for_uid,
+)
 from src.sources.common import is_valid_dynamic_id, load_previous_output
 from src.status_refresh import persist_activity_record
 
@@ -92,6 +96,7 @@ def refresh_activity_status_from_live(
     dynamic_id: str,
     *,
     lottery_type_hint: str | None = None,
+    account_uid: str | int | None = None,
 ) -> dict[str, Any]:
     """打开活动链接同步最新状态，写回本地并返回更新后的记录。"""
     dynamic_id = str(dynamic_id or "").strip()
@@ -111,8 +116,15 @@ def refresh_activity_status_from_live(
 
     item["lottery_type"] = lottery_type
     _sync_live_fields(client, item, lottery_type=lottery_type)
-    participation = load_participations().get(dynamic_id)
-    return persist_activity_record(item, participation=participation)
+    if account_uid is None:
+        participation = load_participations().get(dynamic_id)
+    else:
+        participation = load_participations_for_uid(account_uid).get(dynamic_id)
+    return persist_activity_record(
+        item,
+        participation=participation,
+        account_uid=account_uid,
+    )
 
 
 def ensure_activity_participatable(
@@ -120,12 +132,14 @@ def ensure_activity_participatable(
     dynamic_id: str,
     *,
     lottery_type_hint: str | None = None,
+    account_uid: str | int | None = None,
 ) -> dict[str, Any]:
     """参与前检查：同步状态后必须为未参加且未结束。"""
     item = refresh_activity_status_from_live(
         client,
         dynamic_id,
         lottery_type_hint=lottery_type_hint,
+        account_uid=account_uid,
     )
     status = str(item.get("activity_status") or "")
     if status != "未参加":

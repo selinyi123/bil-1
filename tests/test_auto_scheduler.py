@@ -20,7 +20,9 @@ from web.job_runner import JobRunner, JobStatus
 @contextmanager
 def _logged_in(*, llm: bool = False):
     """模拟已登录（可选 LLM 就绪）以通过 /api/jobs 前置政策。"""
-    with patch("web.auto_scheduler.get_account_profile", return_value={"logged_in": True}):
+    with patch("web.auto_scheduler.get_account_profile", return_value={"logged_in": True}), patch(
+        "web.auto_scheduler.resolve_effective_uid", return_value=999001
+    ):
         if llm:
             with patch("web.api_errors.is_llm_ready", return_value=True):
                 yield
@@ -98,7 +100,9 @@ def test_wait_until_terminal_never_calls_cancel() -> None:
     with _logged_in():
         scheduler._click_and_wait("refresh_status")
     runner.cancel.assert_not_called()
-    runner.try_start.assert_called_once_with("refresh_status", {}, source="auto")
+    runner.try_start.assert_called_once_with(
+        "refresh_status", {}, source="auto", account_uid="999001"
+    )
 
 
 def test_collision_in_refresh_batch_propagates() -> None:
@@ -160,7 +164,9 @@ def test_click_and_wait_treats_skipped_triple_as_success() -> None:
     with _logged_in(llm=True):
         outcome = scheduler._click_and_wait("participate_triple")
     assert outcome["skipped"] is True
-    runner.try_start.assert_called_once_with("participate_triple", {"from_auto": True}, source="auto")
+    runner.try_start.assert_called_once_with(
+        "participate_triple", {"from_auto": True}, source="auto", account_uid="999001"
+    )
     runner.cancel.assert_not_called()
 
 
@@ -297,6 +303,12 @@ def test_hard_failure_by_error_kind() -> None:
     # 无 error_kind：字符串兜底行为保留
     assert _is_hard_failure(RuntimeError("当前列表没有可参与的未参加活动")) is False
     assert _is_hard_failure(RuntimeError("连接超时")) is True
+
+
+def test_identity_failure_is_hard() -> None:
+    identity = RuntimeError("任务账号身份已变化")
+    identity.error_kind = "identity"
+    assert _is_hard_failure(identity) is True
 
 
 def test_click_and_wait_error_attaches_error_kind() -> None:

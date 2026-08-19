@@ -25,8 +25,8 @@ class ParticipationRecord:
         return asdict(self)
 
 
-def load_participations() -> dict[str, ParticipationRecord]:
-    uid = participation_uid()
+def load_participations_for_uid(uid: str | int) -> dict[str, ParticipationRecord]:
+    uid = str(uid)
     with session_scope() as session:
         rows = session.exec(select(ParticipationRow).where(ParticipationRow.uid == uid)).all()
         result: dict[str, ParticipationRecord] = {}
@@ -42,8 +42,17 @@ def load_participations() -> dict[str, ParticipationRecord]:
         return result
 
 
-def set_participation_unlocked(dynamic_id: str, user_status: ParticipationStatus) -> ParticipationRecord:
-    uid = participation_uid()
+def load_participations() -> dict[str, ParticipationRecord]:
+    return load_participations_for_uid(participation_uid())
+
+
+def set_participation_unlocked_for_uid(
+    dynamic_id: str,
+    user_status: ParticipationStatus,
+    *,
+    uid: str | int,
+) -> ParticipationRecord:
+    uid = str(uid)
     record = ParticipationRecord(
         dynamic_id=dynamic_id,
         user_status=user_status,
@@ -68,6 +77,27 @@ def set_participation_unlocked(dynamic_id: str, user_status: ParticipationStatus
     return record
 
 
-def set_participation(dynamic_id: str, user_status: ParticipationStatus) -> ParticipationRecord:
+def set_participation_unlocked(dynamic_id: str, user_status: ParticipationStatus) -> ParticipationRecord:
+    return set_participation_unlocked_for_uid(
+        dynamic_id,
+        user_status,
+        uid=participation_uid(),
+    )
+
+
+def set_participation_for_uid(
+    dynamic_id: str,
+    user_status: ParticipationStatus,
+    *,
+    uid: str | int,
+) -> ParticipationRecord:
     with user_data_lock():
-        return set_participation_unlocked(dynamic_id, user_status)
+        return set_participation_unlocked_for_uid(dynamic_id, user_status, uid=uid)
+
+
+def set_participation(dynamic_id: str, user_status: ParticipationStatus) -> ParticipationRecord:
+    return set_participation_for_uid(
+        dynamic_id,
+        user_status,
+        uid=participation_uid(),
+    )

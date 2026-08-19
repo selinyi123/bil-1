@@ -127,6 +127,8 @@ def install_e2e_hooks(app: FastAPI) -> None:
 
     import web.account_service as account_service
     import web.api_errors as api_errors
+    import web.auto_scheduler as auto_scheduler_module
+    import web.job_runner as job_runner_module
 
     # 用 sys.modules 取已加载的 web.app，避免在 app 模块体尾部安装时二次 import 踩坑
     web_app = sys.modules.get("web.app")
@@ -134,16 +136,22 @@ def install_e2e_hooks(app: FastAPI) -> None:
     _ORIGINALS["account_service.get_account_profile"] = account_service.get_account_profile
     _ORIGINALS["account_service.get_account_extras"] = account_service.get_account_extras
     _ORIGINALS["api_errors.is_llm_ready"] = api_errors.is_llm_ready
+    _ORIGINALS["auto_scheduler.resolve_effective_uid"] = auto_scheduler_module.resolve_effective_uid
+    _ORIGINALS["job_runner.resolve_effective_uid"] = job_runner_module.resolve_effective_uid
 
     account_service.get_account_profile = _mock_account_profile  # type: ignore[assignment]
     account_service.get_account_extras = _mock_account_extras  # type: ignore[assignment]
     api_errors.is_llm_ready = _mock_is_llm_ready  # type: ignore[assignment]
+    auto_scheduler_module.resolve_effective_uid = lambda: 999001
+    job_runner_module.resolve_effective_uid = lambda: 999001
 
     if web_app is not None:
         _ORIGINALS["web_app.get_account_profile"] = web_app.get_account_profile
         _ORIGINALS["web_app.get_account_extras"] = web_app.get_account_extras
+        _ORIGINALS["web_app.resolve_effective_uid"] = web_app.resolve_effective_uid
         web_app.get_account_profile = _mock_account_profile
         web_app.get_account_extras = _mock_account_extras
+        web_app.resolve_effective_uid = lambda: 999001
 
     def _reject_non_loopback(request: Request) -> None:
         if not _client_is_loopback(request):
@@ -172,15 +180,22 @@ def uninstall_e2e_hooks() -> None:
 
     import web.account_service as account_service
     import web.api_errors as api_errors
+    import web.auto_scheduler as auto_scheduler_module
+    import web.job_runner as job_runner_module
 
     account_service.get_account_profile = _ORIGINALS["account_service.get_account_profile"]  # type: ignore[assignment]
     account_service.get_account_extras = _ORIGINALS["account_service.get_account_extras"]  # type: ignore[assignment]
     api_errors.is_llm_ready = _ORIGINALS["api_errors.is_llm_ready"]  # type: ignore[assignment]
+    auto_scheduler_module.resolve_effective_uid = _ORIGINALS[
+        "auto_scheduler.resolve_effective_uid"
+    ]
+    job_runner_module.resolve_effective_uid = _ORIGINALS["job_runner.resolve_effective_uid"]
 
     web_app = sys.modules.get("web.app")
     if web_app is not None and "web_app.get_account_profile" in _ORIGINALS:
         web_app.get_account_profile = _ORIGINALS["web_app.get_account_profile"]
         web_app.get_account_extras = _ORIGINALS["web_app.get_account_extras"]
+        web_app.resolve_effective_uid = _ORIGINALS["web_app.resolve_effective_uid"]
 
     _ORIGINALS.clear()
     _INSTALLED = False

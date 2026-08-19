@@ -208,6 +208,85 @@ def test_a1_rejects_second_start(isolated_home: Path) -> None:
         _wait_until(runner, lambda s: s.state == "success")
 
 
+def test_bound_account_uid_roundtrips_and_allows_matching_identity(isolated_home: Path) -> None:
+    _ = isolated_home
+    runner = JobRunner()
+    done = threading.Event()
+
+    def fake_run_action(action, params, *, on_progress, cancel_event):
+        done.set()
+        return {"ok": True, "message": "ok", "log": "ok"}
+
+    with patch("web.job_runner.resolve_effective_uid", return_value=123456), patch(
+        "web.job_runner.run_action", side_effect=fake_run_action
+    ):
+        job_id = runner.try_start("refresh_status", account_uid=123456)
+        assert job_id is not None
+        assert done.wait(timeout=3)
+        _wait_until(runner, lambda s: s.state == "success")
+
+    status = runner.get_status()
+    assert status.account_uid == "123456"
+    assert status.to_dict()["account_uid"] == "123456"
+    row = get_job(job_id)
+    assert row is not None
+    assert row["account_uid"] == "123456"
+
+
+def test_bound_account_uid_mismatch_fails_before_run_action(isolated_home: Path) -> None:
+    _ = isolated_home
+    runner = JobRunner()
+    action_called = threading.Event()
+
+    def fake_run_action(action, params, *, on_progress, cancel_event):
+        action_called.set()
+        return {"ok": True, "message": "must not run"}
+
+    with patch("web.job_runner.resolve_effective_uid", return_value=654321), patch(
+        "web.job_runner.run_action", side_effect=fake_run_action
+    ) as action_mock:
+        job_id = runner.try_start("refresh_status", account_uid="123456")
+        assert job_id is not None
+        _wait_until(runner, lambda s: s.state == "error")
+        action_mock.assert_not_called()
+
+    assert not action_called.is_set()
+    row = get_job(job_id)
+    assert row is not None
+    assert row["state"] == "error"
+    assert row["error_kind"] == "identity"
+    assert row["account_uid"] == "123456"
+
+
+def test_bound_participate_passes_one_captured_context_to_run_action(
+    isolated_home: Path,
+) -> None:
+    _ = isolated_home
+    runner = JobRunner()
+    done = threading.Event()
+    captured = object()
+    received: dict[str, object] = {}
+
+    def fake_run_action(action, params, *, on_progress, cancel_event, account_context):
+        received["action"] = action
+        received["context"] = account_context
+        done.set()
+        return {"ok": True, "message": "ok", "log": "ok"}
+
+    with (
+        patch("web.job_runner.resolve_effective_uid", return_value=123456),
+        patch("web.job_runner.capture_current_account_context", return_value=captured) as capture,
+        patch("web.job_runner.run_action", side_effect=fake_run_action),
+    ):
+        job_id = runner.try_start("participate", account_uid=123456)
+        assert job_id is not None
+        assert done.wait(timeout=3)
+        _wait_until(runner, lambda s: s.state == "success")
+
+    capture.assert_called_once_with(expected_uid="123456")
+    assert received == {"action": "participate", "context": captured}
+
+
 def test_recover_marks_running_interrupted(isolated_home: Path) -> None:
     _ = isolated_home
     from src.job_store import insert_running_job

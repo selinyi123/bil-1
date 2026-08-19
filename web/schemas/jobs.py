@@ -99,6 +99,11 @@ def validate_job_params(action: str, params: dict[str, Any] | None) -> dict[str,
     if model is None:
         return dict(params or {})
     raw = params if isinstance(params, dict) else {}
+    if "account_uid" in raw:
+        raise AppError(
+            ErrorCode.VALIDATION_ERROR,
+            "params.account_uid 是服务器管理字段，不能由客户端指定",
+        )
     try:
         validated = model.model_validate(raw)
     except ValidationError as exc:
@@ -132,6 +137,7 @@ class JobStatusOut(BaseModel):
     action: str = ""
     label: str = ""
     source: str = "ui"
+    account_uid: str | None = None
     started_at: int | None = None
     finished_at: int | None = None
     message: str = ""

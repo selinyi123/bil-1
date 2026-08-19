@@ -81,7 +81,9 @@ def test_llm_not_ready_distinct_from_auth() -> None:
     with patch("web.app.get_account_profile", return_value={"logged_in": True}), patch(
         "web.api_errors.is_llm_ready",
         return_value=False,
-    ), patch("web.app.runner.try_start", return_value=1):
+    ), patch("web.app.resolve_effective_uid", return_value=999001), patch(
+        "web.app.runner.try_start", return_value=1
+    ):
         resp = client.post("/api/jobs", json={"action": "refresh_all", "params": {}})
     _assert_error_shape(resp, code="LLM_NOT_READY", status=401)
 
@@ -100,7 +102,9 @@ def test_refresh_status_ok_without_llm() -> None:
     with patch("web.app.get_account_profile", return_value={"logged_in": True}), patch(
         "web.api_errors.is_llm_ready",
         return_value=False,
-    ), patch("web.app.runner.try_start", return_value=42) as start_mock, patch(
+    ), patch("web.app.resolve_effective_uid", return_value=999001), patch(
+        "web.app.runner.try_start", return_value=42
+    ) as start_mock, patch(
         "web.app.runner.get_status"
     ) as status_mock:
         status_mock.return_value.to_dict.return_value = {
@@ -122,7 +126,9 @@ def test_job_ready_refresh_all_starts() -> None:
     with patch("web.app.get_account_profile", return_value={"logged_in": True}), patch(
         "web.api_errors.is_llm_ready",
         return_value=True,
-    ), patch("web.app.runner.try_start", return_value=7) as start_mock, patch(
+    ), patch("web.app.resolve_effective_uid", return_value=999001), patch(
+        "web.app.runner.try_start", return_value=7
+    ) as start_mock, patch(
         "web.app.runner.get_status"
     ) as status_mock:
         status_mock.return_value.to_dict.return_value = {
@@ -142,7 +148,9 @@ def test_job_busy_error_code() -> None:
     with patch("web.app.get_account_profile", return_value={"logged_in": True}), patch(
         "web.api_errors.is_llm_ready",
         return_value=True,
-    ), patch("web.app.runner.try_start", return_value=None):
+    ), patch("web.app.resolve_effective_uid", return_value=999001), patch(
+        "web.app.runner.try_start", return_value=None
+    ):
         resp = client.post("/api/jobs", json={"action": "refresh_status", "params": {}})
     _assert_error_shape(resp, code="JOB_BUSY", status=409)
 

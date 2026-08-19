@@ -7,7 +7,6 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Literal
 
-from src.bilibili_auth import get_login_uid, require_login
 from src.bilibili_client import BilibiliClient, api_code
 from src.lottery_api import fetch_dynamic_detail, fetch_notice_for_interact, fetch_opus_detail_item
 from src.sources.common import opus_link
@@ -284,7 +283,7 @@ def is_reposted(client: BilibiliClient, *, dynamic_id: str, referer: str) -> boo
 
 
 def has_reposted_in_space_feed(client: BilibiliClient, *, dynamic_id: str) -> bool:
-    uid = get_login_uid()
+    uid = client.login_uid
     if not uid:
         return False
     referer = f"https://space.bilibili.com/{uid}/dynamic"
@@ -323,7 +322,7 @@ def has_comment(
     action_text: str,
     referer: str,
 ) -> bool:
-    uid = get_login_uid()
+    uid = client.login_uid
     if not uid:
         return False
     try:
@@ -608,7 +607,7 @@ def execute_full_participation(
             ),
         ], context
 
-    csrf, my_uid = require_login()
+    csrf, my_uid = client.require_login()
     actions: list[ActionResult] = []
 
     # 参与增强配置（抄热评由 participate_text 层处理；这里管 @好友/话题/随机间隔）
