@@ -217,3 +217,65 @@ def test_job_runner_releases_lock_after_job_terminal(
     after = WriterLock(owner="cli:after")
     assert after.acquire() is True, "任务结束后写者锁未释放"
     after.release()
+
+
+def test_acquire_fails_closed_when_lock_file_cannot_be_created(
+    isolated_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """建不出锁文件时必须 fail-closed。
+
+    只读目录 / 权限错误 / 句柄耗尽恰好发生在系统状态已异常、最不能可信假定
+    互斥的时候；此时返回 True 等于在最危险的时刻关闭保护。
+    """
+    _ = isolated_home
+
+    def _boom(*args: object, **kwargs: object) -> None:
+        raise OSError("read-only file system")
+
+    monkeypatch.setattr(Path, "open", _boom)
+    lock = WriterLock(owner="test")
+    assert lock.acquire() is False
+    assert lock.held is False
+
+
+def test_acquire_result_always_matches_held(isolated_home: Path) -> None:
+    """acquire() 返回 True 当且仅当 held 为 True——不存在"成功但没持锁"的中间态。"""
+    _ = isolated_home
+    lock = WriterLock(owner="test")
+    assert lock.acquire() == lock.held
+    lock.release()
+    assert lock.held is False
+
+
+def test_thread_start_failure_rolls_back_job_and_lock(
+    isolated_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """线程起不来时，DB 行 / 内存槽 / 写者锁必须一起回滚。
+
+    否则会留下永远不会终止的 running job，并把写者锁挂到进程退出。
+    """
+    import threading as _threading
+
+    from src.db import init_db
+    from src.job_store import get_job
+    from web.job_runner import JobRunner
+
+    init_db()
+    runner = JobRunner()
+
+    def _boom(self: object) -> None:
+        raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(_threading.Thread, "start", _boom)
+
+    with pytest.raises(RuntimeError):
+        runner.try_start("refresh_status", {}, source="ui")
+
+    assert runner.is_running() is False
+    latest = get_job(1)
+    assert latest is not None
+    assert latest["state"] == "error"
+
+    after = WriterLock(owner="cli:after")
+    assert after.acquire() is True, "启动失败后写者锁未释放"
+    after.release()

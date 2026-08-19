@@ -75,7 +75,9 @@ Web 控制台（仅 127.0.0.1）浏览与参与 → 定时自动参与 → 中�
 
 ### 4.4 任务模型
 - **写者锁（`src/writer_lock.py`）**：`data/binggo.writer.lock`，跨平台非阻塞文件锁，
-  保证**同一时刻本机只有一个写者**。`JobRunner.try_start` 与四个有副作用的 CLI
+  保证**同一时刻本机只有一个任务级写者**（JobRunner 任务 + 有副作用的 CLI）。
+  **不覆盖** Web GET 路径的维护性写入与配置类 mutation 端点——持锁不等于
+  "DB 此刻不会被改"，勿据此写 read-modify-write。`JobRunner.try_start` 与四个有副作用的 CLI
   （participate / maintain_local_activities / purge_all_dead_links / rollback_ds_containers）
   共用同一把锁。`JobRunner` 的单槽只是 Web 进程内互斥，管不到 CLI；跨进程正确性由本锁承担。
   无 `--force`，无阻塞等待；CLI 拿不到锁即退出码 2。与 `binggo_launcher` 的单实例锁
@@ -114,6 +116,15 @@ Web 控制台（仅 127.0.0.1）浏览与参与 → 定时自动参与 → 中�
   上层随后照常 `commit_source_checkpoint`。若上游容器此后不再变化，该链接不会再进入增量发现。
   **这是有意选择**——按 `AGENTS.md` 的机制判据，失败重试表属于制度层，已否决；
   「失败就不推进 checkpoint」被判定为不值得的额外处理。跳过失败、继续下一条即为最终语义。
+- **GET 路径存在维护性写入**：`_load_activities_payload()` 会调用
+  `seed_activities_if_empty()` 与 `refresh_expired_activity_statuses()`（后者 UPDATE
+  过期活动），挂在 `/api/summary`、`/api/activities`、`/api/activities/triple-targets`
+  之后；`/api/watch-users` 与 `/api/accounts` 也有 seed / legacy 收养写入。
+  两个后果：(1) HTTP GET 产生写副作用，语义不干净；(2) 这些写入不受写者锁仲裁。
+  另外 `refresh_expired_activity_statuses()` + `load_payload()` 是两次全表扫描 +
+  两次全量 decode，复杂度随活动量线性增长。
+  **正确方向是让"过期"成为读时派生状态或后台周期维护，而不是给 GET 加写者锁**
+  （加锁会让任何任务运行期间的页面访问全部失败）。
 
 - **多账号编排**（产品决策）：当前是账号池管理，非 LAS 逐账号自动轮转；若做建议 `AccountContext` + Job 绑定 account_uid。
 - **Line client-level registry**：当前每次调用新建 Line，valid_line 不跨调用保留。

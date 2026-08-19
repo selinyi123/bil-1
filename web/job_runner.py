@@ -301,7 +301,39 @@ class JobRunner:
             daemon=True,
             name=f"job-{job_id}-{action}",
         )
-        thread.start()
+        try:
+            thread.start()
+        except Exception:
+            # "INSERT running + thread.start" 是一个逻辑启动事务：线程起不来
+            # （系统资源不足等）时必须把 DB 行、内存槽和写者锁一起回滚，
+            # 否则会留下永远不会终止的 running job，并把写者锁挂到进程退出。
+            logger.exception("任务线程启动失败，回滚启动事务 job_id=%s action=%s", job_id, action)
+            try:
+                finish_job(
+                    job_id,
+                    state="error",
+                    message="任务线程启动失败",
+                    log_summary="",
+                    error_kind="internal",
+                    finished_at=int(time.time()),
+                )
+            except Exception:
+                logger.exception("回滚任务行失败 job_id=%s", job_id)
+            with self._lock:
+                if self._status.id == job_id:
+                    self._status = JobStatus(
+                        id=job_id,
+                        state="error",
+                        action=action,
+                        label=label,
+                        source=source_s,
+                        started_at=now,
+                        finished_at=int(time.time()),
+                        message="任务线程启动失败",
+                    )
+                    self._cancel_event = None
+            writer_lock.release()
+            raise
         return job_id
 
     def cancel(self) -> bool:
