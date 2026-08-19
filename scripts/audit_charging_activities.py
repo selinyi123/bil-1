@@ -12,7 +12,7 @@ if str(ROOT) not in sys.path:
 
 from src.fetch_activity_info import ENRICHED_OUTPUT_PATH
 from src.lottery_classifier import is_charging_lottery_activity, migrate_stored_charging_lotteries
-from web.activity_service import invalidate_activity_cache, list_activities
+from web.activity_service import list_activities
 
 
 def main() -> int:
@@ -39,7 +39,6 @@ def main() -> int:
         json.dumps(payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    invalidate_activity_cache()
 
     after_payload = json.loads(ENRICHED_OUTPUT_PATH.read_text(encoding="utf-8"))
     after = [

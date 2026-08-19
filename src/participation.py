@@ -36,7 +36,7 @@ from src.participation_log import (
     serialize_actions,
     _MAX_ENTRIES_PER_UID,
 )
-from src.user_data_lock import user_data_lock
+from src.user_data_lock import user_data_thread_lock
 from src.participate_text import resolve_participate_text_for_activity
 from src.lottery_classifier import PARTICIPATABLE_TYPES
 from src.sources.common import is_valid_dynamic_id, opus_link
@@ -111,7 +111,7 @@ def record_participation_outcome_unlocked(
     (b) participations 置为已参加（uid + dynamic_id 复合主键 upsert）；
     (c) activities 活动状态置为已参加（与 mark_enriched_joined 相同的写入结果）。
 
-    调用方须持有 user_data_lock（跨进程/线程互斥）。任一子步骤抛错时整体回滚，
+    调用方须持有 user_data_thread_lock（仅进程内线程互斥）。任一子步骤抛错时整体回滚，
     避免此前多次独立提交造成的部分写入不一致。仅在 mark_joined 时写入
     participations 与 activities（动作日志始终写入）。
     """
@@ -204,7 +204,7 @@ def _persist_result(
         actions=serialize_actions(result.actions),
         context_snapshot=result.context_snapshot,
     )
-    with user_data_lock():
+    with user_data_thread_lock():
         record_participation_outcome_unlocked(record, mark_joined=joined)
 
 

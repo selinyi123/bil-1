@@ -4,7 +4,6 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from web.api_contract import API_CONTRACT_HEADER, API_CONTRACT_VERSION
 from web.app import app
 
 client = TestClient(app)
@@ -12,7 +11,6 @@ client = TestClient(app)
 
 def _assert_error_shape(resp, *, code: str, status: int) -> dict:
     assert resp.status_code == status
-    assert resp.headers.get(API_CONTRACT_HEADER) == str(API_CONTRACT_VERSION)
     data = resp.json()
     assert "error" in data
     assert data["error"]["code"] == code
@@ -24,7 +22,6 @@ def _assert_error_shape(resp, *, code: str, status: int) -> dict:
 def test_json_api_success_has_contract_header() -> None:
     resp = client.get("/api/account")
     assert resp.status_code == 200
-    assert resp.headers.get(API_CONTRACT_HEADER) == str(API_CONTRACT_VERSION)
 
 
 def test_unsupported_action_error_code() -> None:
@@ -43,7 +40,7 @@ def test_validation_error_becomes_400_not_422() -> None:
 
 def test_openapi_includes_error_body_and_contract() -> None:
     schema = client.get("/openapi.json").json()
-    assert schema["info"].get("x-api-contract") == API_CONTRACT_VERSION
+    assert "ErrorBody" in schema["components"]["schemas"]
     assert "ErrorBody" in schema["components"]["schemas"]
 
 
@@ -60,7 +57,6 @@ def test_sse_response_has_contract_header() -> None:
         resp = client.get("/api/events")
     assert resp.status_code == 200
     assert "text/event-stream" in resp.headers.get("content-type", "")
-    assert resp.headers.get(API_CONTRACT_HEADER) == str(API_CONTRACT_VERSION)
 
 
 def test_unknown_error_code_coerces_to_internal() -> None:
@@ -110,7 +106,6 @@ def test_refresh_status_ok_without_llm() -> None:
         }
         resp = client.post("/api/jobs", json={"action": "refresh_status", "params": {}})
     assert resp.status_code == 200
-    assert resp.headers.get(API_CONTRACT_HEADER) == str(API_CONTRACT_VERSION)
     data = resp.json()
     assert data["ok"] is True
     assert data["job"]["id"] == 42

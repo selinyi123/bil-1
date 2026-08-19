@@ -19,7 +19,6 @@ from src.fetch_activity_info import (
     list_missing_enrich_tasks,
     save_enriched,
 )
-from src.lottery_api import reset_detail_api_state
 from src.participation_store import load_participations
 
 
@@ -31,7 +30,6 @@ def main() -> int:
 
     existing_by_id = _load_existing_activities()
     participations = load_participations()
-    reset_detail_api_state()
 
     enriched_at = int(time.time())
     newly_enriched = {}

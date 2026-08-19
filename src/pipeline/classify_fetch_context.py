@@ -14,7 +14,6 @@ from src.lottery_api import (
     _fetch_opus_detail_item,
     _normalize_dynamic_item,
     fetch_lottery_notice,
-    is_detail_api_enabled,
     probe_dynamic_detail_api,
     resolve_reserve_business,
 )
@@ -44,10 +43,6 @@ class ClassifyFetchContext:
     _resolved_content: str = field(default="", repr=False)
 
     def _fetch_detail_api_item(self, *, retries: int) -> dict | None:
-        if not is_detail_api_enabled():
-            self._detail_api_code = None
-            self._detail_api_message = ""
-            return None
         item, code, message = probe_dynamic_detail_api(
             self.client,
             self.dynamic_id,
@@ -78,9 +73,6 @@ class ClassifyFetchContext:
     def get_additional(self) -> dict | None:
         if self._additional is not _UNSET:
             return self._additional
-        if not is_detail_api_enabled():
-            self._additional = None
-            return None
         item = self._ensure_detail_api_item()
         if item is None:
             self._additional = None

@@ -40,7 +40,6 @@ from web.activity_service import (
     PARTICIPATE_TRIPLE_LIMIT,
     build_triple_progress_plan,
     build_triple_target_preview,
-    invalidate_activity_cache,
     lookup_lottery_type,
     participate_step_budget,
     pick_triple_participate_targets,
@@ -606,7 +605,6 @@ def run_action(
         _raise_if_cancelled(cancel_event)
         for check_result in ds_check_results:
             commit_source_checkpoint(check_result)
-        invalidate_activity_cache()
         for line in _pipeline_log_lines(pipeline_result):
             log_lines.append(line)
         progress(
@@ -717,7 +715,6 @@ def run_action(
             pipeline_spans.close(error_kind=pipeline_error)
         _raise_if_cancelled(cancel_event)
         commit_source_checkpoint(check_result)
-        invalidate_activity_cache()
         for line in _pipeline_log_lines(pipeline_result):
             log_lines.append(line)
         progress(
@@ -806,7 +803,6 @@ def run_action(
         finally:
             pipeline_spans.close(error_kind=pipeline_error)
         _raise_if_cancelled(cancel_event)
-        invalidate_activity_cache()
         for line in _pipeline_log_lines(pipeline_result):
             log_lines.append(line)
         progress(
@@ -855,7 +851,6 @@ def run_action(
         ):
             result = refresh_local_activity_statuses()
         _raise_if_cancelled(cancel_event)
-        invalidate_activity_cache()
         if result.get("skipped"):
             message = "没有需要刷新的进行中活动"
         else:
@@ -915,7 +910,6 @@ def run_action(
         refresh_local_activity_statuses()
         logger.info("参与活动成功 %s", dynamic_id)
         action_log = format_participation_log(payload)
-        invalidate_activity_cache()
         return {
             "ok": True,
             "message": str(payload.get("message") or "参与成功"),
@@ -1196,7 +1190,6 @@ def run_action(
         message = f"三连参与完成：{len(results)} 个活动全部成功"
         progress(step=total_steps, total=total_steps, message=message, log_append=message)
         logger.info("三连参与成功 count=%s", len(results))
-        invalidate_activity_cache()
         return {
             "ok": True,
             "message": message,

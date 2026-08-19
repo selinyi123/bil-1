@@ -94,10 +94,6 @@ def count_pending_enrich() -> int:
     return len(list_missing_enrich_tasks())
 
 
-def count_skipped_pending_retry() -> int:
-    return 0
-
-
 def is_enriched_complete(cached: dict | None) -> bool:
     if not cached:
         return False
@@ -258,7 +254,6 @@ def fetch_activity_info(
     """补全本地活动中详情不完整的记录。"""
     existing_by_id = _load_existing_activities()
     participations = load_participations()
-    reset_detail_api_state()
     enriched_at = int(time.time())
     tasks = list_missing_enrich_tasks()
 

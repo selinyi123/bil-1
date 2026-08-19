@@ -97,6 +97,12 @@ Web 控制台（仅 127.0.0.1）浏览与参与 → 定时自动参与 → 中�
 
 ## 6. 已知 gap / roadmap（详见 docs/13-LAS功能迁移审计.md）
 
+- **单条技术失败的链接会被永久遗漏（已知取舍，不是 bug，勿修）**：
+  `run_new_links_pipeline` 单条 classify/enrich 技术失败记入 `skip_reasons` 后继续，整体正常返回；
+  上层随后照常 `commit_source_checkpoint`。若上游容器此后不再变化，该链接不会再进入增量发现。
+  **这是有意选择**——按 `AGENTS.md` 的机制判据，失败重试表属于制度层，已否决；
+  「失败就不推进 checkpoint」被判定为不值得的额外处理。跳过失败、继续下一条即为最终语义。
+
 - **多账号编排**（产品决策）：当前是账号池管理，非 LAS 逐账号自动轮转；若做建议 `AccountContext` + Job 绑定 account_uid。
 - **Line client-level registry**：当前每次调用新建 Line，valid_line 不跨调用保留。
 - **per-account 行为配置 / 通知身份上下文**：participate_enhance/notify 仍全局；多账号编排落地后需带账号身份。

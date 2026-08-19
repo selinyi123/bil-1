@@ -5,7 +5,6 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from src.diagnostics import build_diagnostics_bundle
-from web.api_contract import API_CONTRACT_HEADER, API_CONTRACT_VERSION
 from web.app import app
 
 client = TestClient(app)
@@ -43,7 +42,6 @@ def test_diagnostics_logs_ok(isolated_home, monkeypatch) -> None:
 
     resp = client.get("/api/diagnostics/logs", params={"job_id": 3, "limit": 20})
     assert resp.status_code == 200
-    assert resp.headers.get(API_CONTRACT_HEADER) == str(API_CONTRACT_VERSION)
     data = resp.json()
     assert data["ok"] is True
     assert data["count"] >= 1

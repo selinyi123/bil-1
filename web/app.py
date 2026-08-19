@@ -44,8 +44,14 @@ from web.activity_service import (
     list_activities,
     summarize_triple_participate_targets,
 )
-from web.api_contract import API_CONTRACT_VERSION, ApiContractMiddleware, patch_openapi_schema
-from web.api_errors import AppError, ErrorCode, register_exception_handlers, require_llm_ready, require_login
+from web.api_errors import (
+    AppError,
+    ErrorCode,
+    patch_openapi_schema,
+    register_exception_handlers,
+    require_llm_ready,
+    require_login,
+)
 from web.auto_scheduler import auto_scheduler
 from web.job_runner import runner
 from web.product_routes import install_product_routes
@@ -84,7 +90,7 @@ DIST_DIR = STATIC_DIR / "dist"
 app = FastAPI(
     title="Binggo 本地控制台 API",
     version=__version__,
-    description=f"契约代见 X-Api-Contract / API_CONTRACT_VERSION；当前={API_CONTRACT_VERSION}",
+    description="Binggo 本机控制台 API。失败响应统一为 ErrorBody（error.code / error.message / detail）。",
 )
 class AssetCacheMiddleware:
     """为 hashed /assets/* 加长缓存；纯 ASGI，不缓冲 body。"""
@@ -108,7 +114,6 @@ class AssetCacheMiddleware:
 
 # 纯 ASGI 中间件：勿用 BaseHTTPMiddleware，以免缓冲/打断 SSE
 app.add_middleware(AssetCacheMiddleware)
-app.add_middleware(ApiContractMiddleware)
 # localhost 控制面防护（Host/DNS rebinding + 跨站 mutation Origin 校验）
 from web.local_guard import LocalControlPlaneGuard
 

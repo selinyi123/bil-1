@@ -114,5 +114,9 @@ def _restore_value(saved: Any, incoming: Any) -> Any:
             for key, value in incoming.items()
         }
     if isinstance(incoming, list):
-        return [_restore_value(saved, item) for item in incoming]
+        saved_items = saved if isinstance(saved, list) else []
+        return [
+            _restore_value(saved_items[index] if index < len(saved_items) else None, item)
+            for index, item in enumerate(incoming)
+        ]
     return incoming

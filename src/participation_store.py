@@ -9,7 +9,7 @@ from sqlmodel import select
 from src.db.models import ParticipationRow
 from src.db.session import session_scope
 from src.db.uids import participation_uid
-from src.user_data_lock import user_data_lock
+from src.user_data_lock import user_data_thread_lock
 
 ParticipationStatus = Literal["已参加", "未参加"]
 
@@ -69,5 +69,5 @@ def set_participation_unlocked(dynamic_id: str, user_status: ParticipationStatus
 
 
 def set_participation(dynamic_id: str, user_status: ParticipationStatus) -> ParticipationRecord:
-    with user_data_lock():
+    with user_data_thread_lock():
         return set_participation_unlocked(dynamic_id, user_status)

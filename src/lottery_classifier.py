@@ -21,26 +21,6 @@ DYNAMIC_DETAIL_URL = "https://api.bilibili.com/x/polymer/web-dynamic/v1/detail"
 RESERVE_MARKER_RE = re.compile(r"reserve_total|ADDITIONAL_TYPE_RESERVE")
 LIVE_STREAM_RESERVE_JUMP_RE = re.compile(r"live\.bilibili\.com", re.I)
 
-_detail_api_lock = threading.Lock()
-_detail_api_enabled = True
-
-
-def is_detail_api_enabled() -> bool:
-    return _detail_api_enabled
-
-
-def disable_detail_api() -> None:
-    global _detail_api_enabled
-    with _detail_api_lock:
-        _detail_api_enabled = False
-
-
-def reset_detail_api_state() -> None:
-    global _detail_api_enabled
-    with _detail_api_lock:
-        _detail_api_enabled = True
-
-
 def _has_lottery_notice(client: BilibiliClient, dynamic_id: str, *, business_type: int) -> bool:
     referer = opus_link(dynamic_id)
     data = client.request_json(
@@ -56,9 +36,6 @@ def _has_lottery_notice(client: BilibiliClient, dynamic_id: str, *, business_typ
 
 
 def _get_dynamic_additional(client: BilibiliClient, dynamic_id: str) -> dict | None:
-    if not is_detail_api_enabled():
-        return None
-
     referer = opus_link(dynamic_id)
     try:
         data = client.get_json(
