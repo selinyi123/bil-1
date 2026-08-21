@@ -30,7 +30,37 @@ from web.user_messages import JOB_ACTION_LABELS, friendly_error, sanitize_log
 
 logger = get_logger("job")
 
-_ACCOUNT_CONTEXT_ACTIONS = frozenset({"participate", "participate_triple"})
+# 身份策略：每个 action 必须显式登记，未登记者默认拒绝启动。
+#
+#   unbound —— 不需要账号身份（仅 login：它的目的就是取得身份）
+#   bound   —— 启动时做一次身份准入检查 + 审计标记；**不冻结凭据**
+#   context —— 在 bound 基础上再捕获不可变 AccountContext
+#              （Cookie/CSRF/UID/Proxy 快照），整个任务用同一份凭据
+#
+# 「bound」不等于「身份冻结」：refresh_all 之类的任务只在起步核对一次有效 UID，
+# 之后走各自的客户端。它们目前的安全性部分依赖「任务运行期间禁止 Web 切号」
+# （web/app.py 的 _reject_when_job_running）。若将来允许运行中切号，这些 action
+# 要么升级为 context，要么在关键身份操作处重新验证。
+IDENTITY_UNBOUND = "unbound"
+IDENTITY_BOUND = "bound"
+IDENTITY_CONTEXT = "context"
+
+JOB_IDENTITY_POLICY: dict[str, str] = {
+    "login": IDENTITY_UNBOUND,
+    "refresh_all": IDENTITY_BOUND,
+    "refresh_source": IDENTITY_BOUND,
+    "refresh_watch": IDENTITY_BOUND,
+    "refresh_status": IDENTITY_BOUND,
+    "check_prize": IDENTITY_BOUND,
+    "clear_follows": IDENTITY_BOUND,
+    "participate": IDENTITY_CONTEXT,
+    "participate_triple": IDENTITY_CONTEXT,
+}
+
+
+def job_identity_policy(action: str) -> str:
+    """返回 action 的身份策略；未登记的 action 视为需要绑定账号（默认拒绝放行）。"""
+    return JOB_IDENTITY_POLICY.get(action, IDENTITY_BOUND)
 
 
 def _publish_job_event(event: str, data: dict[str, Any]) -> None:
@@ -232,6 +262,11 @@ class JobRunner:
         now = int(time.time())
         source_s = str(source or "ui")
         account_uid_s = str(account_uid) if account_uid is not None else None
+        # fail-closed：除 login 外，任何 action 都必须携带 account_uid。
+        # 历史任务行的 account_uid 允许为 NULL 是 schema 兼容问题，不应扩大成
+        # 运行时兼容——否则将来任何忘了绑 UID 的新入口都会静默跳过身份守卫。
+        if job_identity_policy(action) != IDENTITY_UNBOUND and account_uid_s is None:
+            raise ValueError(f"缺少 account_uid，拒绝启动任务：{action}")
 
         # 跨进程写者锁：Web 单任务槽只管本进程，CLI（docs/cli.md 的正式入口）
         # 同样会写 B 站与本地状态。拿不到就当作"已有任务在跑"，与内存槽被占同义。
@@ -660,7 +695,7 @@ class JobRunner:
             try:
                 # account_uid 为空表示 login 或历史/内部兼容任务；新建的 UI/auto
                 # 任务由上层在创建时绑定 UID，这里只在真正执行动作前 fail-closed。
-                if account_uid is not None and action != "login":
+                if account_uid is not None and job_identity_policy(action) != IDENTITY_UNBOUND:
                     effective_uid = resolve_effective_uid()
                     if str(effective_uid) != account_uid:
                         raise JobIdentityMismatch(
@@ -668,7 +703,7 @@ class JobRunner:
                             effective_uid=effective_uid,
                         )
                 account_context = None
-                if account_uid is not None and action in _ACCOUNT_CONTEXT_ACTIONS:
+                if account_uid is not None and job_identity_policy(action) == IDENTITY_CONTEXT:
                     account_context = capture_current_account_context(expected_uid=account_uid)
 
                 run_kwargs = {

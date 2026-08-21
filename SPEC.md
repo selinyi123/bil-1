@@ -102,7 +102,25 @@ Web 控制台（仅 127.0.0.1）浏览与参与 → 定时自动参与 → 中�
   （internal/business/business_partial/cancelled/network）、SSE 事件、启动恢复。
   锁在 worker 线程 finally 中释放，异常路径同样释放。
   `error_kind` 增加 `identity` 分类。
-- UI/auto Job 创建时由服务端调用 `resolve_effective_uid()` 绑定 `account_uid`；该字段不接受客户端 params 传入。worker 在调用 `run_action()` 前再次核对有效 UID，不一致则 fail-closed 为 `error_kind=identity`。
+- **Job 身份策略（`web/job_runner.JOB_IDENTITY_POLICY`）**：每个 action 必须显式登记，
+  未登记者默认按 `bound` 处理并要求 `account_uid`——新增 action 忘了登记会被拒绝启动，
+  而不是静默放行。三种策略含义**不可混为一谈**：
+  - `unbound`（仅 `login`）：不需要账号身份，它的目的就是取得身份。
+  - `bound`（refresh_* / check_prize / clear_follows）：创建时由服务端
+    `resolve_effective_uid()` 绑定 `account_uid`（不接受客户端 params 传入），
+    worker 起步再核对一次，不一致则 fail-closed 为 `error_kind=identity`。
+    **这是身份准入检查与审计标记，不是凭据冻结**——任务执行期间各自建客户端，
+    其安全性部分依赖「任务运行期间禁止 Web 切号」（`_reject_when_job_running`）。
+    若将来允许运行中切号，这些 action 要么升级为 `context`，要么在关键身份操作处重新验证。
+  - `context`（`participate` / `participate_triple`）：在 `bound` 基础上再
+    `capture_current_account_context(expected_uid=...)` 捕获不可变 Cookie/CSRF/UID/Proxy
+    快照，整个任务用同一份凭据。捕获时会**重新**从 Cookie 解析 UID 并要求与绑定 UID 相等，
+    因此不是"检查完就盲跑"的 TOCTOU。
+- **平台事实与溯源是不可分割的元组**（`status_refresh.PLATFORM_FACT_FIELDS`）：
+  `platform_participated` / `reserve_reserved` / `platform_observed_uid` 必须同进同出。
+  更新 fact 而保留旧 provenance 会制造「B 的事实 + A 的 observed_uid」，
+  让读侧误认为是当前账号自己观测到的结果，绕过 4.1 的账号隔离。
+  账号绑定 preflight 的 `observed_uid` 取绑定 UID，并断言 `client.login_uid` 与之一致。
 - `AutoScheduler`：时间槽触发（refresh_all 批次 + participate_triple）；`_is_hard_failure` 按 error_kind 判定（字符串兜底）；触发前校验 `validate_job_prerequisites`（未登录/LLM 未就绪 soft skip）。
 - **撞车不再停机**：`CollisionError` 由 fatal 改为**跳过本时间槽**（标记该 slot key 已处理，
   下个槽照常）。一次撞车让调度器死到人工重启属于"一次失败长期降级"；正确性归锁，韧性归调度器。

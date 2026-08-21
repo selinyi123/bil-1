@@ -122,6 +122,16 @@ def refresh_activity_status_from_live(
     item["lottery_type"] = lottery_type
     # 账号绑定任务必须记绑定 UID，而不是"当前 active UID"——后者是环境状态，
     # 任务执行期间可能被切换，正是 account_uid 绑定要消除的依赖。
+    #
+    # 但 observed_uid 只有在「它确实是发出这些请求的那个身份」时才成立：
+    # client 与 account_uid 是两个独立参数，调用方写错就会把 A 观测到的结果
+    # 标成 B 的。fail-closed 断言两者一致，不让错误归因静默发生。
+    if account_uid is not None:
+        client_uid = int(getattr(client, "login_uid", 0) or 0)
+        if client_uid and str(client_uid) != str(account_uid):
+            raise RuntimeError(
+                f"客户端身份与任务绑定账号不一致（client={client_uid}, bound={account_uid}），拒绝同步平台状态"
+            )
     observed_uid = str(account_uid) if account_uid is not None else participation_uid()
     _sync_live_fields(client, item, lottery_type=lottery_type, observed_uid=observed_uid)
     if account_uid is None:

@@ -115,6 +115,25 @@ def _empty_result(*, total: int = 0) -> dict[str, Any]:
     }
 
 
+# 平台事实与它的溯源是**不可分割的元组**：不能更新 provenance 而不更新 fact，
+# 也不能更新 fact 而保留旧 provenance。拆开会制造「B 的事实 + A 的 observed_uid」
+# 这种组合，让读侧（web/activity_service._trusted_platform_facts）误以为是
+# 当前账号自己观测到的结果，从而绕过 SPEC 4.1 的账号隔离。
+PLATFORM_FACT_FIELDS = (
+    "platform_participated",
+    "reserve_reserved",
+    "platform_observed_uid",
+)
+
+# 账号绑定任务不得把这些字段写进共享 ActivityRow（账号态由 ParticipationRow 承载）。
+ACCOUNT_SCOPED_FIELDS = (
+    "activity_status",
+    "draw_tag",
+    "status_classified",
+    *PLATFORM_FACT_FIELDS,
+)
+
+
 def persist_activity_record(
     item: dict,
     *,
@@ -148,13 +167,7 @@ def persist_activity_record(
         if account_uid is not None:
             # Keep account-derived values for the in-memory preflight result,
             # but never persist them into the shared activity row.
-            for field_name in (
-                "activity_status",
-                "draw_tag",
-                "status_classified",
-                "platform_participated",
-                "reserve_reserved",
-            ):
+            for field_name in ACCOUNT_SCOPED_FIELDS:
                 if field_name in shared_item:
                     item[field_name] = shared_item[field_name]
                 else:

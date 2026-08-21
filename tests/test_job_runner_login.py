@@ -34,8 +34,8 @@ def test_final_log_replaces_progress_appends(isolated_home: Path) -> None:
             "log": "【DS-1】同一专栏，已跳过\n【跳过流水线】均无新专栏",
         }
 
-    with patch("web.job_runner.run_action", side_effect=fake_run_action):
-        job_id = runner.try_start("refresh_all")
+    with patch("web.job_runner.resolve_effective_uid", return_value=111), patch("web.job_runner.run_action", side_effect=fake_run_action):
+        job_id = runner.try_start("refresh_all", account_uid="111")
         assert job_id is not None
         assert done.wait(timeout=3)
 
@@ -125,14 +125,16 @@ def test_triple_cancel_exception_becomes_cancelled(isolated_home: Path) -> None:
     runner = JobRunner()
     started = threading.Event()
 
-    def fake_run_action(action, params, *, on_progress, cancel_event):
+    def fake_run_action(action, params, *, on_progress, cancel_event, **_kwargs):
         started.set()
         while cancel_event is not None and not cancel_event.is_set():
             time.sleep(0.02)
         raise ValueError("任务已取消")
 
-    with patch("web.job_runner.run_action", side_effect=fake_run_action):
-        job_id = runner.try_start("participate_triple")
+    with patch("web.job_runner.resolve_effective_uid", return_value=111), patch(
+        "web.job_runner.capture_current_account_context", return_value=object()
+    ), patch("web.job_runner.run_action", side_effect=fake_run_action):
+        job_id = runner.try_start("participate_triple", account_uid="111")
         assert job_id is not None
         assert started.wait(timeout=3)
         assert runner.cancel() is True
@@ -150,7 +152,7 @@ def test_triple_internal_failure_becomes_error_with_partial_results(isolated_hom
     runner = JobRunner()
     done = threading.Event()
 
-    def fake_run_action(action, params, *, on_progress, cancel_event):
+    def fake_run_action(action, params, *, on_progress, cancel_event, **_kwargs):
         done.set()
         raise TripleParticipateFailed(
             "三连参与失败（602）：评论 API 报错",
@@ -165,8 +167,10 @@ def test_triple_internal_failure_becomes_error_with_partial_results(isolated_hom
             failed_dynamic_id="602",
         )
 
-    with patch("web.job_runner.run_action", side_effect=fake_run_action):
-        job_id = runner.try_start("participate_triple")
+    with patch("web.job_runner.resolve_effective_uid", return_value=111), patch(
+        "web.job_runner.capture_current_account_context", return_value=object()
+    ), patch("web.job_runner.run_action", side_effect=fake_run_action):
+        job_id = runner.try_start("participate_triple", account_uid="111")
         assert job_id is not None
         assert done.wait(timeout=3)
 
@@ -198,12 +202,12 @@ def test_a1_rejects_second_start(isolated_home: Path) -> None:
         gate.wait(timeout=3)
         return {"ok": True, "message": "ok", "log": "ok"}
 
-    with patch("web.job_runner.run_action", side_effect=fake_run_action):
-        first = runner.try_start("refresh_status")
+    with patch("web.job_runner.resolve_effective_uid", return_value=111), patch("web.job_runner.run_action", side_effect=fake_run_action):
+        first = runner.try_start("refresh_status", account_uid="111")
         assert first is not None
         assert started.wait(timeout=3)
-        assert runner.try_start("refresh_all") is None
-        assert runner.start("refresh_all") is False
+        assert runner.try_start("refresh_all", account_uid="111") is None
+        assert runner.start("refresh_all", account_uid="111") is False
         gate.set()
         _wait_until(runner, lambda s: s.state == "success")
 
@@ -311,8 +315,8 @@ def test_resolve_missing_job_not_confused_with_current(isolated_home: Path) -> N
         done.set()
         return {"ok": True, "message": "ok", "log": "ok"}
 
-    with patch("web.job_runner.run_action", side_effect=fake_run_action):
-        job_id = runner.try_start("refresh_status")
+    with patch("web.job_runner.resolve_effective_uid", return_value=111), patch("web.job_runner.run_action", side_effect=fake_run_action):
+        job_id = runner.try_start("refresh_status", account_uid="111")
         assert job_id is not None
         assert done.wait(timeout=3)
     _wait_until(runner, lambda s: s.state == "success")
