@@ -11,7 +11,7 @@ from src.db.models import SchemaMeta
 # 确保全部表注册到 metadata
 from src.db import models as _models  # noqa: F401
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _JOB_V2_COLUMNS: tuple[tuple[str, str], ...] = (
     ("label", "TEXT NOT NULL DEFAULT ''"),
@@ -53,9 +53,27 @@ def migrate_v2_to_v3(session: Session) -> None:
     conn.execute(text("DROP TABLE IF EXISTS account_profile_cache"))
 
 
+def migrate_v3_to_v4(session: Session) -> None:
+    """v4：为 jobs 持久化服务端绑定的账号 UID，旧任务保持 NULL。"""
+    conn = session.connection()
+    table_exists = conn.execute(
+        text("SELECT 1 FROM sqlite_master WHERE type='table' AND name='jobs'")
+    ).fetchone()
+    if table_exists is None:
+        return
+    existing = {
+        str(row[1])
+        for row in conn.execute(text("PRAGMA table_info(jobs)"))
+    }
+    if "account_uid" not in existing:
+        conn.execute(text("ALTER TABLE jobs ADD COLUMN account_uid TEXT"))
+    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_jobs_account_uid ON jobs(account_uid)"))
+
+
 _MIGRATIONS: dict[int, Callable[[Session], None]] = {
     1: migrate_v1_to_v2,
     2: migrate_v2_to_v3,
+    3: migrate_v3_to_v4,
 }
 
 

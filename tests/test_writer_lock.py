@@ -187,7 +187,7 @@ def test_job_runner_refuses_start_when_lock_held_by_other_process(
     assert holder.acquire() is True
     try:
         runner = JobRunner()
-        assert runner.try_start("refresh_status", {}, source="ui") is None
+        assert runner.try_start("refresh_status", {}, source="ui", account_uid="111") is None
         assert runner.is_running() is False
     finally:
         holder.release()
@@ -206,7 +206,7 @@ def test_job_runner_releases_lock_after_job_terminal(
     runner = JobRunner()
     monkeypatch.setattr("web.job_runner.run_action", lambda *a, **k: {"ok": True, "message": "done"})
 
-    job_id = runner.try_start("refresh_status", {}, source="ui")
+    job_id = runner.try_start("refresh_status", {}, source="ui", account_uid="111")
     assert job_id is not None
 
     deadline = _time.time() + 10
@@ -269,7 +269,7 @@ def test_thread_start_failure_rolls_back_job_and_lock(
     monkeypatch.setattr(_threading.Thread, "start", _boom)
 
     with pytest.raises(RuntimeError):
-        runner.try_start("refresh_status", {}, source="ui")
+        runner.try_start("refresh_status", {}, source="ui", account_uid="111")
 
     assert runner.is_running() is False
     latest = get_job(1)

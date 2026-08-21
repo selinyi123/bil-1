@@ -115,12 +115,32 @@ def _empty_result(*, total: int = 0) -> dict[str, Any]:
     }
 
 
+# 平台事实与它的溯源是**不可分割的元组**：不能更新 provenance 而不更新 fact，
+# 也不能更新 fact 而保留旧 provenance。拆开会制造「B 的事实 + A 的 observed_uid」
+# 这种组合，让读侧（web/activity_service._trusted_platform_facts）误以为是
+# 当前账号自己观测到的结果，从而绕过 SPEC 4.1 的账号隔离。
+PLATFORM_FACT_FIELDS = (
+    "platform_participated",
+    "reserve_reserved",
+    "platform_observed_uid",
+)
+
+# 账号绑定任务不得把这些字段写进共享 ActivityRow（账号态由 ParticipationRow 承载）。
+ACCOUNT_SCOPED_FIELDS = (
+    "activity_status",
+    "draw_tag",
+    "status_classified",
+    *PLATFORM_FACT_FIELDS,
+)
+
+
 def persist_activity_record(
     item: dict,
     *,
     participation: ParticipationRecord | None = None,
     path: Path | None = None,
     now: int | None = None,
+    account_uid: str | int | None = None,
 ) -> dict:
     """参与前检查通过后，写回单条活动状态。"""
     _ = path  # 兼容旧调用签名；活动库已迁至 SQLite
@@ -130,16 +150,34 @@ def persist_activity_record(
 
         dynamic_id = str(item.get("dynamic_id") or "")
         current = int(now if now is not None else time.time())
+        shared_item = next(
+            (
+                stored
+                for stored in load_activities()
+                if str(stored.get("dynamic_id") or "") == dynamic_id
+            ),
+            {},
+        )
 
         was_handled, _, _, _ = _apply_classification(item, participation, now=current)
         if not was_handled:
             raise RuntimeError("该活动不参与状态管理")
 
+        classified_item = dict(item)
+        if account_uid is not None:
+            # Keep account-derived values for the in-memory preflight result,
+            # but never persist them into the shared activity row.
+            for field_name in ACCOUNT_SCOPED_FIELDS:
+                if field_name in shared_item:
+                    item[field_name] = shared_item[field_name]
+                else:
+                    item.pop(field_name, None)
+
         if activity_exists(dynamic_id):
             update_activity(dynamic_id, item)
         else:
             append_activities([item])
-        return item
+        return classified_item if account_uid is not None else item
 
 
 def refresh_local_activity_statuses(*, path: Path | None = None) -> dict[str, Any]:

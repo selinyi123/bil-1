@@ -47,8 +47,10 @@ def test_runner_publishes_created_progress_terminal(isolated_home: Path) -> None
         done.set()
         return {"ok": True, "message": "ok", "log": "line-a\nline-b"}
 
-    with patch("web.job_runner.run_action", side_effect=fake_run_action):
-        job_id = runner.try_start("refresh_status")
+    with patch("web.job_runner.run_action", side_effect=fake_run_action), patch(
+        "web.job_runner.resolve_effective_uid", return_value=123456
+    ):
+        job_id = runner.try_start("refresh_status", account_uid=123456)
         assert job_id is not None
         assert done.wait(timeout=3)
 
@@ -66,4 +68,7 @@ def test_runner_publishes_created_progress_terminal(isolated_home: Path) -> None
     terminal = [e for e in events if e.event == "job.terminal"][-1]
     assert terminal.data["state"] == "success"
     assert terminal.data["id"] == job_id
+    assert terminal.data["account_uid"] == "123456"
+    created = [e for e in events if e.event == "job.created"][-1]
+    assert created.data["account_uid"] == "123456"
     event_hub.unsubscribe(sub)

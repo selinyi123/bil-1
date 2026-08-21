@@ -11,7 +11,7 @@ from src.db.engine import db_path, reset_engine_for_tests
 from src.db.import_json import EXIT_NONEMPTY, EXIT_SOURCE, ImportError as JsonImportError, run_import
 from src.db.schema import SCHEMA_VERSION, init_db
 from src.db.session import session_scope
-from src.db.models import SchemaMeta
+from src.db.models import JobRow, SchemaMeta
 from src.participation_store import load_participations, set_participation
 from src.state_store import get_last_container, save_state, set_last_container
 
@@ -64,6 +64,65 @@ def test_migrate_v2_to_v3_rekeys_account_profile_cache(isolated_home: Path) -> N
         session.commit()
         assert session.get(AccountProfileCacheRow, 7).uname == "u7"
         assert session.get(AccountProfileCacheRow, 8).uname == "u8"
+
+
+def test_migrate_v3_to_v4_adds_account_uid_without_losing_jobs(isolated_home: Path) -> None:
+    """v3→v4 只增加 nullable 列，旧任务字段与终态必须保留。"""
+    from sqlalchemy import text as sql_text
+
+    init_db()
+    with session_scope() as session:
+        session.execute(sql_text("DROP INDEX IF EXISTS ix_jobs_account_uid"))
+        session.execute(
+            sql_text(
+                "CREATE TABLE jobs_legacy ("
+                "id INTEGER PRIMARY KEY, action TEXT, label TEXT, state TEXT, source TEXT, "
+                "params_json TEXT NOT NULL DEFAULT '{}', progress_step INTEGER, "
+                "progress_total INTEGER, message TEXT, log_summary TEXT NOT NULL DEFAULT '', "
+                "result_json TEXT, error_kind TEXT, created_at INTEGER, started_at INTEGER, "
+                "finished_at INTEGER)"
+            )
+        )
+        session.execute(
+            sql_text(
+                "INSERT INTO jobs_legacy "
+                "(id, action, label, state, source, params_json, progress_step, progress_total, "
+                "message, log_summary, result_json, error_kind, created_at, started_at, finished_at) "
+                "SELECT id, action, label, state, source, params_json, progress_step, progress_total, "
+                "message, log_summary, result_json, error_kind, created_at, started_at, finished_at "
+                "FROM jobs"
+            )
+        )
+        session.execute(sql_text("DROP TABLE jobs"))
+        session.execute(sql_text("ALTER TABLE jobs_legacy RENAME TO jobs"))
+        session.execute(
+            sql_text(
+                "INSERT INTO jobs "
+                "(id, action, label, state, source, params_json, progress_step, progress_total, "
+                "message, log_summary, result_json, error_kind, created_at, started_at, finished_at) "
+                "VALUES (41, 'refresh_status', '刷新', 'success', 'ui', '{}', 1, 1, '完成', '', '{}', NULL, 1, 1, 2)"
+            )
+        )
+        meta = session.get(SchemaMeta, 1)
+        assert meta is not None
+        meta.version = 3
+        session.commit()
+
+    init_db()
+    with session_scope() as session:
+        meta = session.get(SchemaMeta, 1)
+        assert meta is not None
+        assert int(meta.version) == SCHEMA_VERSION
+        row = session.get(JobRow, 41)
+        assert row is not None
+        assert row.state == "success"
+        assert row.message == "完成"
+        assert row.account_uid is None
+        columns = {
+            str(item[1])
+            for item in session.execute(sql_text("PRAGMA table_info(jobs)"))
+        }
+        assert "account_uid" in columns
 
 
 def test_init_db_hard_fails_on_future_schema(isolated_home: Path) -> None:

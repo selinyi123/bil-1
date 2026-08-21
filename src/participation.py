@@ -45,6 +45,15 @@ RESERVE_CLICK_URL = "https://api.bilibili.com/x/dynamic/feed/reserve/click"
 RESERVE_RESERVED_STATUS = 2
 RESERVE_PARTICIPATE_STEPS = 2
 
+
+def _require_login_for_client(client: BilibiliClient) -> tuple[str, int]:
+    """Use the immutable snapshot for bound jobs; retain legacy test/caller seam."""
+    from src.account_context import AccountContext
+
+    if isinstance(getattr(client, "account_context", None), AccountContext):
+        return client.require_login()
+    return require_login()
+
 @dataclass
 class ParticipateResult:
     dynamic_id: str
@@ -103,6 +112,7 @@ def _context_snapshot(context: Any | None, *, extra: dict[str, Any] | None = Non
 def record_participation_outcome_unlocked(
     record: ParticipationActionRecord,
     *,
+    account_uid: str | int | None = None,
     mark_joined: bool,
 ) -> None:
     """在单个 DB 事务内落盘一次参与结果，保证三表一致。
@@ -115,7 +125,8 @@ def record_participation_outcome_unlocked(
     避免此前多次独立提交造成的部分写入不一致。仅在 mark_joined 时写入
     participations 与 activities（动作日志始终写入）。
     """
-    uid = participation_uid()
+    explicit_account = account_uid is not None
+    uid = str(account_uid) if explicit_account else participation_uid()
     dynamic_id = str(record.dynamic_id or "").strip()
     now = int(time.time())
     with session_scope() as session:
@@ -166,6 +177,12 @@ def record_participation_outcome_unlocked(
             part.source = "participate"
 
         # (c) activities 活动状态置为已参加
+        # The shared activity row is a legacy compatibility mirror.  An
+        # account-bound job must not mark a shared row as joined for every
+        # account; its ParticipationRow is the account-specific source of
+        # truth.
+        if explicit_account:
+            return
         activity_row = session.get(ActivityRow, dynamic_id)
         if activity_row is None:
             return
@@ -186,6 +203,7 @@ def _persist_result(
     *,
     result: ParticipateResult,
     persist: bool,
+    account_uid: str | int | None = None,
 ) -> None:
     if not persist:
         return
@@ -204,7 +222,11 @@ def _persist_result(
         context_snapshot=result.context_snapshot,
     )
     with user_data_thread_lock():
-        record_participation_outcome_unlocked(record, mark_joined=joined)
+        record_participation_outcome_unlocked(
+            record,
+            account_uid=account_uid,
+            mark_joined=joined,
+        )
 
 
 def _safe_int(value: Any, default: int = 0) -> int:
@@ -230,9 +252,14 @@ def _resolve_action_text(
     *,
     dynamic_id: str,
     action_text: str | None,
+    account_uid: str | int | None = None,
 ) -> tuple[str, dict[str, Any]]:
     if action_text is None:
-        resolved = resolve_participate_text_for_activity(client, dynamic_id=dynamic_id)
+        resolved = resolve_participate_text_for_activity(
+            client,
+            dynamic_id=dynamic_id,
+            account_uid=account_uid,
+        )
         return resolved.text, {
             "participate_text_source": resolved.source,
             "participate_text_pool_size": resolved.pool_size,
@@ -252,8 +279,14 @@ def participate_five_action_lottery(
     action_text: str | None = None,
     persist: bool = True,
     on_step: Callable[[int, int, str, str], None] | None = None,
+    account_uid: str | int | None = None,
 ) -> ParticipateResult:
-    text, text_meta = _resolve_action_text(client, dynamic_id=dynamic_id, action_text=action_text)
+    text, text_meta = _resolve_action_text(
+        client,
+        dynamic_id=dynamic_id,
+        action_text=action_text,
+        account_uid=account_uid,
+    )
     notice: dict | None = None
     sender_uid: int | None = None
 
@@ -269,7 +302,7 @@ def participate_five_action_lottery(
                 actions=[],
                 context_snapshot={},
             )
-            _persist_result(result=result, persist=persist)
+            _persist_result(result=result, persist=persist, account_uid=account_uid)
             return result
     except RuntimeError:
         pass
@@ -286,7 +319,7 @@ def participate_five_action_lottery(
                 actions=[],
                 context_snapshot={},
             )
-            _persist_result(result=result, persist=persist)
+            _persist_result(result=result, persist=persist, account_uid=account_uid)
             return result
         notice, _, _ = resolved
         active, reason = _is_notice_active(notice)
@@ -300,7 +333,7 @@ def participate_five_action_lottery(
                 actions=[],
                 context_snapshot=_notice_snapshot(notice),
             )
-            _persist_result(result=result, persist=persist)
+            _persist_result(result=result, persist=persist, account_uid=account_uid)
             return result
         sender_uid = int(notice.get("sender_uid") or 0) or None
 
@@ -325,7 +358,7 @@ def participate_five_action_lottery(
             actions=[],
             context_snapshot=_notice_snapshot(notice),
         )
-        _persist_result(result=result, persist=persist)
+        _persist_result(result=result, persist=persist, account_uid=account_uid)
         return result
 
     if participation_succeeded(actions, lottery_type=lottery_type):
@@ -353,7 +386,7 @@ def participate_five_action_lottery(
         actions=actions,
         context_snapshot=snapshot,
     )
-    _persist_result(result=result, persist=persist)
+    _persist_result(result=result, persist=persist, account_uid=account_uid)
     return result
 
 
@@ -393,7 +426,7 @@ def _reserve_click(
     if button_status == RESERVE_RESERVED_STATUS:
         return ActionResult("reserve", True, "已预约，跳过")
 
-    csrf, _ = require_login()
+    csrf, _ = _require_login_for_client(client)
     referer = opus_link(dynamic_id)
     payload = client.post_json(
         RESERVE_CLICK_URL,
@@ -436,6 +469,7 @@ def participate_reserve_lottery(
     dynamic_id: str,
     persist: bool = True,
     on_step: Callable[[int, int, str, str], None] | None = None,
+    account_uid: str | int | None = None,
 ) -> ParticipateResult:
     notice: dict | None = None
     try:
@@ -453,7 +487,7 @@ def participate_reserve_lottery(
                     actions=[],
                     context_snapshot=_notice_snapshot(notice),
                 )
-                _persist_result(result=result, persist=persist)
+                _persist_result(result=result, persist=persist, account_uid=account_uid)
                 return result
     except RuntimeError:
         notice = None
@@ -470,7 +504,7 @@ def participate_reserve_lottery(
             actions=[],
             context_snapshot=_notice_snapshot(notice),
         )
-        _persist_result(result=result, persist=persist)
+        _persist_result(result=result, persist=persist, account_uid=account_uid)
         return result
 
     total_steps = RESERVE_PARTICIPATE_STEPS
@@ -493,7 +527,7 @@ def participate_reserve_lottery(
                 "title": reserve_info["title"],
             },
         )
-        _persist_result(result=result, persist=persist)
+        _persist_result(result=result, persist=persist, account_uid=account_uid)
         return result
 
     referer = str(reserve_info["referer"])
@@ -501,11 +535,11 @@ def participate_reserve_lottery(
     if on_step:
         on_step(1, total_steps, f"正在关注（1/{total_steps}）", "follow")
     try:
-        csrf, _ = require_login()
+        csrf, _ = _require_login_for_client(client)
         if is_following(client, uid=sender_uid, referer=referer):
             follow_action = ActionResult("follow", True, f"uid={sender_uid} 已关注，跳过")
         else:
-                follow_action = follow_user(client, uid=sender_uid, csrf=csrf, referer=referer)
+            follow_action = follow_user(client, uid=sender_uid, csrf=csrf, referer=referer)
     except RuntimeError as exc:
         follow_action = ActionResult("follow", False, str(exc).strip() or "关注失败")
 
@@ -532,7 +566,7 @@ def participate_reserve_lottery(
             actions=actions,
             context_snapshot=snapshot,
         )
-        _persist_result(result=result, persist=persist)
+        _persist_result(result=result, persist=persist, account_uid=account_uid)
         return result
 
     time.sleep(ACTION_INTERVAL_SEC)
@@ -564,7 +598,7 @@ def participate_reserve_lottery(
         actions=actions,
         context_snapshot=snapshot,
     )
-    _persist_result(result=result, persist=persist)
+    _persist_result(result=result, persist=persist, account_uid=account_uid)
     return result
 
 
@@ -576,6 +610,7 @@ def participate_activity(
     action_text: str | None = None,
     persist: bool = True,
     on_step: Callable[[int, int, str, str], None] | None = None,
+    account_uid: str | int | None = None,
 ) -> ParticipateResult:
     if not is_valid_dynamic_id(dynamic_id):
         raise ValueError("dynamic_id 无效")
@@ -589,7 +624,7 @@ def participate_activity(
             actions=[],
             context_snapshot={},
         )
-        _persist_result(result=result, persist=persist)
+        _persist_result(result=result, persist=persist, account_uid=account_uid)
         return result
     if lottery_type not in PARTICIPATABLE_TYPES:
         raise RuntimeError(f"不支持的抽奖类型: {lottery_type}")
@@ -601,6 +636,7 @@ def participate_activity(
             action_text=action_text,
             persist=persist,
             on_step=on_step,
+            account_uid=account_uid,
         )
     if lottery_type == "转发抽奖":
         return participate_five_action_lottery(
@@ -610,6 +646,7 @@ def participate_activity(
             action_text=action_text,
             persist=persist,
             on_step=on_step,
+            account_uid=account_uid,
         )
     if lottery_type == "预约抽奖":
         return participate_reserve_lottery(
@@ -617,5 +654,6 @@ def participate_activity(
             dynamic_id=dynamic_id,
             persist=persist,
             on_step=on_step,
+            account_uid=account_uid,
         )
     raise RuntimeError(f"不支持的抽奖类型: {lottery_type}")

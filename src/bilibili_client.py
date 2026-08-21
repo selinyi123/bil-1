@@ -102,12 +102,24 @@ class BilibiliClient:
         *,
         warmup: bool = True,
         proxy: str | None = None,
+        account_context: object | None = None,
     ) -> None:
         headers = dict(DEFAULT_HEADERS)
-        cookie = _load_cookie_string()
+        self.account_context = account_context
+        if account_context is not None:
+            cookie = str(getattr(account_context, "cookie", "") or "").strip() or None
+            self._login_uid = int(getattr(account_context, "uid", 0) or 0)
+            self._csrf_token = str(getattr(account_context, "csrf", "") or "").strip() or None
+            # The captured proxy is part of the execution identity.  Do not
+            # re-resolve it after a job has started.
+            proxy = getattr(account_context, "proxy_url", None)
+        else:
+            cookie = _load_cookie_string()
+            self._login_uid = None
+            self._csrf_token = None
         if cookie:
             headers["Cookie"] = cookie
-        if proxy is None:
+        if account_context is None and proxy is None:
             from src.bilibili_auth import resolve_effective_uid
             from src.proxy_config import get_proxy_url
 
@@ -124,6 +136,26 @@ class BilibiliClient:
         self._http_lock = threading.Lock()
         if warmup:
             self._warmup()
+
+    def require_login(self) -> tuple[str, int]:
+        """Return the identity used by this client, without consulting globals."""
+        csrf = self.csrf_token
+        uid = int(self.login_uid or 0)
+        if not csrf or not uid:
+            raise RuntimeError("当前未登录，无法执行需要登录的操作")
+        return csrf, uid
+
+    @property
+    def login_uid(self) -> int:
+        if self.account_context is not None:
+            return int(self._login_uid or 0)
+        return _load_login_uid()
+
+    @property
+    def csrf_token(self) -> str | None:
+        if self.account_context is not None:
+            return self._csrf_token
+        return _load_csrf_token()
 
     def _warmup(self) -> None:
         try:
@@ -616,7 +648,7 @@ class BilibiliClient:
 
     def create_relation_tag(self, name: str) -> int | None:
         """创建关注分区，返回 tagid；失败返回 None。"""
-        csrf = _load_csrf_token()
+        csrf = self.csrf_token
         if not csrf:
             return None
         try:
@@ -636,7 +668,7 @@ class BilibiliClient:
 
     def move_to_relation_tag(self, uid: int, tagid: int) -> bool:
         """把用户移入关注分区。返回是否成功（已在该分区也视为成功）。"""
-        csrf = _load_csrf_token()
+        csrf = self.csrf_token
         if not csrf:
             return False
         try:
@@ -678,7 +710,7 @@ class BilibiliClient:
 
     def get_my_space_feed(self, offset: str = "") -> dict | None:
         """分页读取自己的空间动态（feed/space），失败返回 None。"""
-        params: dict[str, object] = {"host_mid": _load_login_uid(), "timezone_offset": -480}
+        params: dict[str, object] = {"host_mid": self.login_uid, "timezone_offset": -480}
         if offset:
             params["offset"] = offset
         try:
@@ -695,7 +727,7 @@ class BilibiliClient:
 
     def delete_dynamic(self, dynamic_id: str) -> bool:
         """删除自己的动态。返回是否成功。"""
-        csrf = _load_csrf_token()
+        csrf = self.csrf_token
         if not csrf:
             return False
         try:
@@ -711,7 +743,7 @@ class BilibiliClient:
 
     def cancel_attention(self, uid: int) -> bool:
         """取关用户（relation/modify act=2）。返回是否成功。"""
-        csrf = _load_csrf_token()
+        csrf = self.csrf_token
         if not csrf:
             return False
         try:

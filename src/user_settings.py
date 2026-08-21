@@ -15,8 +15,8 @@ DEFAULT_PARTICIPATE_TEXT_MODE: ParticipateTextMode = "custom"
 VALID_PARTICIPATE_TEXT_MODES = frozenset({"custom", "random_comment"})
 
 
-def _load_raw() -> dict:
-    uid = settings_uid()
+def _load_raw_for_uid(uid: str | int) -> dict:
+    uid = str(uid)
     with session_scope() as session:
         row = session.get(UserSettingsRow, uid)
         if row is None:
@@ -28,8 +28,12 @@ def _load_raw() -> dict:
         }
 
 
-def _save_raw(data: dict) -> None:
-    uid = settings_uid()
+def _load_raw() -> dict:
+    return _load_raw_for_uid(settings_uid())
+
+
+def _save_raw_for_uid(data: dict, uid: str | int) -> None:
+    uid = str(uid)
     now = int(time.time())
     with session_scope() as session:
         row = session.get(UserSettingsRow, uid)
@@ -45,6 +49,10 @@ def _save_raw(data: dict) -> None:
         row.updated_at = now
 
 
+def _save_raw(data: dict) -> None:
+    _save_raw_for_uid(data, settings_uid())
+
+
 def normalize_participate_text(text: str) -> str:
     cleaned = (text or "").strip()
     if not cleaned:
@@ -53,17 +61,25 @@ def normalize_participate_text(text: str) -> str:
 
 
 def get_participate_text() -> str:
-    raw = _load_raw().get("participate_text")
+    return get_participate_text_for_uid(settings_uid())
+
+
+def get_participate_text_for_uid(uid: str | int) -> str:
+    raw = _load_raw_for_uid(uid).get("participate_text")
     if isinstance(raw, str) and raw.strip():
         return normalize_participate_text(raw)
     return DEFAULT_PARTICIPATE_TEXT
 
 
 def set_participate_text(text: str) -> str:
+    return set_participate_text_for_uid(text, settings_uid())
+
+
+def set_participate_text_for_uid(text: str, uid: str | int) -> str:
     value = normalize_participate_text(text)
-    data = _load_raw()
+    data = _load_raw_for_uid(uid)
     data["participate_text"] = value
-    _save_raw(data)
+    _save_raw_for_uid(data, uid)
     return value
 
 
@@ -75,17 +91,25 @@ def normalize_participate_fallback_text(text: str) -> str:
 
 
 def get_participate_fallback_text() -> str:
-    raw = _load_raw().get("participate_fallback_text")
+    return get_participate_fallback_text_for_uid(settings_uid())
+
+
+def get_participate_fallback_text_for_uid(uid: str | int) -> str:
+    raw = _load_raw_for_uid(uid).get("participate_fallback_text")
     if isinstance(raw, str) and raw.strip():
         return normalize_participate_fallback_text(raw)
     return DEFAULT_PARTICIPATE_FALLBACK_TEXT
 
 
 def set_participate_fallback_text(text: str) -> str:
+    return set_participate_fallback_text_for_uid(text, settings_uid())
+
+
+def set_participate_fallback_text_for_uid(text: str, uid: str | int) -> str:
     value = normalize_participate_fallback_text(text)
-    data = _load_raw()
+    data = _load_raw_for_uid(uid)
     data["participate_fallback_text"] = value
-    _save_raw(data)
+    _save_raw_for_uid(data, uid)
     return value
 
 
@@ -97,15 +121,23 @@ def normalize_participate_text_mode(mode: str) -> ParticipateTextMode:
 
 
 def get_participate_text_mode() -> ParticipateTextMode:
-    raw = _load_raw().get("participate_text_mode")
+    return get_participate_text_mode_for_uid(settings_uid())
+
+
+def get_participate_text_mode_for_uid(uid: str | int) -> ParticipateTextMode:
+    raw = _load_raw_for_uid(uid).get("participate_text_mode")
     if isinstance(raw, str):
         return normalize_participate_text_mode(raw)
     return DEFAULT_PARTICIPATE_TEXT_MODE
 
 
 def set_participate_text_mode(mode: str) -> ParticipateTextMode:
+    return set_participate_text_mode_for_uid(mode, settings_uid())
+
+
+def set_participate_text_mode_for_uid(mode: str, uid: str | int) -> ParticipateTextMode:
     value = normalize_participate_text_mode(mode)
-    data = _load_raw()
+    data = _load_raw_for_uid(uid)
     data["participate_text_mode"] = value
-    _save_raw(data)
+    _save_raw_for_uid(data, uid)
     return value
