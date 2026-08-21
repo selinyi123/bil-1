@@ -34,11 +34,11 @@ def _load_activity_item(dynamic_id: str) -> dict | None:
     return None
 
 
-def _apply_notice_fields(item: dict, notice: dict) -> None:
+def _apply_notice_fields(item: dict, notice: dict, *, observed_uid: str) -> None:
     if "participated" in notice:
         item["platform_participated"] = bool(notice.get("participated"))
         # 平台事实是账号态事实：谁观测到的就记谁，读侧据此决定是否信任。
-        item["platform_observed_uid"] = participation_uid()
+        item["platform_observed_uid"] = observed_uid
     lottery_time = int(notice.get("lottery_time") or 0)
     if lottery_time:
         item["lottery_time"] = lottery_time
@@ -56,6 +56,7 @@ def _sync_live_fields(
     item: dict,
     *,
     lottery_type: str,
+    observed_uid: str,
 ) -> None:
     dynamic_id = str(item.get("dynamic_id") or "")
     detail = fetch_dynamic_detail(client, dynamic_id)
@@ -69,19 +70,19 @@ def _sync_live_fields(
         if not resolved:
             raise RuntimeError("无法获取抽奖信息，活动可能已结束或不可参与")
         notice, _, _ = resolved
-        _apply_notice_fields(item, notice)
+        _apply_notice_fields(item, notice, observed_uid=observed_uid)
         return
 
     if lottery_type == "预约抽奖":
         item["reserve_reserved"] = fetch_reserve_button_status(client, dynamic_id)
-        item["platform_observed_uid"] = participation_uid()
+        item["platform_observed_uid"] = observed_uid
         try:
             resolved = fetch_notice_for_reserve(client, dynamic_id)
         except RuntimeError:
             resolved = None
         if resolved:
             notice, _, _ = resolved
-            _apply_notice_fields(item, notice)
+            _apply_notice_fields(item, notice, observed_uid=observed_uid)
         else:
             lottery_ts = lottery_time_unix(item)
             item["draw_status"] = "ended" if lottery_ts and lottery_ts <= int(time.time()) else "active"
@@ -119,7 +120,10 @@ def refresh_activity_status_from_live(
         raise RuntimeError("未找到可参与的活动类型，请先执行一键更新")
 
     item["lottery_type"] = lottery_type
-    _sync_live_fields(client, item, lottery_type=lottery_type)
+    # 账号绑定任务必须记绑定 UID，而不是"当前 active UID"——后者是环境状态，
+    # 任务执行期间可能被切换，正是 account_uid 绑定要消除的依赖。
+    observed_uid = str(account_uid) if account_uid is not None else participation_uid()
+    _sync_live_fields(client, item, lottery_type=lottery_type, observed_uid=observed_uid)
     if account_uid is None:
         participation = load_participations().get(dynamic_id)
     else:

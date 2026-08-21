@@ -187,7 +187,7 @@ def test_run_action_participate_triple_concurrent(monkeypatch: pytest.MonkeyPatc
         def __exit__(self, *_args):
             return False
 
-    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None) -> dict:
+    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None, account_context=None) -> dict:
         calls.append(dynamic_id)
         on_step(1, 5, f"{dynamic_id} 点赞", "like")
         return {
@@ -230,7 +230,7 @@ def test_run_action_participate_triple_fail_fast_stops_other_targets() -> None:
     targets = [_row(_id(401), can_participate=True), _row(_id(402), can_participate=True)]
     progress_messages: list[str] = []
 
-    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None) -> dict:
+    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None, account_context=None) -> dict:
         if dynamic_id == _id(401):
             time.sleep(0.4)
         if dynamic_id == _id(402):
@@ -296,7 +296,7 @@ def test_run_action_participate_triple_uses_mixed_progress_budget() -> None:
     ]
     progress_totals: list[int] = []
 
-    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None) -> dict:
+    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None, account_context=None) -> dict:
         if dynamic_id == _id(1):
             on_step(1, 2, "正在关注（1/2）", "follow")
             on_step(2, 2, "正在预约（2/2）", "reserve")
@@ -343,7 +343,7 @@ def test_run_action_participate_triple_emits_targets_in_initial_progress() -> No
     ]
     progress_targets: list[list[dict]] = []
 
-    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None) -> dict:
+    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None, account_context=None) -> dict:
         on_step(1, 2 if dynamic_id == _id(1) else 5, "进行中", "follow")
         return {
             "dynamic_id": dynamic_id,
@@ -395,6 +395,7 @@ def test_run_action_participate_triple_uses_lookup_type_for_execution() -> None:
         *,
         lottery_type: str | None = None,
         client=None,
+        account_context=None,
     ) -> dict:
         captured_types.append(lottery_type)
         on_step(1, 2, "正在关注（1/2）", "follow")
@@ -448,7 +449,7 @@ def test_run_action_participate_triple_internal_failure_does_not_set_cancel_even
     targets = [_row(_id(501), can_participate=True), _row(_id(502), can_participate=True)]
     cancel_event = threading.Event()
 
-    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None) -> dict:
+    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None, account_context=None) -> dict:
         if dynamic_id == _id(502):
             raise RuntimeError("评论 API 报错")
         return {
@@ -483,7 +484,7 @@ def test_run_action_participate_triple_partial_failure_carries_completed() -> No
 
     targets = [_row(_id(601), can_participate=True), _row(_id(602), can_participate=True)]
 
-    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None) -> dict:
+    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None, account_context=None) -> dict:
         if dynamic_id == _id(601):
             # 601 先完成，产生真实外部副作用
             return {
@@ -530,7 +531,7 @@ def test_run_action_participate_triple_partial_reports_started_actions(
 
     targets = [_row(_id(701), can_participate=True), _row(_id(702), can_participate=True)]
 
-    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None) -> dict:
+    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None, account_context=None) -> dict:
         if dynamic_id == _id(701):
             return {
                 "dynamic_id": dynamic_id,
@@ -585,7 +586,7 @@ def test_run_action_participate_triple_partial_dedupes_started_actions(
 
     targets = [_row(_id(801), can_participate=True), _row(_id(802), can_participate=True)]
 
-    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None) -> dict:
+    def fake_execute(dynamic_id: str, on_step, *, lottery_type: str | None = None, client=None, account_context=None) -> dict:
         if dynamic_id == _id(801):
             return {
                 "dynamic_id": dynamic_id,

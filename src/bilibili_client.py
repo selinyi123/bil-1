@@ -119,7 +119,7 @@ class BilibiliClient:
             self._csrf_token = None
         if cookie:
             headers["Cookie"] = cookie
-        if proxy is None:
+        if account_context is None and proxy is None:
             from src.bilibili_auth import resolve_effective_uid
             from src.proxy_config import get_proxy_url
 

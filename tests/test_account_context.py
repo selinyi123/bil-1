@@ -70,3 +70,65 @@ def test_client_uses_captured_cookie_and_proxy_without_reresolving(
     assert client.login_uid == 123456
     assert client.require_login() == ("csrf-123456", 123456)
     client.close()
+
+
+def test_context_direct_connection_is_not_overridden_by_global_proxy(monkeypatch) -> None:
+    """AccountContext 冻结的"明确直连"不得被全局代理兜底穿透。
+
+    构造函数注释明确写着 "The captured proxy is part of the execution identity.
+    Do not re-resolve it after a job has started."，但原实现紧接着就
+    `if proxy is None: proxy = get_proxy_url(...)` —— proxy_url=None 在 context
+    语境下表示"明确直连"，不是"未指定"，重新解析会让冻结承诺失效，
+    并可能在任务执行中途改变网络身份。
+    """
+    import httpx
+
+    from src.bilibili_client import BilibiliClient
+
+    captured: dict[str, object] = {}
+
+    class _FakeClient:
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+        cookies: dict[str, str] = {}
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(httpx, "Client", _FakeClient)
+    monkeypatch.setattr("src.proxy_config.get_proxy_url", lambda uid=None: "http://global-proxy:8080")
+
+    class _Ctx:
+        uid = 111
+        cookie = "SESSDATA=x; bili_jct=y; DedeUserID=111"
+        csrf = "y"
+        proxy_url = None  # 明确直连
+
+    BilibiliClient(warmup=False, account_context=_Ctx())
+    assert captured.get("proxy") is None, "context 的明确直连被全局代理覆盖了"
+
+
+def test_legacy_path_still_resolves_global_proxy(monkeypatch) -> None:
+    """无 context 的 legacy 路径行为不变：proxy=None 仍表示"未指定，去解析全局"。"""
+    import httpx
+
+    from src.bilibili_client import BilibiliClient
+
+    captured: dict[str, object] = {}
+
+    class _FakeClient:
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+        cookies: dict[str, str] = {}
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(httpx, "Client", _FakeClient)
+    monkeypatch.setattr("src.proxy_config.get_proxy_url", lambda uid=None: "http://global-proxy:8080")
+    monkeypatch.setattr("src.bilibili_client._load_cookie_string", lambda: None)
+
+    BilibiliClient(warmup=False)
+    assert captured.get("proxy") == "http://global-proxy:8080"
