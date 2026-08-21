@@ -132,3 +132,56 @@ def test_legacy_path_still_resolves_global_proxy(monkeypatch) -> None:
 
     BilibiliClient(warmup=False)
     assert captured.get("proxy") == "http://global-proxy:8080"
+
+
+def test_proxy_cannot_override_account_context(monkeypatch) -> None:
+    """同时传 account_context 和 proxy 时显式拒绝，而不是静默忽略其中一个。
+
+    context 的代理是执行身份的一部分；调用方传 proxy= 表达的是"我要用这个代理"。
+    两者同时出现时无论采纳哪一个都会让另一方的意图静默失效——那是调用点的
+    错误，应当报出来而不是由构造函数替调用方决定。
+    """
+    from src.bilibili_client import BilibiliClient
+
+    class _Ctx:
+        uid = 111
+        cookie = "SESSDATA=x; bili_jct=y; DedeUserID=111"
+        csrf = "y"
+        proxy_url = "http://ctx-proxy:8080"
+
+    with pytest.raises(ValueError, match="proxy 不能覆盖 AccountContext"):
+        BilibiliClient(warmup=False, account_context=_Ctx(), proxy="http://caller-proxy:9090")
+
+
+def test_proxy_alone_and_context_alone_still_work(monkeypatch) -> None:
+    """只传其中一个的既有用法不受影响。"""
+    import httpx
+
+    from src.bilibili_client import BilibiliClient
+
+    captured: dict[str, object] = {}
+
+    class _FakeClient:
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+        cookies: dict[str, str] = {}
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(httpx, "Client", _FakeClient)
+    monkeypatch.setattr("src.bilibili_client._load_cookie_string", lambda: None)
+
+    BilibiliClient(warmup=False, proxy="http://caller-proxy:9090")
+    assert captured.get("proxy") == "http://caller-proxy:9090"
+
+    class _Ctx:
+        uid = 111
+        cookie = "SESSDATA=x; bili_jct=y; DedeUserID=111"
+        csrf = "y"
+        proxy_url = "http://ctx-proxy:8080"
+
+    captured.clear()
+    BilibiliClient(warmup=False, account_context=_Ctx())
+    assert captured.get("proxy") == "http://ctx-proxy:8080"

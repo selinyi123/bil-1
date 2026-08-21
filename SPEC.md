@@ -112,6 +112,9 @@ Web 控制台（仅 127.0.0.1）浏览与参与 → 定时自动参与 → 中�
     **这是身份准入检查与审计标记，不是凭据冻结**——任务执行期间各自建客户端，
     其安全性部分依赖「任务运行期间禁止 Web 切号」（`_reject_when_job_running`）。
     若将来允许运行中切号，这些 action 要么升级为 `context`，要么在关键身份操作处重新验证。
+  - `BilibiliClient(account_context=..., proxy=...)` **同时传两者会抛 ValueError**：
+    context 的代理是执行身份的一部分，而显式 `proxy=` 表达的是调用方自己的意图；
+    静默采纳任一方都会让另一方失效，属于调用点的错误，不由构造函数替调用方决定。
   - `context`（`participate` / `participate_triple`）：在 `bound` 基础上再
     `capture_current_account_context(expected_uid=...)` 捕获不可变 Cookie/CSRF/UID/Proxy
     快照，整个任务用同一份凭据。捕获时会**重新**从 Cookie 解析 UID 并要求与绑定 UID 相等，

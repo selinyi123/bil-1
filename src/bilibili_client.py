@@ -107,6 +107,12 @@ class BilibiliClient:
         headers = dict(DEFAULT_HEADERS)
         self.account_context = account_context
         if account_context is not None:
+            # 显式拒绝而不是静默覆盖：context 的代理是执行身份的一部分，
+            # 而调用方传 proxy= 表达的是"我要用这个代理"。两者同时出现时
+            # 无论采纳哪一个都会让另一方的意图静默失效——那是应当在调用点
+            # 修掉的错误，不该由本构造函数替调用方决定。
+            if proxy is not None:
+                raise ValueError("proxy 不能覆盖 AccountContext 冻结的执行身份；请二选一")
             cookie = str(getattr(account_context, "cookie", "") or "").strip() or None
             self._login_uid = int(getattr(account_context, "uid", 0) or 0)
             self._csrf_token = str(getattr(account_context, "csrf", "") or "").strip() or None
