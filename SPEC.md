@@ -178,12 +178,50 @@ Web 控制台（仅 127.0.0.1）浏览与参与 → 定时自动参与 → 中�
 
 ## 8. 设计不变量
 
-1. 每个外部写动作必须能回答是否执行、哪个 uid、产生什么 ID、是否可重试；结果未知不得伪装成功/失败。
-2. 一个 Job 启动时绑定有效 uid、配置快照和取消语义；运行中 mutation 不得改变上下文。
-3. 所有 Binggo 创建的动态/关注必须记录精确归属；分页收缩不影响最终覆盖。
-4. 完整成功、降级成功、业务部分失败、取消、内部失败、网络失败和结果未知必须结构化表达，不能依赖中文 message。
-5. secret 不进 URL 异常、日志、SSE、诊断、前端 storage 或普通响应；Windows 写盘权限失败不能静默。
-6. 代码版本、更新 API、前端 Release、installer、构建产物和测试必须指向同一仓库/版本 SSOT。
+> **这一节的写法是有意的。** 上一版把不变量写成六条抽象原则，其中
+> 「分页收缩不影响最终覆盖」和「运行中 mutation 不得改变上下文」**在写下之后
+> 仍然各被违反了一次**（见下表"曾被违反"列）。原因是抽象原则没有落点：
+> 读的人无法判断该去哪一行代码检查它，改代码的人也不会在破坏它时收到任何信号。
+>
+> 因此每条不变量必须同时给出**强制点**（哪段代码承担它）与**守卫测试**
+> （破坏它时哪个测试会红）。没有守卫测试的不变量等于没有不变量——
+> 新增不变量时请一并补测试，而不是只增加一行描述。
+> 本节自身的自洽性由 `tests/test_spec_invariants_are_guarded.py` 守：
+> 表中引用了不存在的测试文件、或某行不变量没填守卫测试，都会失败。
+
+### 8.1 跨层不变量
+
+这些不变量的共同特征是：**没有任何单个函数写错**，缺陷只在两个各自正确的
+机制组合处出现。它们是本项目历史上缺陷最集中的地方。
+
+| # | 不变量 | 强制点 | 守卫测试 | 曾被违反 |
+|---|---|---|---|---|
+| 1 | 共享 `ActivityRow` 的账号态字段不是账号状态权威；可参与活动的展示状态一律由 `resolve_activity_status()` 按「已结束 > per-UID participation > 平台事实 > 默认」判定 | `web/activity_service._resolve_activity_status` | `test_activity_service_status_authority.py` | ✅ 读侧曾以 `status_classified` 短路，遮蔽 per-UID 参与记录 |
+| 2 | `platform_participated` / `reserve_reserved` / `platform_observed_uid` 是**不可分割的元组**，必须同进同出 | `src/status_refresh.PLATFORM_FACT_FIELDS` | `test_platform_fact_provenance.py` | ✅ 账号绑定路径恢复 fact 却保留新 provenance，制造「B 的事实 + A 的标签」 |
+| 3 | 平台事实的 `observed_uid` 必须是**实际发出请求的身份**，不是"当前 active 账号" | `participate_preflight`（断言 `client.login_uid == account_uid`） | `test_platform_fact_provenance.py` | ✅ 曾用 `participation_uid()`，与绑定账号可能不一致 |
+| 4 | Job 启动时绑定的执行身份在运行中不得改变；`context` 策略的 Cookie/CSRF/UID/Proxy 是冻结快照 | `account_context.capture_current_account_context`、`BilibiliClient.__init__` | `test_account_context.py` | ✅ 注释写着"不要重新解析"，三行后的 `if proxy is None` 就在重新解析 |
+| 5 | 每个 Job action 必须显式登记身份策略；**未登记者默认拒绝**，不是默认放行 | `web/job_runner.JOB_IDENTITY_POLICY` | `test_job_identity_policy.py` | ✅ 原 `try_start` 允许 `account_uid=None` 并静默跳过身份守卫 |
+| 6 | 对外部集合分页遍历时不得边遍历边修改；先读完再执行 | `src/clear_follows.PARTITION_PAGE_SIZE` 附近的两段式实现 | `test_clear_follows_partition.py` | ✅ 120 人分区只取关 70 人，且**预演与真实执行数字不一致** |
+| 7 | 写者锁只仲裁**任务级**写者；持锁**不**代表"DB 此刻不会被改"，不得据此写 read-modify-write | `src/writer_lock.py` 模块文档 + §4.4 | `test_writer_lock.py` | — |
+| 8 | 字符串布尔值按字面量判定，不得依赖 `bool()`；`None` 表示"未知"不得被压成 `False` | `src/db/activity_codec._as_bool` / `_as_bool_strict` | `test_sqlite_data_layer.py` | ✅ `bool("false")` 为真，且 `skipped`/`status_classified` 两列原本绕过转换 |
+
+### 8.2 领域不变量
+
+| # | 不变量 | 强制点 | 守卫测试 |
+|---|---|---|---|
+| 9 | 每个外部写动作必须能回答：是否执行、哪个 uid、产生什么 ID、是否可重试；结果未知不得伪装成功或失败 | `ActionResult.extra.created_dynamic_id` | `test_line_clear.py` |
+| 10 | Binggo 创建的动态/关注必须有精确归属证据才可被清理 | `clear_follows._owned_repost_dynamic_ids` | `test_line_clear.py` |
+| 11 | 完整成功、降级成功、业务部分失败、取消、内部失败、网络失败、结果未知必须结构化表达，**不得依赖中文 message 判定** | `JobStatus.error_kind` | `test_auto_scheduler.py` |
+| 12 | secret 不进 URL 异常、日志、SSE、诊断、前端 storage 或普通响应；Windows 写盘权限失败不得静默 | `log_redact` / `secrets_inventory` / `config_health` | `test_log_redact.py` |
+| 13 | 代码版本、更新 API、Release、installer、构建产物与测试指向同一 SSOT | `app_paths.__version__`、`update_check.GITHUB_REPO` | `test_update_check.py` |
+
+### 8.3 机制判据（新增机制前的准入）
+
+> **这个机制是否让「下一个任务的行为取决于上一个任务的失败」？**
+> 是 → 制度层，拒绝；否 → 请求级节流，接受。
+
+完整对照表与已按此移除的机制见 `AGENTS.md`。判据管的是**不要新增**制度层；
+8.1 管的是**不要拆开**已有的跨层约束。两者解决的不是同一类问题。
 
 ## 9. 规范变更规则
 
