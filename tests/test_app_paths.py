@@ -89,7 +89,6 @@ def test_ensure_user_dirs_seeds_examples(monkeypatch, tmp_path):
     reset_engine_for_tests()
     ensure_user_dirs()
     assert (tmp_path / "config" / "cookies.txt.example").exists()
-    assert (tmp_path / "config" / "sources.yaml").exists()
     assert (tmp_path / "data" / "logs").is_dir()
     reset_engine_for_tests()
 

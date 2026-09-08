@@ -49,7 +49,7 @@ docs/                   fullstack-roadmap、pipeline-redesign、plans/（方向�
                         14-全量逐函数与漏洞审计-2026-08-12.md（审计底稿）
 tests/                  pytest（isolated_home fixture 隔离）
 packaging/windows/      build.ps1（vite→PyInstaller→Inno）、binggo.spec、installer.iss
-config/                 模板：cookies/llm.env/sources.yaml/manual_dyids/topic_tags/
+config/                 模板：cookies/llm.env/manual_dyids/topic_tags/
                         api_sources/notify/participate_enhance（*.example）
 ```
 
