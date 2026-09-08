@@ -31,14 +31,6 @@ def test_spa_index_serves_dist_html(client: TestClient) -> None:
     assert "no-cache" in response.headers.get("cache-control", "").lower()
 
 
-def test_legacy_app_js_and_styles_gone(client: TestClient) -> None:
-    for path in ("/app.js", "/styles.css"):
-        response = client.get(path)
-        assert response.status_code == 410
-        payload = response.json()
-        assert payload.get("error", {}).get("code") == "NOT_FOUND"
-
-
 def test_favicon_ok(client: TestClient) -> None:
     response = client.get("/favicon.svg")
     assert response.status_code == 200

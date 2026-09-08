@@ -605,7 +605,6 @@ def api_test_llm_settings(request: LlmSettingsRequest) -> dict[str, Any]:
 
 
 @app.post("/api/settings/llm", tags=["stable"])
-@app.put("/api/settings/llm", tags=["stable"], deprecated=True)
 def api_update_llm_settings(request: LlmSettingsRequest) -> dict[str, Any]:
     account = get_account_profile()
     require_login(account, message="请先扫码登录后再配置 LLM")
@@ -627,7 +626,6 @@ def api_update_llm_settings(request: LlmSettingsRequest) -> dict[str, Any]:
 
 
 @app.put("/api/settings/participate-text", tags=["stable"])
-@app.post("/api/settings/participate-text", tags=["stable"], deprecated=True)
 def api_update_participate_text(request: ParticipateTextRequest) -> dict[str, Any]:
     account = get_account_profile()
     require_login(account, message="请先扫码登录后再修改参与文案")
@@ -646,20 +644,6 @@ def api_update_participate_text(request: ParticipateTextRequest) -> dict[str, An
     if not payload:
         raise AppError(ErrorCode.VALIDATION_ERROR, "未提供可保存的设置")
     return payload
-
-
-@app.put("/api/settings/participate-text-mode", tags=["stable"], deprecated=True)
-@app.post("/api/settings/participate-text-mode", tags=["stable"], deprecated=True)
-def api_update_participate_text_mode(request: ParticipateTextRequest) -> dict[str, str]:
-    account = get_account_profile()
-    require_login(account, message="请先扫码登录后再修改参与文案模式")
-    if request.participate_text_mode is None:
-        raise AppError(ErrorCode.VALIDATION_ERROR, "缺少 participate_text_mode")
-    try:
-        value = set_participate_text_mode(request.participate_text_mode)
-    except OSError as exc:
-        raise AppError(ErrorCode.INTERNAL, f"保存参与文案模式失败：{exc}") from exc
-    return {"participate_text_mode": value}
 
 
 @app.post("/api/logout", response_model=OkResponse, tags=["stable"])
@@ -690,16 +674,6 @@ def api_login_qrcode() -> FileResponse:
             "Cache-Control": "no-store, no-cache, must-revalidate",
             "Pragma": "no-cache",
         },
-    )
-
-
-@app.get("/app.js", tags=["internal"], include_in_schema=False)
-@app.get("/styles.css", tags=["internal"], include_in_schema=False)
-def api_legacy_static_gone() -> None:
-    raise AppError(
-        ErrorCode.NOT_FOUND,
-        "旧静态入口已移除，请使用构建产物 web/static/dist（先 npm run build）",
-        status_code=410,
     )
 
 
