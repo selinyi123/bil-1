@@ -24,18 +24,22 @@
 """
 from __future__ import annotations
 
-import json
-import threading
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictStr,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from src.app_paths import config_dir
-
-_lock = threading.RLock()
-_cache: dict | None = None
-_CACHE_MTIME: float | None = None
+from src.config_files import load_json_cached, reset_json_cache
 
 DEFAULTS: dict = {
     "copy_chat": {"enabled": False, "blockwords": [], "exclude_author": True},
@@ -55,18 +59,6 @@ _MAX_NAME_LEN = 50
 _MAX_INTERVAL_SEC = 600.0
 
 
-def _require_str(value: object) -> str:
-    if not isinstance(value, str):
-        raise ValueError("必须是字符串")
-    return value
-
-
-def _require_bool(value: object) -> bool:
-    if not isinstance(value, bool):
-        raise ValueError("必须是布尔值（true/false）")
-    return value
-
-
 class AtUserModel(BaseModel):
     """@ 用户：uid 为纯数字（接受数字/数字字符串，归一化为 int），name 为昵称。
 
@@ -76,7 +68,7 @@ class AtUserModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     uid: int
-    name: str = Field(default="", max_length=_MAX_NAME_LEN)
+    name: StrictStr = Field(default="", max_length=_MAX_NAME_LEN)
 
     @field_validator("uid", mode="before")
     @classmethod
@@ -93,25 +85,15 @@ class AtUserModel(BaseModel):
             return int(value.strip())
         raise ValueError("uid 必须是纯数字")
 
-    @field_validator("name", mode="before")
-    @classmethod
-    def _coerce_name(cls, value: object) -> str:
-        return _require_str(value)
-
 
 class CopyChatModel(BaseModel):
     """抄热评：enabled 开关、blockwords 屏蔽词表、exclude_author 剔除作者。"""
 
     model_config = ConfigDict(extra="forbid")
 
-    enabled: bool = False
+    enabled: StrictBool = False
     blockwords: list[str] = Field(default_factory=list)
-    exclude_author: bool = True
-
-    @field_validator("enabled", "exclude_author", mode="before")
-    @classmethod
-    def _coerce_bool(cls, value: object) -> bool:
-        return _require_bool(value)
+    exclude_author: StrictBool = True
 
     @field_validator("blockwords", mode="before")
     @classmethod
@@ -150,18 +132,8 @@ class PartitionModel(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    enabled: bool = False
-    name: str = Field(default="抽奖临时关注", max_length=_MAX_NAME_LEN)
-
-    @field_validator("enabled", mode="before")
-    @classmethod
-    def _coerce_enabled(cls, value: object) -> bool:
-        return _require_bool(value)
-
-    @field_validator("name", mode="before")
-    @classmethod
-    def _coerce_name(cls, value: object) -> str:
-        return _require_str(value)
+    enabled: StrictBool = False
+    name: StrictStr = Field(default="抽奖临时关注", max_length=_MAX_NAME_LEN)
 
 
 class EnhanceSettingsModel(BaseModel):
@@ -176,20 +148,10 @@ class EnhanceSettingsModel(BaseModel):
 
     copy_chat: CopyChatModel = Field(default_factory=CopyChatModel)
     at_users: list[AtUserModel] = Field(default_factory=list)
-    topic: str = Field(default="", max_length=_MAX_TOPIC_LEN)
-    shuffle_targets: bool = True
+    topic: StrictStr = Field(default="", max_length=_MAX_TOPIC_LEN)
+    shuffle_targets: StrictBool = True
     action_interval_sec: ActionIntervalModel = Field(default_factory=ActionIntervalModel)
     partition: PartitionModel = Field(default_factory=PartitionModel)
-
-    @field_validator("topic", mode="before")
-    @classmethod
-    def _coerce_topic(cls, value: object) -> str:
-        return _require_str(value)
-
-    @field_validator("shuffle_targets", mode="before")
-    @classmethod
-    def _coerce_shuffle(cls, value: object) -> bool:
-        return _require_bool(value)
 
     @field_validator("at_users", mode="before")
     @classmethod
@@ -302,28 +264,9 @@ def sanitize_participate_enhance(raw: dict | None) -> dict:
 
 def load_participate_enhance() -> dict:
     """加载参与增强配置（缺省=现状）。文件变化时自动重载。"""
-    global _cache, _CACHE_MTIME
-    path = _config_path()
-    with _lock:
-        mtime = path.stat().st_mtime if path.exists() else None
-        if _cache is not None and mtime == _CACHE_MTIME:
-            return _cache
-        raw: dict = {}
-        if path.exists():
-            try:
-                raw = json.loads(path.read_text(encoding="utf-8"))
-            except (ValueError, OSError):
-                raw = {}
-        if not isinstance(raw, dict):
-            raw = {}
-        _cache = sanitize_participate_enhance(raw)
-        _CACHE_MTIME = mtime
-        return _cache
+    return load_json_cached(_config_path(), sanitize_participate_enhance)
 
 
 def reset_participate_enhance_cache() -> None:
     """测试用：清空缓存强制重载。"""
-    global _cache, _CACHE_MTIME
-    with _lock:
-        _cache = None
-        _CACHE_MTIME = None
+    reset_json_cache()
