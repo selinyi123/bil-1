@@ -26,8 +26,7 @@ def main() -> int:
         ParticipationRow,
         WatchUserRow,
     )
-    from src.forward_parse_cache import load_cache as load_parse_cache
-    from src.forward_classify_cache import load_cache as load_classify_cache
+    from src.forward_cache import load_classify_cache, load_parse_cache
     from src.state_store import get_last_container, get_last_pipeline_persisted, load_state
     from src.watch_users import get_watch_users_payload, list_watch_users
     from sqlmodel import select
