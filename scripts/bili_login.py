@@ -21,7 +21,7 @@ def main() -> int:
 
     print(f"Cookie 已保存到: {COOKIE_PATH}")
     print(f"长度: {len(cookie)} 字符")
-    print("现在可以运行: python scripts/check_ds1.py")
+    print("现在可以运行: python scripts/check_ds.py 1")
     return 0
 
 
