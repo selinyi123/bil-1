@@ -40,9 +40,7 @@ export const sidebarLoginBtn = document.getElementById("sidebar-login");
 
 export const sidebarLogoutBtn = document.getElementById("sidebar-logout") as HTMLButtonElement | null;
 
-export const appConfirmModal = document.getElementById("app-confirm-modal");
-
-export const appConfirmBackdrop = document.getElementById("app-confirm-backdrop");
+export const appConfirmModal = document.getElementById("app-confirm-modal") as HTMLDialogElement | null;
 
 export const appConfirmEyebrow = document.getElementById("app-confirm-eyebrow");
 
@@ -88,7 +86,7 @@ export const filterDrawWindowHint = document.getElementById("filter-draw-window-
 
 export const pagination = document.getElementById("pagination");
 
-export const qrcodeModal = document.getElementById("qrcode-modal");
+export const qrcodeModal = document.getElementById("qrcode-modal") as HTMLDialogElement | null;
 
 export const qrcodeImg = document.getElementById("qrcode-img");
 

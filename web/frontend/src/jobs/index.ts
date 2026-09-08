@@ -55,8 +55,6 @@ interface JobLike {
   [key: string]: any;
 }
 
-let qrcodeLastFocus: HTMLElement | null = null;
-
 export function isRefreshPipelineAction(action: string | undefined) {
   return action === "refresh_all" || action === "refresh_source";
 }
@@ -287,33 +285,10 @@ export function showFailureToast(failure: FailureLike | null, job: JobLike | nul
   showToast(failure.message || "", "error", failure.hint || formatToastDetail(job) || "", actions);
 }
 
-export function getQrcodeFocusable(): HTMLElement[] {
-  const panel = qrcodeModal?.querySelector(".qrcode-panel");
-  if (!panel) return [];
-  return [...panel.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
-    .filter((el) => !el.hidden && el.getAttribute("aria-hidden") !== "true");
-}
-
-export function trapQrcodeFocus(event: KeyboardEvent) {
-  if (!qrcodeModal || qrcodeModal.hidden || event.key !== "Tab") return;
-  const items = getQrcodeFocusable();
-  if (!items.length) return;
-  const first = items[0];
-  const last = items[items.length - 1];
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault();
-    last.focus();
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault();
-    first.focus();
-  }
-}
-
 export function ensureQrcodeModalVisible() {
-  if (!qrcodeModal || state.qrcodeDismissed) return;
-  qrcodeLastFocus = document.activeElement as HTMLElement | null;
-  qrcodeModal.hidden = false;
-  document.body.classList.add("modal-open");
+  if (!qrcodeModal || state.qrcodeDismissed || qrcodeModal.open) return;
+  // showModal 负责焦点陷阱 / 背景 inert / 关闭后焦点还原
+  qrcodeModal.showModal();
   window.requestAnimationFrame(() => qrcodeClose?.focus());
 }
 
@@ -396,12 +371,7 @@ export function hideQrcodeModal(manual = false) {
     state.qrcodeDismissed = true;
     cancelLoginJob();
   }
-  qrcodeModal.hidden = true;
-  document.body.classList.remove("modal-open");
-  if (qrcodeLastFocus && typeof qrcodeLastFocus.focus === "function") {
-    qrcodeLastFocus.focus();
-  }
-  qrcodeLastFocus = null;
+  if (qrcodeModal.open) qrcodeModal.close();
 }
 
 export async function cancelLoginJob() {
