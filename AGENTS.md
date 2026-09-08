@@ -141,3 +141,17 @@ powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1
 - bil-1 是当前产品发布 SSOT；origin 旧上游仅用于历史对照，不得作为更新/安装入口。
 - 详见 SPEC.md（系统规格）、ACCEPTANCE.md（验收标准）、docs/13-LAS功能迁移审计.md（迁移矩阵）和 docs/14-全量逐函数与漏洞审计-2026-08-12.md（审计底稿）。
 - 多账号执行边界与 Codex↔GPT 规划循环见 docs/15-账号隔离上下文-v1.md、docs/16-Codex-GPT-规划循环.md；当前仅 `participate`/`participate_triple` 已接入不可变 AccountContext。
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues（`selinyi123/bil-1`），通过 `gh` CLI 操作。见 `docs/agents/issue-tracker.md`。
+
+### Triage labels
+
+沿用五个标准角色，标签字符串与角色名一致。见 `docs/agents/triage-labels.md`。
+
+### Domain docs
+
+Single-context：仓库根 `CONTEXT.md` + `docs/adr/`。见 `docs/agents/domain.md`。
