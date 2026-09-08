@@ -9,35 +9,17 @@ url/http/https/proxy）。返回形如 `http://user:pass@host:port` 的代理 UR
 """
 from __future__ import annotations
 
-import json
 import os
-from pathlib import Path
 
 from src.app_paths import config_dir
+from src.config_files import load_json_cached
 
 PROXY_ENV = "BINGGO_PROXY"
 _PROXY_JSON = "proxy.json"
-_cache: dict | None = None
-_cache_path: Path | None = None
-_cache_mtime: float | None = None
 
 
 def _load_json() -> dict:
-    global _cache, _cache_path, _cache_mtime
-    path: Path = config_dir() / _PROXY_JSON
-    try:
-        mtime = path.stat().st_mtime_ns if path.exists() else None
-    except OSError:
-        mtime = None
-    if _cache is not None and _cache_path == path and _cache_mtime == mtime:
-        return _cache
-    try:
-        _cache = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    except Exception:
-        _cache = {}
-    _cache_path = path
-    _cache_mtime = mtime
-    return _cache
+    return load_json_cached(config_dir() / _PROXY_JSON)
 
 
 def get_env_proxy_url() -> str | None:

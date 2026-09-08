@@ -5,12 +5,48 @@
 from __future__ import annotations
 
 import json
+import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from src.app_paths import config_dir
 
 ALLOWED_NAMES = frozenset({"participate_enhance.json", "notify.json"})
+
+# mtime 命中缓存，按路径分桶（config_dir 在测试里会变，换路径自然 miss）
+_json_cache: dict[Path, tuple[int | None, Any]] = {}
+_json_cache_lock = threading.RLock()
+
+
+def load_json_cached(path: Path, transform: Callable[[dict], Any] | None = None) -> Any:
+    """按 mtime 缓存地读一个 JSON 配置；不存在或损坏都当空 dict。
+
+    transform 用于读盘后的归一化（如 sanitize_participate_enhance），只在真正
+    读盘时执行一次，结果一并缓存。
+    """
+    with _json_cache_lock:
+        mtime = path.stat().st_mtime_ns if path.exists() else None
+        cached = _json_cache.get(path)
+        if cached is not None and cached[0] == mtime:
+            return cached[1]
+        raw: Any = {}
+        if path.exists():
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+            except (ValueError, OSError):
+                raw = {}
+        if not isinstance(raw, dict):
+            raw = {}
+        value = transform(raw) if transform else raw
+        _json_cache[path] = (mtime, value)
+        return value
+
+
+def reset_json_cache() -> None:
+    """丢弃全部缓存，强制下次读盘（配置保存后 / 测试用）。"""
+    with _json_cache_lock:
+        _json_cache.clear()
 
 # 配置中的凭据字段（GET 回显脱敏、PUT 恢复），避免密钥经前端 textarea 明文外泄。
 # 覆盖 notify.json 全部渠道的实际敏感键名（含 bot_token/pass/push 等非通用命名）。
