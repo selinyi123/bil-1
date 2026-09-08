@@ -82,9 +82,8 @@
   </div>
   <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
 
-  <div class="qrcode-modal" id="qrcode-modal" hidden>
-    <div class="qrcode-backdrop" id="qrcode-backdrop"></div>
-    <div class="qrcode-panel" role="dialog" aria-modal="true" aria-labelledby="qrcode-title">
+  <dialog class="qrcode-modal" id="qrcode-modal" aria-labelledby="qrcode-title">
+    <div class="qrcode-panel">
       <button type="button" class="qrcode-close" id="qrcode-close" aria-label="关闭">×</button>
       <p class="qrcode-eyebrow">扫码登录</p>
       <h2 class="qrcode-title" id="qrcode-title">使用哔哩哔哩 App 扫码</h2>
@@ -97,11 +96,10 @@
       </div>
       <p class="qrcode-status" id="qrcode-status">等待扫码…</p>
     </div>
-  </div>
+  </dialog>
 
-  <div class="confirm-modal" id="app-confirm-modal" hidden>
-    <div class="confirm-backdrop" id="app-confirm-backdrop"></div>
-    <div class="confirm-panel confirm-panel-wide" role="dialog" aria-modal="true" aria-labelledby="app-confirm-title">
+  <dialog class="confirm-modal" id="app-confirm-modal" aria-labelledby="app-confirm-title">
+    <div class="confirm-panel confirm-panel-wide">
       <p class="confirm-eyebrow" id="app-confirm-eyebrow"></p>
       <h2 class="confirm-title" id="app-confirm-title"></h2>
       <p class="confirm-desc" id="app-confirm-desc" hidden></p>
@@ -112,7 +110,7 @@
         <button type="button" class="btn btn-primary btn-pill" id="app-confirm-yes">确认</button>
       </div>
     </div>
-  </div>
+  </dialog>
 
   <div class="auto-dock" id="auto-dock">
     <button type="button" class="auto-dock-toggle" id="auto-dock-toggle" aria-expanded="false">

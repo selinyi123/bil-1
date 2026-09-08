@@ -32,9 +32,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
-import json
 import smtplib
-import threading
 import time
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -46,10 +44,7 @@ from typing import Any
 import httpx
 
 from src.app_paths import config_dir
-
-_lock = threading.RLock()
-_cache: dict | None = None
-_CACHE_MTIME: float | None = None
+from src.config_files import load_json_cached, reset_json_cache
 
 _TIMEOUT = 10.0
 
@@ -95,30 +90,11 @@ def _config_path() -> Path:
 
 
 def load_notify_config() -> dict:
-    global _cache, _CACHE_MTIME
-    path = _config_path()
-    with _lock:
-        mtime = path.stat().st_mtime if path.exists() else None
-        if _cache is not None and mtime == _CACHE_MTIME:
-            return _cache
-        raw: dict = {}
-        if path.exists():
-            try:
-                raw = json.loads(path.read_text(encoding="utf-8"))
-            except (ValueError, OSError):
-                raw = {}
-        if not isinstance(raw, dict):
-            raw = {}
-        _cache = raw
-        _CACHE_MTIME = mtime
-        return _cache
+    return load_json_cached(_config_path())
 
 
 def reset_notify_config_cache() -> None:
-    global _cache, _CACHE_MTIME
-    with _lock:
-        _cache = None
-        _CACHE_MTIME = None
+    reset_json_cache()
 
 
 def _channels() -> dict:

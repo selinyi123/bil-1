@@ -2,7 +2,7 @@
 /** Migrated from web/static/app.js — logic preserved. */
 
 import { logDockToggle, qrcodeModal } from "../dom";
-import { hideQrcodeModal, toggleLogDock, trapQrcodeFocus } from "../jobs/index";
+import { hideQrcodeModal, toggleLogDock } from "../jobs/index";
 import { playActivitiesEnter, playOverviewEnter, playSourcesEnter, prefersReducedMotion } from "../utils/motion";
 import { loadWatchUsers } from "../watch/index";
 
@@ -95,11 +95,10 @@ export function bindNavigation() {
   logDockToggle?.addEventListener("click", () => toggleLogDock(true));
   document.getElementById("log-dock-collapse")?.addEventListener("click", () => toggleLogDock(false));
   document.getElementById("qrcode-close")?.addEventListener("click", () => hideQrcodeModal(true));
-  document.getElementById("qrcode-backdrop")?.addEventListener("click", () => hideQrcodeModal(true));
-  document.addEventListener("keydown", (event) => {
-    trapQrcodeFocus(event);
-    if (event.key === "Escape" && qrcodeModal && !qrcodeModal.hidden) {
-      hideQrcodeModal(true);
-    }
+  // 点 ::backdrop 时事件目标是 dialog 本身（面板在内层 div 上）
+  qrcodeModal?.addEventListener("click", (event) => {
+    if (event.target === qrcodeModal) hideQrcodeModal(true);
   });
+  // Esc 由 <dialog> 原生处理，这里只补上「手动关闭」的取消登录任务语义
+  qrcodeModal?.addEventListener("cancel", () => hideQrcodeModal(true));
 }

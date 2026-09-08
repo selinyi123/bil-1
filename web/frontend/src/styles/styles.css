@@ -1,3 +1,12 @@
+/*
+ * UI contract: the HTML `hidden` attribute must always remove an element from layout.
+ * Component classes such as `.btn { display: inline-flex }` otherwise outrank the browser's
+ * user-agent `[hidden] { display: none }` rule and can make logically hidden controls visible.
+ */
+[hidden] {
+  display: none !important;
+}
+
 :root {
   --bg: #f6f1ea;
   --bg-elevated: #fffaf4;
@@ -1234,10 +1243,6 @@ html.sidebar-init-collapsed .system-btn {
   outline-offset: 2px;
 }
 
-.sidebar-footer {
-  margin-top: auto;
-}
-
 .sidebar-bottom {
   margin-top: auto;
   display: flex;
@@ -2022,13 +2027,6 @@ html.sidebar-init-collapsed .system-btn {
   padding-top: 0;
 }
 
-.llm-settings-head,
-.llm-settings-grid,
-.llm-settings-foot,
-.field-optional {
-  display: none;
-}
-
 .field-help {
   margin: 0;
   font-size: 13px;
@@ -2613,12 +2611,6 @@ html.sidebar-init-collapsed .system-btn {
   gap: 8px;
 }
 
-.activity-check-at-hint {
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--accent);
-}
-
 .account-empty {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -2640,20 +2632,6 @@ html.sidebar-init-collapsed .system-btn {
   box-shadow: var(--shadow-sm);
 }
 
-.project-card-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-  margin-bottom: 12px;
-}
-
-.project-desc {
-  margin: 0 0 16px;
-  color: var(--foreground-muted);
-  line-height: 1.65;
-}
-
 .project-meta {
   display: flex;
   flex-wrap: wrap;
@@ -2665,23 +2643,6 @@ html.sidebar-init-collapsed .system-btn {
   flex-direction: column;
   gap: 4px;
   font-size: 14px;
-}
-
-.project-meta-label {
-  font-size: 12px;
-  color: var(--foreground-muted);
-  letter-spacing: 0.06em;
-}
-
-.project-link {
-  display: inline-flex;
-  padding: 8px 14px;
-  border-radius: var(--radius-pill);
-  background: var(--surface-soft);
-  border: 1px solid var(--border-soft);
-  text-decoration: none;
-  font-size: 13px;
-  font-weight: 600;
 }
 
 .sidebar-account {
@@ -2988,20 +2949,6 @@ html.sidebar-init-collapsed .system-btn {
   color: var(--accent-hover);
 }
 
-.source-link-btn {
-  appearance: none;
-  border: none;
-  padding: 0;
-  background: transparent;
-  cursor: pointer;
-  color: var(--link);
-  font: inherit;
-}
-
-.source-link-btn:hover {
-  color: var(--accent-hover);
-}
-
 .sources-stack {
   display: flex;
   flex-direction: column;
@@ -3187,11 +3134,6 @@ html.sidebar-init-collapsed .system-btn {
   animation-delay: calc(120ms + var(--row-delay, 0ms));
 }
 
-.watch-sync-note {
-  margin: 14px 0 0;
-  line-height: 1.5;
-}
-
 .watch-users-head {
   display: flex;
   justify-content: space-between;
@@ -3205,10 +3147,6 @@ html.sidebar-init-collapsed .system-btn {
   font-family: var(--font-display);
   font-size: 18px;
   font-weight: 600;
-}
-
-.watch-users-sub {
-  margin: 4px 0 0;
 }
 
 .watch-users-badge {
@@ -3547,12 +3485,6 @@ html.sidebar-init-collapsed .system-btn {
 
 .account-avatar-fallback {
   background: var(--surface-soft);
-}
-
-.account-meta h3 {
-  margin: 0 0 6px;
-  font-family: var(--font-display);
-  font-size: 22px;
 }
 
 .account-status {
@@ -4090,16 +4022,6 @@ html.sidebar-init-collapsed .system-btn {
   align-self: stretch;
 }
 
-.filters-search-row {
-  width: 100%;
-}
-
-.filter-groups-scroll {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
 .triple-participate-bar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr) auto;
@@ -4423,12 +4345,6 @@ html.sidebar-init-collapsed .system-btn {
 
 .progress-pipeline.is-triple .pipeline-node.active .pipeline-dot {
   box-shadow: 0 0 0 2px var(--job-chip-bg);
-}
-
-.triple-progress-id {
-  font-size: 11px;
-  color: var(--foreground-muted);
-  font-variant-numeric: tabular-nums;
 }
 
 .triple-progress-status {
@@ -4755,38 +4671,34 @@ html.sidebar-init-collapsed .system-btn {
   white-space: pre-wrap;
 }
 
-body.modal-open {
-  overflow: hidden;
-}
-
 .qrcode-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  display: grid;
-  place-items: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  max-width: none;
+  max-height: none;
+  overflow: visible;
+  color: inherit;
 }
 
-.qrcode-modal[hidden] {
-  display: none;
+.qrcode-modal::backdrop {
+  background: var(--backdrop, rgba(20, 18, 16, 0.48));
+  backdrop-filter: blur(6px);
 }
 
+/* <dialog>：居中、焦点陷阱、Esc 关闭、背景 inert 都由浏览器提供，这里只去掉 UA 外框 */
 .confirm-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  display: grid;
-  place-items: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  max-width: none;
+  max-height: none;
+  overflow: visible;
+  color: inherit;
 }
 
-.confirm-modal[hidden] {
-  display: none;
-}
-
-.confirm-backdrop {
-  position: absolute;
-  inset: 0;
-  background: var(--backdrop);
+.confirm-modal::backdrop {
+  background: var(--backdrop, rgba(20, 18, 16, 0.48));
   backdrop-filter: blur(6px);
 }
 
@@ -5046,13 +4958,6 @@ body.modal-open {
   min-height: 30px;
 }
 
-.qrcode-backdrop {
-  position: absolute;
-  inset: 0;
-  background: var(--backdrop);
-  backdrop-filter: blur(6px);
-}
-
 .qrcode-panel {
   position: relative;
   width: min(92vw, 380px);
@@ -5094,7 +4999,6 @@ body.modal-open {
   font-size: 24px;
 }
 
-.qrcode-desc,
 .qrcode-status {
   margin: 8px 0 0;
   color: var(--foreground-muted);
@@ -6949,13 +6853,6 @@ body.job-running .main-shell .topbar {
     width: 100%;
     max-width: none;
     flex: 0 0 auto;
-  }
-
-  .filter-groups-scroll {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    align-items: stretch;
   }
 
   .filter-group {

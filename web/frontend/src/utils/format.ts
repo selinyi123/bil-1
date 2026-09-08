@@ -33,26 +33,26 @@ export function activityStatusTone(status: string) {
   return "pending";
 }
 
-export function formatUnixTimestamp(ts: string | number | null | undefined) {
+/** unix 秒 → 本地时间串；withYear 决定 `YYYY-MM-DD HH:mm` 还是 `MM/DD HH:mm`。 */
+function formatUnix(ts: string | number | null | undefined, withYear: boolean, fallback: string) {
   const value = Number(ts);
-  if (!value) return "尚未同步";
+  if (!value) return fallback;
   const date = new Date(value * 1000);
-  if (Number.isNaN(date.getTime())) return "尚未同步";
+  if (Number.isNaN(date.getTime())) return fallback;
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  const month = pad(date.getMonth() + 1);
+  const day = pad(date.getDate());
+  const clock = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return withYear ? `${date.getFullYear()}-${month}-${day} ${clock}` : `${month}/${day} ${clock}`;
+}
+
+export function formatUnixTimestamp(ts: string | number | null | undefined) {
+  return formatUnix(ts, true, "尚未同步");
 }
 
 export function formatWatchWindow(start: string | number | null | undefined, end: string | number | null | undefined) {
-  const fmt = (ts: string | number | null | undefined) => {
-    const value = Number(ts);
-    if (!value) return "—";
-    const date = new Date(value * 1000);
-    if (Number.isNaN(date.getTime())) return "—";
-    const pad = (n: number) => String(n).padStart(2, "0");
-    return `${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-  };
-  const from = fmt(start);
-  const to = fmt(end);
+  const from = formatUnix(start, false, "—");
+  const to = formatUnix(end, false, "—");
   if (from === "—" || to === "—") return "—";
   return `${from} — ${to}`;
 }

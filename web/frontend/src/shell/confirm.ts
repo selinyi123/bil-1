@@ -1,14 +1,12 @@
 /* eslint-disable */
 /** Migrated from web/static/app.js — logic preserved. */
 
-import { appConfirmBackdrop, appConfirmBullets, appConfirmCancel, appConfirmDesc, appConfirmEyebrow, appConfirmModal, appConfirmSecondary, appConfirmTitle, appConfirmYes } from "../dom";
+import { appConfirmBullets, appConfirmCancel, appConfirmDesc, appConfirmEyebrow, appConfirmModal, appConfirmSecondary, appConfirmTitle, appConfirmYes } from "../dom";
 import { switchSection } from "../shell/nav";
 import { escapeHtml } from "../utils/text";
 
 export function closeAppConfirm() {
-  if (!appConfirmModal) return;
-  appConfirmModal.hidden = true;
-  document.body.classList.remove("modal-open");
+  if (appConfirmModal?.open) appConfirmModal.close();
 }
 
 export interface ConfirmOptions {
@@ -39,81 +37,45 @@ export function openAppConfirm({
       resolve(window.confirm(title || "确认继续？"));
       return;
     }
-    const lastFocus = document.activeElement as HTMLElement | null;
 
-    const cleanup = () => {
-      closeAppConfirm();
-      lastFocus?.focus();
+    // showModal 负责焦点陷阱 / Esc / 背景 inert / 关闭后焦点还原，这里只管结果。
+    // 每个出口都自己 settle，不把兑现挂在 close 事件上（Promise 二次 resolve 无副作用）。
+    const settle = (value: boolean) => {
       appConfirmCancel?.removeEventListener("click", onCancel);
       appConfirmYes?.removeEventListener("click", onConfirm);
-      appConfirmBackdrop?.removeEventListener("click", onCancel);
       appConfirmSecondary?.removeEventListener("click", onSecondaryClick);
-      document.removeEventListener("keydown", onKeyDown);
+      appConfirmModal?.removeEventListener("click", onBackdropClick);
+      appConfirmModal?.removeEventListener("cancel", onDismiss);
+      appConfirmModal?.removeEventListener("close", onDismiss);
+      closeAppConfirm();
+      resolve(value);
     };
-
-    const onCancel = () => {
-      cleanup();
-      resolve(false);
-    };
-
-    const onConfirm = () => {
-      cleanup();
-      resolve(true);
-    };
-
+    const onCancel = () => settle(false);
+    const onConfirm = () => settle(true);
     const onSecondaryClick = () => {
-      cleanup();
       try {
         onSecondary?.();
       } catch {
         /* ignore */
       }
-      resolve(false);
+      settle(false);
     };
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        onCancel();
-        return;
-      }
-      if (event.key !== "Tab") return;
-      // Tab 焦点陷阱：循环在对话框内可聚焦元素之间
-      const focusable = [
-        ...appConfirmModal!.querySelectorAll<HTMLElement>(
-          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-        ),
-      ].filter((el) => !el.hidden && el.getAttribute("aria-hidden") !== "true");
-      if (!focusable.length) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
+    // 点击 ::backdrop 时事件目标是 dialog 本身（面板在内层 div 上）
+    const onBackdropClick = (event: MouseEvent) => {
+      if (event.target === appConfirmModal) settle(false);
     };
+    // Esc：cancel 先于 close，任一到达即当取消
+    const onDismiss = () => settle(false);
 
     if (appConfirmEyebrow) appConfirmEyebrow.textContent = eyebrow;
     if (appConfirmTitle) appConfirmTitle.textContent = title;
     if (appConfirmDesc) {
-      if (desc) {
-        appConfirmDesc.hidden = false;
-        appConfirmDesc.textContent = desc;
-      } else {
-        appConfirmDesc.hidden = true;
-        appConfirmDesc.textContent = "";
-      }
+      appConfirmDesc.hidden = !desc;
+      appConfirmDesc.textContent = desc;
     }
     if (appConfirmBullets) {
-      if (bullets.length) {
-        appConfirmBullets.hidden = false;
-        appConfirmBullets.innerHTML = bullets.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
-      } else {
-        appConfirmBullets.hidden = true;
-        appConfirmBullets.innerHTML = "";
-      }
+      appConfirmBullets.hidden = !bullets.length;
+      appConfirmBullets.innerHTML = bullets.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
     }
     appConfirmCancel.textContent = cancelLabel;
     appConfirmYes.textContent = confirmLabel;
@@ -124,15 +86,16 @@ export function openAppConfirm({
       appConfirmSecondary.textContent = showSecondary ? secondaryLabel : "";
     }
 
-    appConfirmModal.hidden = false;
-    document.body.classList.add("modal-open");
     appConfirmCancel.addEventListener("click", onCancel);
     appConfirmYes.addEventListener("click", onConfirm);
-    appConfirmBackdrop?.addEventListener("click", onCancel);
     if (secondaryLabel && appConfirmSecondary) {
       appConfirmSecondary.addEventListener("click", onSecondaryClick);
     }
-    document.addEventListener("keydown", onKeyDown);
+    appConfirmModal.addEventListener("click", onBackdropClick);
+    appConfirmModal.addEventListener("cancel", onDismiss);
+    appConfirmModal.addEventListener("close", onDismiss);
+
+    appConfirmModal.showModal();
     appConfirmCancel.focus();
   });
 }

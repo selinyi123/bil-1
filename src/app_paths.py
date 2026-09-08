@@ -184,11 +184,6 @@ def ensure_user_dirs() -> None:
                     dst = config_dir / item.name
                     if not dst.exists():
                         shutil.copy2(item, dst)
-                    continue
-                if item.name == "sources.yaml":
-                    dst = config_dir / item.name
-                    if not dst.exists():
-                        shutil.copy2(item, dst)
         from src.db import init_db
 
         init_db()

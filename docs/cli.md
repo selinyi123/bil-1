@@ -24,7 +24,7 @@
 反过来同样成立：CLI 持锁期间，Web 控制台启动任务会被拒绝（提示任务忙），
 定时调度器会**跳过本时间槽**并在下一个槽照常继续——不会停机。
 
-> 只读命令（`check_ds*.py`、`check_messages.py` 等）不加锁，随时可跑。
+> 只读命令（`check_ds.py`、`check_messages.py` 等）不加锁，随时可跑。
 
 > **锁的覆盖范围**：仲裁的是任务级写者（JobRunner 任务 + 上表 CLI）。
 > Web 控制台的 GET 路径仍有维护性写入（刷新过期活动、首次 seed 等）不受本锁仲裁，
@@ -34,13 +34,7 @@
 ## 总览
 ```bash
 python scripts/bili_login.py # 哔哩哔哩扫码登录
-python scripts/check_ds1.py # DS-1 哔哩抽奖小助理更新检查
-python scripts/check_ds2.py # DS-2 番茄薯条喵更新检查
-python scripts/check_ds3.py # DS-3 你的抽奖工具人更新检查
-python scripts/check_ds4.py # DS-4 J君名更新检查
-python scripts/check_ds5.py # DS-5 互动抽奖娘更新检查
-python scripts/check_ds6.py # DS-6 糯米是个背包更新检查
-python scripts/check_ds7.py # DS-7 大锦鲤更新检查
+python scripts/check_ds.py 1 # DS-1…DS-7 更新检查（编号见下）
 python scripts/merge_links.py # 合并各数据源的活动链接
 python scripts/classify_links.py # 活动链接抽奖类型分类
 python scripts/fetch_activity_info.py # 抽奖活动信息拉取
@@ -61,96 +55,22 @@ python scripts/bili_login.py
 
 **功能**：用手机 App 扫码登录，保存 Cookie 供后续脚本使用。
 
-## `check_ds1.py`
+## `check_ds.py`
 
-**说明**：DS-1 哔哩抽奖小助理更新检查
-
-**指令**：
-
-```bash
-python scripts/check_ds1.py
-python scripts/check_ds1.py --force
-```
-
-**功能**：检查最新投稿视频是否更新，有更新时从简介提取活动链接；`--force` 强制重新解析当前最新视频。
-
-## `check_ds2.py`
-
-**说明**：DS-2 番茄薯条喵更新检查
+**说明**：UP 合集每日更新检查（DS-1…DS-7）
 
 **指令**：
 
 ```bash
-python scripts/check_ds2.py
-python scripts/check_ds2.py --force
+python scripts/check_ds.py 1
+python scripts/check_ds.py 5 --force
 ```
 
-**功能**：检查最新专栏是否更新，有更新时从正文提取活动链接；`--force` 强制重新解析当前最新专栏。
+**编号**：1=哔哩抽奖小助理（视频）、2=番茄薯条喵、3=你的抽奖工具人、4=J君名、
+5=互动抽奖娘（Opus 帖）、6=糯米是个背包、7=大锦鲤。未标注的均为专栏。
 
-## `check_ds3.py`
-
-**说明**：DS-3 你的抽奖工具人更新检查
-
-**指令**：
-
-```bash
-python scripts/check_ds3.py
-python scripts/check_ds3.py --force
-```
-
-**功能**：检查最新专栏是否更新，有更新时从正文提取活动链接；`--force` 强制重新解析当前最新专栏。
-
-## `check_ds4.py`
-
-**说明**：DS-4 J君名更新检查
-
-**指令**：
-
-```bash
-python scripts/check_ds4.py
-python scripts/check_ds4.py --force
-```
-
-**功能**：检查最新专栏是否更新，有更新时从正文提取活动链接；`--force` 强制重新解析当前最新专栏。
-
-## `check_ds5.py`
-
-**说明**：DS-5 互动抽奖娘更新检查
-
-**指令**：
-
-```bash
-python scripts/check_ds5.py
-python scripts/check_ds5.py --force
-```
-
-**功能**：检查最新 Opus 帖是否更新，有更新时从正文提取活动链接；`--force` 强制重新解析当前最新 Opus 帖。
-
-## `check_ds6.py`
-
-**说明**：DS-6 糯米是个背包更新检查
-
-**指令**：
-
-```bash
-python scripts/check_ds6.py
-python scripts/check_ds6.py --force
-```
-
-**功能**：检查最新 Opus 专栏是否更新，有更新时从正文提取活动链接（含互动/预约分区提示）；`--force` 强制重新解析当前最新专栏。
-
-## `check_ds7.py`
-
-**说明**：DS-7 大锦鲤更新检查
-
-**指令**：
-
-```bash
-python scripts/check_ds7.py
-python scripts/check_ds7.py --force
-```
-
-**功能**：检查最新 Opus 帖是否更新，有更新时从正文提取活动链接；`--force` 强制重新解析当前最新 Opus 帖。
+**功能**：检查该 UP 的最新容器（视频 / 专栏 / Opus 帖）是否更新，有更新时从正文
+或简介提取活动链接；`--force` 忽略已记录的容器链接，强制重新解析当前最新一条。
 
 ## `merge_links.py`
 

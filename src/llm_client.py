@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from typing import Any
 
 import httpx
 
 from src.llm_config import LlmConfig, load_llm_config
-from src.retry_utils import is_transient_http_error, retry_call
 
 import threading
 
@@ -45,7 +45,11 @@ def _llm_retryable(exc: BaseException) -> bool:
         message = str(exc)
         if "无法解析为 JSON" in message or "不是对象" in message:
             return True
-    return is_transient_http_error(exc)
+    if isinstance(exc, httpx.RequestError):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code in {408, 429, 500, 502, 503, 504}
+    return False
 
 
 def _supports_thinking_toggle(config: LlmConfig) -> bool:
@@ -75,13 +79,18 @@ def _build_chat_payload(
 
 
 def _post_chat_completion(*, url: str, headers: dict[str, str], payload: dict[str, Any]) -> dict[str, Any]:
-    def _call() -> dict[str, Any]:
-        with httpx.Client(timeout=_LLM_TIMEOUT) as client:
-            resp = client.post(url, headers=headers, json=payload)
-            resp.raise_for_status()
-            return resp.json()
-
-    return retry_call(_call, attempts=_LLM_RETRY_ATTEMPTS, retry_on=_llm_retryable)
+    """瞬时错误退避重试（1s、2s），非瞬时错误立刻抛出。"""
+    for attempt in range(_LLM_RETRY_ATTEMPTS):
+        try:
+            with httpx.Client(timeout=_LLM_TIMEOUT) as client:
+                resp = client.post(url, headers=headers, json=payload)
+                resp.raise_for_status()
+                return resp.json()
+        except Exception as exc:
+            if attempt == _LLM_RETRY_ATTEMPTS - 1 or not _llm_retryable(exc):
+                raise
+            time.sleep(2**attempt)
+    raise AssertionError("unreachable")
 
 
 def test_llm_connection(config: LlmConfig) -> str:

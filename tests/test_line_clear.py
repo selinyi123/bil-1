@@ -1,41 +1,36 @@
-"""Line 多线路容灾 / 关注分区 / 清理（clear_follows）测试。"""
+"""粉丝数多线路容灾 / 关注分区 / 清理（clear_follows）测试。"""
 from __future__ import annotations
 
 import time
 
+from src.bilibili_client import BilibiliClient
 from src.clear_follows import _item_dynamic_id, _item_pub_ts, clear_follows
-from src.line import Line
 
 
 # ---------------------------------------------------------------------------
-# Line 多线路
+# 粉丝数多线路：card 线路失败时回落 relation/stat
 # ---------------------------------------------------------------------------
 
-def test_line_falls_back_to_next_on_failure() -> None:
-    calls: list[int] = []
+def test_get_user_followers_falls_back_to_stat(monkeypatch) -> None:
+    calls: list[str] = []
 
-    def line_a():
-        calls.append(0)
-        raise RuntimeError("boom")
+    def fake_request_json(self, url, **kwargs):
+        if "web-interface/card" in url:
+            calls.append("card")
+            raise RuntimeError("boom")
+        calls.append("stat")
+        return {"data": {"follower": 42}}
 
-    def line_b():
-        calls.append(1)
-        return "ok"
-
-    line = Line("test", [line_a, line_b], fallback=None)
-    assert line.run() == "ok"
-    assert calls == [0, 1]
-    assert line.valid_line == 1  # 记住成功线路
-
-
-def test_line_all_fail_returns_fallback() -> None:
-    line = Line("test", [lambda: None, lambda: False], fallback="fallback")
-    assert line.run() == "fallback"
+    monkeypatch.setattr(BilibiliClient, "request_json", fake_request_json)
+    client = BilibiliClient.__new__(BilibiliClient)
+    assert client.get_user_followers(1) == 42
+    assert calls == ["card", "stat"]
 
 
-def test_line_returns_first_valid() -> None:
-    line = Line("test", [lambda: "first", lambda: "second"])
-    assert line.run() == "first"
+def test_get_user_followers_returns_none_when_all_lines_fail(monkeypatch) -> None:
+    monkeypatch.setattr(BilibiliClient, "request_json", lambda self, url, **kw: {"data": {}})
+    client = BilibiliClient.__new__(BilibiliClient)
+    assert client.get_user_followers(1) is None
 
 
 # ---------------------------------------------------------------------------

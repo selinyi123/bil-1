@@ -606,8 +606,6 @@ class BilibiliClient:
 
         返回粉丝数，全部失败返回 None。
         """
-        from src.line import Line
-
         def _via_card() -> int | None:
             data = self.request_json(
                 "https://api.bilibili.com/x/web-interface/card",
@@ -634,7 +632,15 @@ class BilibiliClient:
             except (TypeError, ValueError):
                 return None
 
-        return Line("get_user_followers", [_via_card, _via_stat], fallback=None).run()
+        # 多线路容灾：任一线路抛错或返回空即试下一条，全失败返回 None
+        for fetch in (_via_card, _via_stat):
+            try:
+                fans = fetch()
+            except Exception:
+                continue
+            if fans:
+                return fans
+        return None
 
     # ------------------------------------------------------------------
     # 关注分区管理（源自 LAS partition 机制）

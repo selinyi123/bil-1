@@ -7,6 +7,17 @@ export function prefersReducedMotion() {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
+/** 重放一个 CSS 动画：移除类 → 强制重排 → 重新加类（可选到点自动移除）。 */
+function replay(el: Element | null | undefined, className: string, removeAfterMs?: number) {
+  if (!el) return;
+  el.classList.remove(className);
+  void (el as HTMLElement).offsetWidth;
+  el.classList.add(className);
+  if (removeAfterMs) {
+    window.setTimeout(() => el.classList.remove(className), removeAfterMs);
+  }
+}
+
 export function setButtonLoading(button: HTMLButtonElement | null, loading: boolean, options: { label?: string } = {}) {
   if (!button) return;
   const { label } = options;
@@ -54,70 +65,42 @@ export function setSourceRowUpdating(sourceId: string | number, updating: boolea
 
 export function flashSourceRow(sourceId: string | number) {
   if (!sourceId || prefersReducedMotion()) return;
-  const row = document.querySelector<HTMLElement>(`.source-row[data-source-id="${CSS.escape(String(sourceId))}"]`);
-  if (!row) return;
-  row.classList.remove("is-flash");
-  void row.offsetWidth;
-  row.classList.add("is-flash");
-  window.setTimeout(() => row.classList.remove("is-flash"), 1100);
+  replay(document.querySelector(`.source-row[data-source-id="${CSS.escape(String(sourceId))}"]`), "is-flash", 1100);
 }
 
 export function pulseWatchSyncCard() {
   const card = document.querySelector<HTMLElement>(".watch-sync-card");
   if (!card || prefersReducedMotion()) return;
-  card.classList.remove("is-sync-pulse");
-  void card.offsetWidth;
-  card.classList.add("is-sync-pulse");
-  document.querySelectorAll<HTMLElement>(".watch-metric-value").forEach((el) => {
-    el.classList.remove("is-value-pop");
-    void el.offsetWidth;
-    el.classList.add("is-value-pop");
-  });
-  window.setTimeout(() => {
-    card.classList.remove("is-sync-pulse");
-    document.querySelectorAll<HTMLElement>(".watch-metric-value").forEach((el) => el.classList.remove("is-value-pop"));
-  }, 900);
+  replay(card, "is-sync-pulse", 900);
+  document.querySelectorAll<HTMLElement>(".watch-metric-value").forEach((el) => replay(el, "is-value-pop", 900));
 }
 
 export function playSourcesEnter() {
-  const stack = document.querySelector<HTMLElement>("#section-sources .sources-stack");
-  if (!stack || prefersReducedMotion()) return;
-  stack.classList.remove("is-sources-entering");
-  void stack.offsetWidth;
-  stack.classList.add("is-sources-entering");
+  if (prefersReducedMotion()) return;
+  replay(document.querySelector("#section-sources .sources-stack"), "is-sources-entering");
 }
 
 export function playActivitiesEnter() {
-  const panel = document.querySelector<HTMLElement>("#section-activities .activities-panel");
-  if (!panel || prefersReducedMotion()) return;
-  panel.classList.remove("is-activities-entering");
-  void panel.offsetWidth;
-  panel.classList.add("is-activities-entering");
+  if (prefersReducedMotion()) return;
+  replay(document.querySelector("#section-activities .activities-panel"), "is-activities-entering");
 }
 
 export function pulseFilterSummary() {
-  if (!filterResultSummary || prefersReducedMotion()) return;
-  filterResultSummary.classList.remove("is-updated");
-  void filterResultSummary.offsetWidth;
-  filterResultSummary.classList.add("is-updated");
+  if (prefersReducedMotion()) return;
+  replay(filterResultSummary, "is-updated");
 }
 
 export function flashFilterPill(button: HTMLElement | null) {
-  if (!button || prefersReducedMotion()) return;
-  button.classList.remove("is-just-selected");
-  void button.offsetWidth;
-  button.classList.add("is-just-selected");
-  window.setTimeout(() => button.classList.remove("is-just-selected"), 520);
+  if (prefersReducedMotion()) return;
+  replay(button, "is-just-selected", 520);
 }
 
 export function playActivityListEnter() {
   if (prefersReducedMotion()) return;
   const rows = document.querySelectorAll<HTMLElement>("#activities-body tr[data-dynamic-id], #activities-cards .activity-card");
   rows.forEach((el, index) => {
-    el.classList.remove("is-row-entering");
     el.style.setProperty("--row-delay", `${Math.min(index, 12) * 28}ms`);
-    void el.offsetWidth;
-    el.classList.add("is-row-entering");
+    replay(el, "is-row-entering");
   });
 }
 
@@ -170,20 +153,14 @@ export function animateStatValue(el: HTMLElement | null, from: number | string, 
     }
     el.textContent = String(endValue);
     el.classList.remove("is-ticking");
-    el.classList.remove("is-value-pop");
-    void el.offsetWidth;
-    el.classList.add("is-value-pop");
-    window.setTimeout(() => el.classList.remove("is-value-pop"), 420);
+    replay(el, "is-value-pop", 420);
   };
   requestAnimationFrame(tick);
 }
 
 export function playOverviewEnter() {
-  const stack = document.querySelector<HTMLElement>("#section-overview .overview-stack");
-  if (!stack || prefersReducedMotion()) return;
-  stack.classList.remove("is-overview-entering");
-  void stack.offsetWidth;
-  stack.classList.add("is-overview-entering");
+  if (prefersReducedMotion()) return;
+  replay(document.querySelector("#section-overview .overview-stack"), "is-overview-entering");
 }
 
 export function flashActivityRows(dynamicIds: Array<string | number>) {
