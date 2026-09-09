@@ -185,9 +185,14 @@ Web 控制台（仅 127.0.0.1）浏览与参与 → 定时自动参与 → 中�
 - **多账号编排**（产品决策）：已完成 Job 级 `account_uid` 绑定与执行前身份 fail-closed；当前仍是单账号槽位与显式切换，尚未实现 LAS 逐账号自动轮转。后续若做建议 `AccountContext`。
 - **粉丝数线路无记忆**：`get_user_followers` 的 card → relation/stat 两线每次调用都从第一条开始，成功线路不跨调用保留。
 - **per-account 行为配置 / 通知身份上下文**：participate_enhance/notify 仍全局；多账号编排落地后需带账号身份。
-- **refresh_all 有更新+部分失败时 result 缺 sources_failed**（机器化 degraded 未完整）。
+- ~~**refresh_all 有更新+部分失败时 result 缺 sources_failed**~~（**已关闭**）：三态现在都返回
+  该字段，消息也明示失败数。守卫：`test_refresh_all_progress.py` 三例覆盖全失败 /
+  无更新+部分失败 / 有更新+部分失败。
 - **产品决策项**：AI 评论、only_followed 降级、随机动态（当前 B 站环境价值待验证）。
-- **npm audit**：前端 dev 依赖 7 个漏洞告警（打包产物不受影响），建议后续处理。
+- ~~**npm audit**~~（**已关闭**）：`npm audit` → 0 vulnerabilities。`nanoid`/`postcss` 走
+  `npm audit fix`；其余 5 条（含 1 critical）全部来自 `vitest@2` 内嵌的 `vite@5.4.21` +
+  `esbuild@0.21.5`，升 `vitest@5` 后复用顶层 `vite@6.4.3`，整簇消失，配置无需改动。
+  同时移除未使用的 `jsdom`（`vitest.config.ts` 用的是 `environment: "node"`，源码零引用）。
 
 ## 7. 审计状态
 

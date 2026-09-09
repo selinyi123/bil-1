@@ -617,6 +617,11 @@ def run_action(
 
         summary_parts = [
             f"检查 {len(DS_HANDLERS)} 个数据源，{sources_updated} 个有新专栏",
+        ]
+        if sources_failed:
+            # 有更新时也必须明示失败数：否则"部分降级"只在日志里，结果结构看不出来
+            summary_parts.append(f"{sources_failed} 个数据源检查失败")
+        summary_parts += [
             f"新链接 {pipeline_result.new_link_count} 条",
             f"新入库 {pipeline_result.persisted_count} 条",
         ]
@@ -639,6 +644,7 @@ def run_action(
             "result": {
                 "sources": ds_results,
                 "sources_updated": sources_updated,
+                "sources_failed": sources_failed,
                 "pipeline": pipeline_result.to_dict(),
             },
             "log": sanitize_log("\n".join(log_lines).strip()),

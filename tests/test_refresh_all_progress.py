@@ -72,3 +72,62 @@ def test_refresh_all_partial_failure_is_degraded_not_silent(monkeypatch) -> None
     assert "均无新专栏" in payload["message"]
     assert "1 个数据源检查失败" in payload["message"]
     assert payload["result"]["sources_failed"] == 1
+
+
+def _updated_check(source_id: str):
+    def check(force=False):
+        from src.sources.common import CheckResult
+
+        return CheckResult(
+            source_id=source_id,
+            updated=True,
+            container_url="https://example.com/new",
+            container_id="new",
+            title="t",
+            published_at=0,
+            previous_container_url="https://example.com/old",
+            activity_links=["https://t.bilibili.com/1"],
+            checked_at=0,
+        )
+
+    return check
+
+
+def test_refresh_all_reports_failures_even_when_some_sources_updated(monkeypatch) -> None:
+    """三态之三：有更新 + 部分失败，结果仍须机器可读地带上 sources_failed。
+
+    此前只有 sources_updated == 0 的两条分支返回该字段，走到流水线的成功分支
+    会把失败数悄悄丢掉——调用方只能靠解析中文 message 才知道有源挂了，而这正是
+    SPEC §8 不变量 #11 禁止的。
+    """
+    from src.pipeline.refresh_all_pipeline import PipelineResult
+    from web.actions import run_action
+
+    def fail_check(force=False):
+        raise RuntimeError("网络挂了")
+
+    monkeypatch.setattr(
+        "web.actions.DS_HANDLERS",
+        [("DS-X", fail_check, lambda r: None), ("DS-Y", _updated_check("DS-Y"), lambda r: None)],
+    )
+    monkeypatch.setattr(
+        "web.actions.run_refresh_all_pipeline",
+        lambda *a, **k: PipelineResult(
+            ok=True,
+            pipeline_skipped=False,
+            raw_link_count=1,
+            new_link_count=1,
+            classified_count=1,
+            skipped_count=0,
+            enriched_count=1,
+            persisted_count=1,
+            message="流水线完成",
+        ),
+    )
+    monkeypatch.setattr("web.actions.commit_source_checkpoint", lambda result: None)
+
+    payload = run_action("refresh_all", {})
+    assert payload["ok"] is True
+    assert payload["result"]["sources_updated"] == 1
+    assert payload["result"]["sources_failed"] == 1
+    assert "1 个数据源检查失败" in payload["message"]
