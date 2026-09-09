@@ -11,12 +11,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import APIRouter, FastAPI
 
-from src.account_pool import (
-    accounts_dir_has,
-    ensure_legacy_account,
-    get_account_proxy,
-    set_account_proxy,
-)
+from src.account_pool import accounts_dir_has, get_account_proxy, set_account_proxy
 from src.bilibili_auth import resolve_effective_uid
 from src.proxy_config import get_env_proxy_url, get_global_proxy_url
 from src.source_settings import (
@@ -42,7 +37,8 @@ router = APIRouter()
 def _require_local_account() -> int:
     account = get_account_profile()
     require_login(account, message="请先扫码登录后再修改账号级设置")
-    ensure_legacy_account()
+    # 遗留账号收养已挪到 `_bootstrap_user_data()`：这里也被 GET /api/settings/proxy
+    # 走到，留着就是 SPEC §8 #14 的例外（GET 不得写库）
     uid = resolve_effective_uid()
     if not uid:
         raise AppError(ErrorCode.AUTH_REQUIRED, "未检测到有效账号身份")

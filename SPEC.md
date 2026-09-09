@@ -155,20 +155,32 @@ Web 控制台（仅 127.0.0.1）浏览与参与 → 定时自动参与 → 中�
   上层随后照常 `commit_source_checkpoint`。若上游容器此后不再变化，该链接不会再进入增量发现。
   **这是有意选择**——按 `AGENTS.md` 的机制判据，失败重试表属于制度层，已否决；
   「失败就不推进 checkpoint」被判定为不值得的额外处理。跳过失败、继续下一条即为最终语义。
-- **GET 路径存在维护性写入（活动库部分已关闭）**：`/api/summary`、`/api/activities`、
-  `/api/activities/triple-targets` 曾经过 `_load_activities_payload()` 调用
-  `seed_activities_if_empty()` 与 `refresh_expired_activity_statuses()`（后者 UPDATE
-  过期活动）。已改为读时派生（`src/activity_store.derive_payload_for_read`，
-  写库函数删除，空库 seed 由启动时 `ensure_user_dirs()` 承担），见 §8 不变量 #14。
-  验证：`python -m pytest tests/test_get_no_write.py tests/test_status_refresh.py -q`
-  → 全量 683 passed / 1 skipped。
-  **仍未处理**：`GET /api/watch-users` 的 `seed_from_candidates_if_empty()` 与
-  `GET /api/accounts` 的 `ensure_legacy_account()` 仍在读路径写库，且不受写者锁仲裁。
-  两者是首次运行引导（空则灌种子 / 收养遗留账号），正确方向可能是挪到启动时而非读时派生。
+- ~~**GET 路径存在维护性写入**~~（**已关闭**）：三处读路径写入已分别处理，
+  见 §8 不变量 #14，守卫测试 `tests/test_get_no_write.py`（4 例，均先在旧代码上验红）。
+  - 活动过期 UPDATE → 读时派生（`src/activity_store.derive_payload_for_read`），
+    `refresh_expired_activity_statuses()` 删除；
+  - `seed_from_candidates_if_empty()` / `ensure_legacy_account()` → 挪入
+    `src/app_paths._bootstrap_user_data()`，与既有的种子灌入同处执行；
+    `web/product_routes._require_local_account()` 里的第四处收养一并移除
+    （它被 `GET /api/settings/proxy` 走到，仅在已登录时可达，原 gap 未记录）。
+  - 验证：`python -m pytest -q` → 690 passed / 1 skipped。
 - **活动列表读取仍是全表加载**：`_filtered_activity_rows` 先把整表读进 Python 再过滤、
   排序、切页（`ACTIVITY_PAGE_SIZE = 20`），复杂度随活动量线性增长。
-  `lottery_time` 已有索引（`ix_activities_lottery_time`），过滤与分页可下推 SQL；
-  尚未做，等实测数字决定是否值得。
+  实测（本机，隔离库，一半活动已过期）：
+
+  | 活动条数 | `/api/activities` | `/api/summary` |
+  |---|---|---|
+  | 100 | 10.8 ms | 18.5 ms |
+  | 1000 | 43.8 ms | 43.3 ms |
+  | 2000 | 76.3 ms | 71.7 ms |
+  | 5000 | 187.2 ms | 171.3 ms |
+
+  拆解（N=2000）：SQL 取行 17ms、`payload_json` 全量 decode 约 30ms、其余约 29ms。
+  **大头是为返回 20 条而解码全部行**，而过滤/排序/计数所需字段全是升格列，
+  无需解码 payload。两条可选路径：只解码当页（省约一半），或过滤/分页下推 SQL
+  （`ix_activities_lottery_time` 已存在）。
+  **当前决定：不做**——本机单人控制台，2000 条时 76ms 无感知。库超过约 2000 条
+  （控制台"共 N 条"）再重评。
 
 - **多账号编排**（产品决策）：已完成 Job 级 `account_uid` 绑定与执行前身份 fail-closed；当前仍是单账号槽位与显式切换，尚未实现 LAS 逐账号自动轮转。后续若做建议 `AccountContext`。
 - **粉丝数线路无记忆**：`get_user_followers` 的 card → relation/stat 两线每次调用都从第一条开始，成功线路不跨调用保留。
@@ -209,10 +221,10 @@ Web 控制台（仅 127.0.0.1）浏览与参与 → 定时自动参与 → 中�
 | 6 | 对外部集合分页遍历时不得边遍历边修改；先读完再执行 | `src/clear_follows.PARTITION_PAGE_SIZE` 附近的两段式实现 | `test_clear_follows_partition.py` | ✅ 120 人分区只取关 70 人，且**预演与真实执行数字不一致** |
 | 7 | 写者锁只仲裁**任务级**写者；持锁**不**代表"DB 此刻不会被改"，不得据此写 read-modify-write | `src/writer_lock.py` 模块文档 + §4.4 | `test_writer_lock.py` | — |
 | 8 | 字符串布尔值按字面量判定，不得依赖 `bool()`；`None` 表示"未知"不得被压成 `False` | `src/db/activity_codec._as_bool` / `_as_bool_strict` | `test_sqlite_data_layer.py` | ✅ `bool("false")` 为真，且 `skipped`/`status_classified` 两列原本绕过转换 |
-| 14 | 活动库读路径（GET）不得写库；"已结束"是**读时派生**状态，不是读请求顺手写回的持久化结果 | `web/activity_service._load_activities_payload` → `src/activity_store.derive_payload_for_read` | `test_get_no_write.py` | ✅ 原 `_load_activities_payload` 在 GET 里 UPDATE 过期活动，且不受写者锁仲裁（#7） |
+| 14 | **GET 端点一律不得写库**，无例外：可推导的状态读时派生，一次性引导放启动 | 派生：`src/activity_store.derive_payload_for_read`；引导：`src/app_paths._bootstrap_user_data` | `test_get_no_write.py` | ✅ 四处：`_load_activities_payload` 在 GET 里 UPDATE 过期活动（不受 #7 仲裁）、`GET /api/watch-users` 灌候选名单、`GET /api/accounts` 与 `GET /api/settings/proxy`（经 `_require_local_account`）收养遗留 cookie |
 
 > #14 编号接在 §8.2 之后，但性质是跨层的（HTTP 读语义 × 锁边界），故列于本表。
-> `GET /api/watch-users` 与 `GET /api/accounts` 的 seed / 收养写入尚未按此处理，见 §6。
+> 这条规则**没有例外**——留一个例外，下一个人就会照着例外写新端点。
 
 ### 8.2 领域不变量
 

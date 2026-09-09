@@ -37,7 +37,7 @@ from src.user_settings import (
     set_participate_text_mode,
 )
 from src.watch_sync import MAX_WINDOW_SECONDS, OUTPUT_PATH as WATCH_OUTPUT_PATH, compute_sync_window
-from src.watch_users import add_watch_user, get_watch_users_payload, remove_watch_user, seed_from_candidates_if_empty
+from src.watch_users import add_watch_user, get_watch_users_payload, remove_watch_user
 from web.account_service import ack_at_unread_notice, clear_login_cookie, get_account_extras, get_account_profile
 from web.activity_service import (
     ACTIVITY_PAGE_SIZE,
@@ -177,7 +177,6 @@ app.openapi = custom_openapi  # type: ignore[method-assign]
 
 @app.get("/api/watch-users", tags=["stable"])
 def api_watch_users() -> dict[str, Any]:
-    seed_from_candidates_if_empty()
     payload = get_watch_users_payload(ensure_seeded=False)
     now = int(time.time())
     last_synced_at = get_watch_last_synced_at()
@@ -226,9 +225,9 @@ def api_account() -> dict[str, Any]:
 
 @app.get("/api/accounts", tags=["account"])
 def api_accounts() -> dict[str, Any]:
-    from src.account_pool import ensure_legacy_account, get_active_uid, list_accounts
+    from src.account_pool import get_active_uid, list_accounts
 
-    ensure_legacy_account()  # 旧版本单账号自动收养（幂等）
+    # 遗留账号收养已挪到 `_bootstrap_user_data()`（SPEC §8 #14：GET 不写库）
     return {
         "ok": True,
         "accounts": list_accounts(),

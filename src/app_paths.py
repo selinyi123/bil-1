@@ -145,16 +145,25 @@ _BOOTSTRAPPED = False
 
 
 def _bootstrap_user_data() -> None:
-    """首次安装引导：无内置种子时保持空库（由用户自行更新数据源）。"""
+    """首次安装引导：无内置种子时保持空库（由用户自行更新数据源）。
+
+    这些写入原本挂在 GET /api/activities、/api/watch-users、/api/accounts 的
+    读路径上，于是读请求产生写副作用，且不受写者锁仲裁。它们都是幂等且有守卫
+    的一次性引导，属于启动动作而非读时派生，故统一收拢到这里（SPEC §8 #14）。
+    """
     global _BOOTSTRAPPED
     if _BOOTSTRAPPED:
         return
+    from src.account_pool import ensure_legacy_account
     from src.activity_store import seed_activities_if_empty
     from src.state_store import seed_state_if_missing
+    from src.watch_users import seed_from_candidates_if_empty
 
     # 发行版不再打包 activities_seed / state_seed；有本地可选种子时才灌入
     seed_state_if_missing()
     seed_activities_if_empty()
+    seed_from_candidates_if_empty()
+    ensure_legacy_account()  # 旧版本单账号自动收养（幂等）
     _BOOTSTRAPPED = True
 
 

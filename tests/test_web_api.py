@@ -18,14 +18,14 @@ def test_reject_unknown_job_action() -> None:
     assert data["detail"] == data["error"]["message"]
 
 
-def test_watch_users_api_seeds_and_lists() -> None:
-    with patch("web.app.seed_from_candidates_if_empty", return_value=True):
-        with patch(
-            "web.app.get_watch_users_payload",
-            return_value={"count": 1, "users": [{"mid": 1, "name": "u"}], "updated_at": 0},
-        ):
-            with patch("web.app.get_watch_last_synced_at", return_value=None):
-                resp = client.get("/api/watch-users")
+def test_watch_users_api_lists() -> None:
+    """seed 已挪到启动引导，这里只验证读路径的组装（SPEC §8 #14）。"""
+    with patch(
+        "web.app.get_watch_users_payload",
+        return_value={"count": 1, "users": [{"mid": 1, "name": "u"}], "updated_at": 0},
+    ):
+        with patch("web.app.get_watch_last_synced_at", return_value=None):
+            resp = client.get("/api/watch-users")
     assert resp.status_code == 200
     data = resp.json()
     assert data["count"] == 1
