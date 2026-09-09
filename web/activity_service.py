@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from src.activity_status import resolve_activity_status
-from src.activity_store import derive_payload_for_read, load_payload
+from src.activity_store import derive_payload_for_read, get_activity, load_payload
 from src.db.snapshots import load_ds_check_dict, load_watch_sync_dict
 from src.draw_reminder import matches_draw_window_filter
 from src.lottery_classifier import PARTICIPATABLE_TYPES, is_charging_lottery_activity
@@ -535,12 +535,16 @@ def list_activities(
 
 
 def lookup_lottery_type(dynamic_id: str) -> str:
-    enriched = _load_activities_payload()
-    for item in enriched.get("activities") or []:
-        if str(item.get("dynamic_id") or "") == dynamic_id:
-            lottery_type = str(item.get("lottery_type") or "")
-            if lottery_type in PARTICIPATABLE_TYPES:
-                return lottery_type
+    """按主键取该活动的抽奖类型。
+
+    此前这里加载整张活动库再线性扫，而 `build_triple_progress_plan` 会按每个
+    目标调用一次——三连参与 3 个目标就是 3 次全表加载。类型不受过期派生影响，
+    直接主键取行即可。
+    """
+    item = get_activity(dynamic_id)
+    lottery_type = str((item or {}).get("lottery_type") or "")
+    if lottery_type in PARTICIPATABLE_TYPES:
+        return lottery_type
     raise RuntimeError(f"未找到活动 {dynamic_id} 的类型信息")
 
 

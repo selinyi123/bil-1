@@ -175,6 +175,16 @@ def activity_exists(dynamic_id: str) -> bool:
         return session.get(ActivityRow, did) is not None
 
 
+def get_activity(dynamic_id: str) -> dict[str, Any] | None:
+    """按主键取单条活动；不存在返回 None。避免为查一条而加载整表。"""
+    did = str(dynamic_id or "").strip()
+    if not did:
+        return None
+    with session_scope() as session:
+        row = session.get(ActivityRow, did)
+        return None if row is None else row_to_activity_dict(row)
+
+
 def append_activities(new_items: list[dict]) -> int:
     if not new_items:
         return 0
