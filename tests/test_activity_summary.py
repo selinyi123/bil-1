@@ -9,7 +9,12 @@ import pytest
 from web.activity_service import get_summary
 
 
-def test_get_summary_counts_are_consistent(tmp_path, monkeypatch) -> None:
+def test_get_summary_counts_are_consistent(isolated_home: Path, tmp_path, monkeypatch) -> None:
+    # get_summary 还会读 ds_check_snapshots 等表，没有隔离库时单独跑会因缺表而红
+    # （此前只在整套跑、由前面的用例先建好库时才通过）
+    from src.db import init_db
+
+    init_db()
     path = tmp_path / "activities_latest.json"
     payload = {
         "updated_at": 1,
