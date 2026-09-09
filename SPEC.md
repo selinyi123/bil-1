@@ -166,7 +166,7 @@ Web 控制台（仅 127.0.0.1）浏览与参与 → 定时自动参与 → 中�
   （加锁会让任何任务运行期间的页面访问全部失败）。
 
 - **多账号编排**（产品决策）：已完成 Job 级 `account_uid` 绑定与执行前身份 fail-closed；当前仍是单账号槽位与显式切换，尚未实现 LAS 逐账号自动轮转。后续若做建议 `AccountContext`。
-- **Line client-level registry**：当前每次调用新建 Line，valid_line 不跨调用保留。
+- **粉丝数线路无记忆**：`get_user_followers` 的 card → relation/stat 两线每次调用都从第一条开始，成功线路不跨调用保留。
 - **per-account 行为配置 / 通知身份上下文**：participate_enhance/notify 仍全局；多账号编排落地后需带账号身份。
 - **refresh_all 有更新+部分失败时 result 缺 sources_failed**（机器化 degraded 未完整）。
 - **产品决策项**：AI 评论、only_followed 降级、随机动态（当前 B 站环境价值待验证）。
@@ -209,8 +209,8 @@ Web 控制台（仅 127.0.0.1）浏览与参与 → 定时自动参与 → 中�
 
 | # | 不变量 | 强制点 | 守卫测试 |
 |---|---|---|---|
-| 9 | 每个外部写动作必须能回答：是否执行、哪个 uid、产生什么 ID、是否可重试；结果未知不得伪装成功或失败 | `ActionResult.extra.created_dynamic_id` | `test_line_clear.py` |
-| 10 | Binggo 创建的动态/关注必须有精确归属证据才可被清理 | `clear_follows._owned_repost_dynamic_ids` | `test_line_clear.py` |
+| 9 | 每个外部写动作必须能回答：是否执行、哪个 uid、产生什么 ID、是否可重试；结果未知不得伪装成功或失败 | `ActionResult.extra.created_dynamic_id` | `test_clear_follows.py` |
+| 10 | Binggo 创建的动态/关注必须有精确归属证据才可被清理 | `clear_follows._owned_repost_dynamic_ids` | `test_clear_follows.py` |
 | 11 | 完整成功、降级成功、业务部分失败、取消、内部失败、网络失败、结果未知必须结构化表达，**不得依赖中文 message 判定** | `JobStatus.error_kind` | `test_auto_scheduler.py` |
 | 12 | secret 不进 URL 异常、日志、SSE、诊断、前端 storage 或普通响应；Windows 写盘权限失败不得静默 | `log_redact` / `secrets_inventory` / `config_health` | `test_log_redact.py` |
 | 13 | 代码版本、更新 API、Release、installer、构建产物与测试指向同一 SSOT | `app_paths.__version__`、`update_check.GITHUB_REPO` | `test_update_check.py` |

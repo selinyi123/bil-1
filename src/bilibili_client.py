@@ -598,11 +598,11 @@ class BilibiliClient:
         return data.get("data") or {}
 
     # ------------------------------------------------------------------
-    # Line 多线路容灾（源自 LAS）
+    # 多线路容灾（源自 LAS）
     # ------------------------------------------------------------------
 
     def get_user_followers(self, uid: int) -> int | None:
-        """查询用户粉丝数：card → relation/stat 两线自动切换（Line 容灾）。
+        """查询用户粉丝数：card → relation/stat 两线自动切换。
 
         返回粉丝数，全部失败返回 None。
         """
