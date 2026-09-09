@@ -123,24 +123,20 @@ def seed_activities_if_empty() -> bool:
         return _seed_activities_if_empty()
 
 
-def refresh_expired_activity_statuses() -> int:
-    """显式把已过开奖时间的活动标记为已结束。
+def derive_payload_for_read(payload: dict[str, Any], *, now: int | None = None) -> dict[str, Any]:
+    """读时派生：把已过开奖时间的活动标记为已结束，并重算计数。**不写库**。
 
-    原 `load_payload` 读请求路径的隐式写库副作用在此显式化：先调用本函数再
-    纯读 `load_payload`。返回被更新的活动条数。持全局活动锁。
+    判据与 `status_refresh` 相同（`resolve_effective_lottery_time_unix`），
+    但结果只存在于本次响应里。读路径不写库是 SPEC §8 不变量 #14：GET 不受
+    写者锁仲裁，在其中改行等于与任务级写者无锁并发。
+
+    计数必须在派生之后重算——`load_payload()` 算计数时活动还没被标记结束。
     """
-    with _activity_lock:
-        with session_scope() as session:
-            rows = session.exec(select(ActivityRow).order_by(col(ActivityRow.dynamic_id))).all()
-            changed_items: list[dict] = []
-            for row in rows:
-                item = row_to_activity_dict(row)
-                if _normalize_ended_by_time(item):
-                    changed_items.append(item)
-            if not changed_items:
-                return 0
-            _upsert_activities(session, changed_items, updated_at=int(time.time()))
-            return len(changed_items)
+    activities = payload.get("activities") or []
+    for item in activities:
+        _normalize_ended_by_time(item, now=now)
+    payload.update(_rebuild_counts(activities))
+    return payload
 
 
 def _load_payload_unlocked() -> dict[str, Any]:

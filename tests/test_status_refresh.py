@@ -174,7 +174,7 @@ def test_load_payload_pure_read_does_not_mark_ended(isolated_home: Path, monkeyp
     """#30：load_payload 纯读不隐式改过期活动状态（也不更新 updated_at）。"""
     import time
 
-    from src.activity_store import load_payload, refresh_expired_activity_statuses
+    from src.activity_store import load_payload
 
     now = int(time.time())
     replace_all_activities([_activity("past", lottery_time=now - 100)])
@@ -188,27 +188,22 @@ def test_load_payload_pure_read_does_not_mark_ended(isolated_home: Path, monkeyp
     assert payload_before["updated_at"] == payload["updated_at"]
     assert load_payload()["activities"][0]["activity_status"] == "未参加"
 
-    # 显式刷新后才标记结束
-    changed = refresh_expired_activity_statuses()
-    assert changed == 1
-    after = load_activities()[0]
-    assert after["activity_status"] == "已结束"
-    assert after["draw_status"] == "ended"
 
-
-def test_refresh_expired_activity_statuses_updates_updated_at(isolated_home: Path) -> None:
-    """#30：显式 refresh 函数生效，且刷新会更新库级 updated_at。"""
+def test_derive_payload_for_read_marks_ended_without_writing(isolated_home: Path) -> None:
+    """#14：过期活动在响应里派生为已结束，库里那一行不得被改写。"""
     import time
 
-    from src.activity_store import load_payload, refresh_expired_activity_statuses
+    from src.activity_store import derive_payload_for_read, load_payload
 
     now = int(time.time())
     replace_all_activities([_activity("past", lottery_time=now - 100)])
-    before = load_payload()["updated_at"]
 
-    assert refresh_expired_activity_statuses() == 1
-    after = load_payload()
-    assert after["updated_at"] >= before
-    assert after["activities"][0]["activity_status"] == "已结束"
-    # 幂等：第二次无变更
-    assert refresh_expired_activity_statuses() == 0
+    derived = derive_payload_for_read(load_payload())
+    item = derived["activities"][0]
+    assert item["activity_status"] == "已结束"
+    assert item["draw_status"] == "ended"
+    assert derived["counts"]["ended"] == 1
+
+    stored = load_activities()[0]
+    assert stored["activity_status"] == "未参加"
+    assert stored["draw_status"] == "active"

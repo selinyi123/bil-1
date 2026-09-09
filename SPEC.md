@@ -155,15 +155,20 @@ Web 控制台（仅 127.0.0.1）浏览与参与 → 定时自动参与 → 中�
   上层随后照常 `commit_source_checkpoint`。若上游容器此后不再变化，该链接不会再进入增量发现。
   **这是有意选择**——按 `AGENTS.md` 的机制判据，失败重试表属于制度层，已否决；
   「失败就不推进 checkpoint」被判定为不值得的额外处理。跳过失败、继续下一条即为最终语义。
-- **GET 路径存在维护性写入**：`_load_activities_payload()` 会调用
+- **GET 路径存在维护性写入（活动库部分已关闭）**：`/api/summary`、`/api/activities`、
+  `/api/activities/triple-targets` 曾经过 `_load_activities_payload()` 调用
   `seed_activities_if_empty()` 与 `refresh_expired_activity_statuses()`（后者 UPDATE
-  过期活动），挂在 `/api/summary`、`/api/activities`、`/api/activities/triple-targets`
-  之后；`/api/watch-users` 与 `/api/accounts` 也有 seed / legacy 收养写入。
-  两个后果：(1) HTTP GET 产生写副作用，语义不干净；(2) 这些写入不受写者锁仲裁。
-  另外 `refresh_expired_activity_statuses()` + `load_payload()` 是两次全表扫描 +
-  两次全量 decode，复杂度随活动量线性增长。
-  **正确方向是让"过期"成为读时派生状态或后台周期维护，而不是给 GET 加写者锁**
-  （加锁会让任何任务运行期间的页面访问全部失败）。
+  过期活动）。已改为读时派生（`src/activity_store.derive_payload_for_read`，
+  写库函数删除，空库 seed 由启动时 `ensure_user_dirs()` 承担），见 §8 不变量 #14。
+  验证：`python -m pytest tests/test_get_no_write.py tests/test_status_refresh.py -q`
+  → 全量 683 passed / 1 skipped。
+  **仍未处理**：`GET /api/watch-users` 的 `seed_from_candidates_if_empty()` 与
+  `GET /api/accounts` 的 `ensure_legacy_account()` 仍在读路径写库，且不受写者锁仲裁。
+  两者是首次运行引导（空则灌种子 / 收养遗留账号），正确方向可能是挪到启动时而非读时派生。
+- **活动列表读取仍是全表加载**：`_filtered_activity_rows` 先把整表读进 Python 再过滤、
+  排序、切页（`ACTIVITY_PAGE_SIZE = 20`），复杂度随活动量线性增长。
+  `lottery_time` 已有索引（`ix_activities_lottery_time`），过滤与分页可下推 SQL；
+  尚未做，等实测数字决定是否值得。
 
 - **多账号编排**（产品决策）：已完成 Job 级 `account_uid` 绑定与执行前身份 fail-closed；当前仍是单账号槽位与显式切换，尚未实现 LAS 逐账号自动轮转。后续若做建议 `AccountContext`。
 - **粉丝数线路无记忆**：`get_user_followers` 的 card → relation/stat 两线每次调用都从第一条开始，成功线路不跨调用保留。
@@ -204,6 +209,10 @@ Web 控制台（仅 127.0.0.1）浏览与参与 → 定时自动参与 → 中�
 | 6 | 对外部集合分页遍历时不得边遍历边修改；先读完再执行 | `src/clear_follows.PARTITION_PAGE_SIZE` 附近的两段式实现 | `test_clear_follows_partition.py` | ✅ 120 人分区只取关 70 人，且**预演与真实执行数字不一致** |
 | 7 | 写者锁只仲裁**任务级**写者；持锁**不**代表"DB 此刻不会被改"，不得据此写 read-modify-write | `src/writer_lock.py` 模块文档 + §4.4 | `test_writer_lock.py` | — |
 | 8 | 字符串布尔值按字面量判定，不得依赖 `bool()`；`None` 表示"未知"不得被压成 `False` | `src/db/activity_codec._as_bool` / `_as_bool_strict` | `test_sqlite_data_layer.py` | ✅ `bool("false")` 为真，且 `skipped`/`status_classified` 两列原本绕过转换 |
+| 14 | 活动库读路径（GET）不得写库；"已结束"是**读时派生**状态，不是读请求顺手写回的持久化结果 | `web/activity_service._load_activities_payload` → `src/activity_store.derive_payload_for_read` | `test_get_no_write.py` | ✅ 原 `_load_activities_payload` 在 GET 里 UPDATE 过期活动，且不受写者锁仲裁（#7） |
+
+> #14 编号接在 §8.2 之后，但性质是跨层的（HTTP 读语义 × 锁边界），故列于本表。
+> `GET /api/watch-users` 与 `GET /api/accounts` 的 seed / 收养写入尚未按此处理，见 §6。
 
 ### 8.2 领域不变量
 

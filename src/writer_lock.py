@@ -11,8 +11,6 @@ Web 看得见的并发会被拒绝，看不见的 CLI 并发则当作没发生�
 **覆盖范围（不要过度解读）。** 本锁仲裁的是**任务级写者**：`JobRunner` 启动的
 任务，以及 `docs/cli.md` 里会写 B 站或改活动库/checkpoint 的 CLI。它**不**覆盖：
 
-- Web GET 路径的维护性写入（`_load_activities_payload` → `seed_activities_if_empty`
-  / `refresh_expired_activity_statuses`，会 UPDATE 过期活动）；
 - `GET /api/watch-users` 的 `seed_from_candidates_if_empty()`；
 - `GET /api/accounts` 的 `ensure_legacy_account()`；
 - Settings / Data Sources / Proxy 等配置类 mutation 端点。
@@ -20,8 +18,9 @@ Web 看得见的并发会被拒绝，看不见的 CLI 并发则当作没发生�
 这些路径靠 SQLite 事务 + WAL + `busy_timeout` 保证不损坏数据，但**不与任务写者
 互斥**。因此持有本锁**不能**推出"此刻 DB 绝对不会被别人改"——按那个假设写
 read-modify-write 会产生 TOCTOU 缺陷。GET 顺手做维护性写入本身是个已知设计问题，
-记录在 SPEC.md 已知 gap，应由"读时派生状态或后台周期维护"解决，而不是给 GET 加锁
-（那会让任何任务运行期间的页面访问全部失败）。
+记录在 SPEC.md 已知 gap，应由"读时派生状态"解决，而不是给 GET 加锁（那会让任何
+任务运行期间的页面访问全部失败）。活动库的过期状态已按此改为读时派生
+（`derive_payload_for_read`，SPEC §8 不变量 #14）；上面剩下的三处尚未处理。
 
 与 `binggo_launcher.py` 的单实例锁是两件事：那把锁答的是「只跑一个 launcher」，
 这把锁答的是「只有一个写者」。两者互不替代。

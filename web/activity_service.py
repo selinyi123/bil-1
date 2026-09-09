@@ -3,11 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from src.activity_status import resolve_activity_status
-from src.activity_store import (
-    load_payload,
-    refresh_expired_activity_statuses,
-    seed_activities_if_empty,
-)
+from src.activity_store import derive_payload_for_read, load_payload
 from src.db.snapshots import load_ds_check_dict, load_watch_sync_dict
 from src.draw_reminder import matches_draw_window_filter
 from src.lottery_classifier import PARTICIPATABLE_TYPES, is_charging_lottery_activity
@@ -243,14 +239,12 @@ def _participatable_stored(item: dict) -> bool:
 
 
 def _load_activities_payload() -> dict:
-    """读取活动库：先显式 seed（空库）与刷新过期状态，再纯读。
+    """纯读活动库；过期活动在响应里派生为已结束，**不写库**（SPEC §8 不变量 #14）。
 
-    原 `load_payload` 读路径的隐式写库副作用已移除，此处显式调用命名函数，
-    保证 GET 响应中过期活动仍会自动显示为已结束。
+    此前这里会 seed 空库并 UPDATE 过期活动，于是 GET 产生写副作用，且这些写入
+    不受写者锁仲裁。空库 seed 已由启动时的 `ensure_user_dirs()` 覆盖。
     """
-    seed_activities_if_empty()
-    refresh_expired_activity_statuses()
-    return load_payload()
+    return derive_payload_for_read(load_payload())
 
 
 def get_summary() -> dict[str, Any]:
