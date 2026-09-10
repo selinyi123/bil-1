@@ -226,3 +226,78 @@ def test_auto_start_rejects_unknown_fields(isolated_home: Path) -> None:
     resp = TestClient(app).post("/api/auto/start", json={"rotate_account": True})
     assert resp.status_code == 400, resp.text
     assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+# ---------------------------------------------------------------------------
+# check_prize：Context 化 + 整点轮转
+# ---------------------------------------------------------------------------
+
+
+def test_check_prize_is_context_bound() -> None:
+    """升级为 context：凭据整任务冻结，否则轮转时它会按"当前 cookie"去查别人的私信。"""
+    from web.job_runner import IDENTITY_CONTEXT, job_identity_policy
+
+    assert job_identity_policy("check_prize") == IDENTITY_CONTEXT
+
+
+def test_check_prize_uses_the_bound_context_client(isolated_home: Path) -> None:
+    """深检必须用绑定上下文建客户端，不能用无参 BilibiliClient()（即当前 cookie）。"""
+    from unittest.mock import patch
+
+    from src.account_context import AccountContext
+    from web.actions import run_action
+
+    ctx = AccountContext(uid=UID_B, cookie="c", csrf="j", cookie_source="account_pool")
+    seen: dict[str, object] = {}
+
+    class FakeClient:
+        def __init__(self, *, account_context=None, **kw):
+            seen["ctx_uid"] = getattr(account_context, "uid", None)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    with (
+        patch("web.actions.BilibiliClient", FakeClient),
+        patch(
+            "src.draw_check.check_prize_draw",
+            return_value={"total": 0, "delivered": False, "acknowledged": False, "at": [], "reply": [], "dm": []},
+        ),
+    ):
+        run_action("check_prize", {"push": False}, account_context=ctx)
+
+    assert seen["ctx_uid"] == UID_B
+
+
+def test_check_prize_slot_rotation_does_not_degenerate() -> None:
+    """整点小时都是 3 的倍数，直接套三连的 `时*12` 会让 2/3/4 个账号恒定轮到同一个。"""
+    from web.auto_config import REFRESH_HOURS
+    from web.auto_scheduler import check_prize_uid_for_slot
+
+    for size in (2, 3, 4):
+        pool = [100 + i for i in range(size)]
+        picked = [
+            check_prize_uid_for_slot(f"2026-09-10-{h:02d}-30", pool)
+            for h in sorted(REFRESH_HOURS)
+        ]
+        assert len(set(picked)) == size, f"{size} 个账号一天只轮到 {set(picked)}"
+
+
+def test_check_prize_slot_is_deterministic() -> None:
+    from web.auto_scheduler import check_prize_uid_for_slot
+
+    key = "2026-09-10-09-30"
+    first = check_prize_uid_for_slot(key, POOL)
+    assert all(check_prize_uid_for_slot(key, POOL) == first for _ in range(5))
+
+
+def test_check_prize_slot_shifts_across_days() -> None:
+    """跨天不叠加序数的话，每天下标 0 都是同一个号，长期分布不均。"""
+    from web.auto_scheduler import check_prize_uid_for_slot
+
+    day1 = check_prize_uid_for_slot("2026-09-10-00-30", POOL)
+    day2 = check_prize_uid_for_slot("2026-09-11-00-30", POOL)
+    assert day1 != day2

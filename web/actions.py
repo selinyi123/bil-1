@@ -1237,8 +1237,12 @@ def run_action(
             progress(step=step, total=total, message=message)
 
         progress(step=1, total=2, message="正在深检未读消息…")
-        with BilibiliClient() as client:
-            result = check_prize_draw(client, push=bool(params.get("push", True)))
+        with BilibiliClient(account_context=account_context) as client:
+            result = check_prize_draw(
+                client,
+                push=bool(params.get("push", True)),
+                account_uid=account_context.uid if account_context else None,
+            )
         total_hits = result["total"]
         delivered = result["delivered"]
         acknowledged = result["acknowledged"]

@@ -68,6 +68,34 @@ def rotation_uid_for_slot(slot_key: str, pool: list[int]) -> int | None:
     return sorted(pool)[ordinal % len(pool)]
 
 
+CHECK_PRIZE_MINUTE = 30
+
+
+def check_prize_uid_for_slot(slot_key: str, pool: list[int]) -> int | None:
+    """中奖深检刻度轮到的账号。序号与三连**不同**，因为整点会退化。
+
+    `REFRESH_HOURS` 全是 3 的倍数，直接套三连的 `时*12` 会得到 36 的倍数，
+    而 36 能被 2/3/4/6/12 整除——2~4 个账号时一整天八次全部轮到同一个号。
+    这里改用「本日第几个整点」（0..7）并叠加当天序数，避免每天下标 0 恒定属于
+    同一个账号。仍然纯派生、无存储。
+    """
+    if not pool:
+        return None
+    parts = slot_key.split("-")
+    if len(parts) < 5:
+        return None
+    try:
+        day = datetime(int(parts[0]), int(parts[1]), int(parts[2]), tzinfo=CN_TZ)
+        hour = int(parts[3])
+    except (TypeError, ValueError):
+        return None
+    hours = sorted(REFRESH_HOURS)
+    if hour not in hours:
+        return None
+    ordinal = day.timetuple().tm_yday * len(hours) + hours.index(hour)
+    return sorted(pool)[ordinal % len(pool)]
+
+
 class CollisionError(RuntimeError):
     """本机已有写任务在跑（Web 任务或 CLI），本时间槽跳过。
 
@@ -147,6 +175,7 @@ class AutoScheduler:
         self._status = SchedulerStatus(refresh_pipeline=_idle_pipeline())
         self._done_refresh: set[str] = set()
         self._done_triple: set[str] = set()
+        self._done_check_prize: set[str] = set()
         self._snapshot_timer: threading.Timer | None = None
         self._last_snapshot_mono = 0.0
         self._snapshot_pending = False
@@ -191,7 +220,7 @@ class AutoScheduler:
             self._status.refresh_pipeline = _idle_pipeline()
             self._thread = threading.Thread(target=self._loop, name="binggo-auto-scheduler", daemon=True)
             self._thread.start()
-        self._log("info", "调度器已启动（仅点击 4 个按钮，不干涉抽奖程序其它功能）")
+        self._log("info", "调度器已启动（仅点击 5 个按钮，不干涉抽奖程序其它功能）")
         if rotate:
             self._log("info", f"多账号轮转已启用：{len(self._rotation_pool())} 个账号按刻度依次参与")
             self._warn_if_accounts_share_exit_ip()
@@ -394,6 +423,14 @@ class AutoScheduler:
                         self._run_refresh_batch(key)
                         continue
 
+                # 中奖深检挂在整点小时的 :30——刷新批次在 :00，三连只在非整点小时，
+                # 这个位置本来就是空的，不与任何既有刻度抢单任务槽。
+                if now.hour in REFRESH_HOURS and now.minute == CHECK_PRIZE_MINUTE:
+                    key = f"{now:%Y-%m-%d-%H-%M}"
+                    if key not in self._done_check_prize:
+                        self._run_check_prize_slot(key)
+                        continue
+
                 if now.hour not in REFRESH_HOURS and now.minute in TRIPLE_MINUTES:
                     key = f"{now:%Y-%m-%d-%H-%M}"
                     if key not in self._done_triple:
@@ -480,6 +517,31 @@ class AutoScheduler:
                 return
             self._log("info", f"三连参与已跳过：{exc}")
             self._done_triple.add(key)
+            self._set_phase("等待下一刻度", f"已跳过：{exc}")
+
+    def _run_check_prize_slot(self, key: str) -> None:
+        """整点 :30 的中奖深检。轮转序号与三连不同，见 check_prize_uid_for_slot。"""
+        self._set_pipeline(active=False)
+        rotate_to_uid = None
+        if self._status.rotate_accounts:
+            rotate_to_uid = check_prize_uid_for_slot(key, self._rotation_pool())
+        suffix = f"（账号 {rotate_to_uid}）" if rotate_to_uid else ""
+        self._set_phase("中奖深检", f"触发中奖深检 {key}{suffix}")
+        self._log("info", f"中奖深检刻度 {key}{suffix}")
+        try:
+            self._click_and_wait("check_prize", rotate_to_uid=rotate_to_uid)
+            self._done_check_prize.add(key)
+            self._set_phase("等待下一刻度", "中奖深检已完成")
+        except CollisionError as exc:
+            self._log("warn", f"中奖深检刻度 {key} 撞车已跳过：{exc}")
+            self._done_check_prize.add(key)
+            self._set_phase("等待下一刻度", "已有写任务在运行，跳过本刻度")
+        except Exception as exc:
+            if _is_hard_failure(exc):
+                self._fatal(str(exc))
+                return
+            self._log("info", f"中奖深检已跳过：{exc}")
+            self._done_check_prize.add(key)
             self._set_phase("等待下一刻度", f"已跳过：{exc}")
 
     def _click_and_wait(

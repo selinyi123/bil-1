@@ -55,7 +55,9 @@ JOB_IDENTITY_POLICY: dict[str, str] = {
     "refresh_source": IDENTITY_BOUND,
     "refresh_watch": IDENTITY_BOUND,
     "refresh_status": IDENTITY_BOUND,
-    "check_prize": IDENTITY_BOUND,
+    # check_prize 读 @/回复/私信并标记已读，是账号态动作；轮转要求凭据整任务冻结，
+    # 否则它会按"当前活跃 cookie"去查别的号的私信（SPEC §4.7）
+    "check_prize": IDENTITY_CONTEXT,
     "clear_follows": IDENTITY_BOUND,
     "participate": IDENTITY_CONTEXT,
     "participate_triple": IDENTITY_CONTEXT,

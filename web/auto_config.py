@@ -1,4 +1,4 @@
-"""定时点击调度器配置（仅允许 4 个按钮 action）。"""
+"""定时点击调度器配置（仅允许白名单内的 action）。"""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ ALLOWED_CLICK_ACTIONS = frozenset(
         "refresh_watch",
         "refresh_status",
         "participate_triple",
+        "check_prize",
     }
 )
 
@@ -19,6 +20,7 @@ ACTION_LABELS = {
     "refresh_watch": "更新监控用户动态",
     "refresh_status": "刷新任务状态",
     "participate_triple": "三连参与",
+    "check_prize": "中奖深检",
 }
 
 JOB_POLL_INTERVAL_SEC = 2.0

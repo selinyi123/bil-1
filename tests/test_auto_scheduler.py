@@ -40,13 +40,15 @@ def _bind_resolve(runner: MagicMock, status_factory) -> None:
     runner.resolve_job_status.side_effect = resolve
 
 
-def test_allowed_actions_are_exactly_four() -> None:
+def test_allowed_actions_are_exactly_the_five_registered() -> None:
+    """白名单是调度器能点的全集：新增动作必须在此显式登记，不得靠默认放行。"""
     assert ALLOWED_CLICK_ACTIONS == frozenset(
         {
             "refresh_all",
             "refresh_watch",
             "refresh_status",
             "participate_triple",
+            "check_prize",
         }
     )
 

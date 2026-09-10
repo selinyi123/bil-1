@@ -45,9 +45,13 @@ def test_only_login_is_unbound() -> None:
 
 
 def test_context_policy_covers_exactly_the_write_participation_actions() -> None:
-    """只有真正代表用户向 B 站写入的参与动作才需要冻结凭据。"""
+    """只有真正代表用户向 B 站写入的账号态动作才需要冻结凭据。
+
+    `check_prize` 属于此列：它会 `mark_dm_read()` 把私信标记为已读，是代表用户
+    的写入；轮转下若不冻结凭据，它会按"当前活跃 cookie"去读并标记**别的号**的私信。
+    """
     context_actions = {a for a, p in JOB_IDENTITY_POLICY.items() if p == IDENTITY_CONTEXT}
-    assert context_actions == {"participate", "participate_triple"}
+    assert context_actions == {"participate", "participate_triple", "check_prize"}
 
 
 def test_bound_action_without_account_uid_is_rejected(isolated_home: Path) -> None:

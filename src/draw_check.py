@@ -85,6 +85,26 @@ def _build_desp(results: dict[str, Any]) -> str:
     return "\n\n".join(parts)
 
 
+def _account_label(account_uid: int | None) -> str:
+    """通知里的账号标识。多账号轮转下不写清是哪个号，收到提醒也不知道去哪领奖。
+
+    昵称取自账号资料缓存；取不到就只写 UID——标识不完整也好过没有标识。
+    """
+    if not account_uid:
+        return ""
+    name = ""
+    try:
+        from src.db.models import AccountProfileCacheRow
+        from src.db.session import session_scope
+
+        with session_scope() as session:
+            row = session.get(AccountProfileCacheRow, int(account_uid))
+            name = str(getattr(row, "uname", "") or "") if row is not None else ""
+    except Exception:
+        name = ""
+    return f"{name}（UID {account_uid}）" if name else f"UID {account_uid}"
+
+
 def check_prize_draw(
     client: BilibiliClient,
     *,
@@ -92,6 +112,7 @@ def check_prize_draw(
     max_reply_entries: int = 20,
     max_dm_sessions: int = 20,
     push: bool = True,
+    account_uid: int | None = None,
 ) -> dict[str, Any]:
     """执行中奖深检。
 
@@ -166,7 +187,11 @@ def check_prize_draw(
     send_result: dict[str, Any] = {"sent": [], "skipped": []}
     if push and total > 0:
         desp = _build_desp(results)
-        send_result = send_notify("Binggo：账号可能中奖了", desp)
+        label = _account_label(account_uid)
+        title = f"Binggo：{label} 可能中奖了" if label else "Binggo：账号可能中奖了"
+        if label:
+            desp = f"账号：{label}\n\n{desp}"
+        send_result = send_notify(title, desp)
         # 送达确认：至少一个渠道被 provider 确认成功才视为已送达。
         # 未送达（全部渠道失败 / push=False）时**不标记私信已读**，
         # 保留未读状态供下次扫描继续提醒（修复：此前送达前就 mark read 会吞掉中奖提醒）。
