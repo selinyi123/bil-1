@@ -8,7 +8,11 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from src.app_logging import get_logger
-from src.account_context import AccountContextUnavailable, capture_current_account_context
+from src.account_context import (
+    AccountContextUnavailable,
+    capture_account_context_for_uid,
+    capture_current_account_context,
+)
 from src.bilibili_auth import resolve_effective_uid
 from src.bilibili_login import LoginCancelledError
 from src.writer_lock import WriterLock
@@ -256,7 +260,16 @@ class JobRunner:
         *,
         source: JobSource | str = "ui",
         account_uid: str | int | None = None,
+        capture_uid: int | None = None,
     ) -> int | None:
+        """启动任务。
+
+        `capture_uid` 只由多账号轮转传入：此时绑定的账号**故意**不是当前活跃账号，
+        凭据按 uid 直接从账号池取（`capture_account_context_for_uid`），
+        并跳过"绑定 UID 必须等于生效身份"的校验——那道校验守的是"任务创建后
+        活跃账号被切走"，与轮转要表达的意图相反。身份正确性此时由捕获函数自身
+        保证：存的 cookie 解析出的 uid 必须等于请求 uid，否则 fail-closed。
+        """
         params = params or {}
         label = _build_label(action, params)
         now = int(time.time())
@@ -293,6 +306,9 @@ class JobRunner:
                 started_at=now,
                 message="任务已启动…",
             )
+            # 运行期私有，不进 JobStatus / 任务库 / SSE：它只影响凭据从哪取，
+            # 不是任务的对外状态。单任务槽保证同时只有一个值有效。
+            self._capture_uid = capture_uid
 
         try:
             job_id = insert_running_job(
@@ -682,6 +698,7 @@ class JobRunner:
         with self._lock:
             job_source = str(self._status.source or "ui")
             account_uid = self._status.account_uid
+            capture_uid = getattr(self, "_capture_uid", None)
             started_mono = time.perf_counter()
             self._run_started_mono = started_mono
         with job_log_context(job_id=job_id, action=action, job_source=job_source):
@@ -695,7 +712,13 @@ class JobRunner:
             try:
                 # account_uid 为空表示 login 或历史/内部兼容任务；新建的 UI/auto
                 # 任务由上层在创建时绑定 UID，这里只在真正执行动作前 fail-closed。
-                if account_uid is not None and job_identity_policy(action) != IDENTITY_UNBOUND:
+                # 轮转任务（capture_uid）跳过这道校验：它绑定的本来就不是活跃账号，
+                # 身份正确性改由 capture_account_context_for_uid 自身保证。
+                if (
+                    capture_uid is None
+                    and account_uid is not None
+                    and job_identity_policy(action) != IDENTITY_UNBOUND
+                ):
                     effective_uid = resolve_effective_uid()
                     if str(effective_uid) != account_uid:
                         raise JobIdentityMismatch(
@@ -704,7 +727,11 @@ class JobRunner:
                         )
                 account_context = None
                 if account_uid is not None and job_identity_policy(action) == IDENTITY_CONTEXT:
-                    account_context = capture_current_account_context(expected_uid=account_uid)
+                    account_context = (
+                        capture_account_context_for_uid(capture_uid)
+                        if capture_uid is not None
+                        else capture_current_account_context(expected_uid=account_uid)
+                    )
 
                 run_kwargs = {
                     "on_progress": on_progress,

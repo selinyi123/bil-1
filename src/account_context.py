@@ -77,36 +77,32 @@ def _proxy_source(uid: int, proxy_url: str | None) -> str:
     return "resolved"
 
 
-def capture_current_account_context(*, expected_uid: int | str) -> AccountContext:
-    """Capture current cookie/proxy once and fail closed on UID mismatch.
-
-    The current cookie source remains compatible with the legacy materialized
-    ``config/cookies.txt`` contract.  A future account-switching slice can add
-    a direct ``capture_account_context_for_uid`` path without changing this
-    value object or its consumers.
-    """
+def _require_bound_uid(expected_uid: int | str) -> int:
     try:
         bound_uid = int(expected_uid)
     except (TypeError, ValueError) as exc:
         raise AccountContextUnavailable("invalid bound account uid") from exc
     if bound_uid <= 0:
         raise AccountContextUnavailable("invalid bound account uid")
+    return bound_uid
 
-    from src.bilibili_client import _load_cookie_string
 
-    cookie = (_load_cookie_string() or "").strip()
-    cookie_source = "env" if os.environ.get("BILI_COOKIE", "").strip() else "cookies.txt"
-    current_uid = parse_cookie_uid(cookie)
+def _build_context(*, bound_uid: int, cookie: str, cookie_source: str) -> AccountContext:
+    """校验 cookie 属于 bound_uid 且材料完整，然后冻成快照。
+
+    两条捕获路径共用这一段：UID 不符或缺 CSRF 一律 fail-closed，绝不带着
+    错误身份去发请求（SPEC §8 不变量 #4）。
+    """
+    cookie_uid = parse_cookie_uid(cookie)
     csrf = parse_cookie_csrf(cookie)
-    if current_uid is None or not csrf:
-        raise AccountContextUnavailable("current login cookie is incomplete")
-    if current_uid != bound_uid:
+    if cookie_uid is None or not csrf:
+        raise AccountContextUnavailable("login cookie is incomplete")
+    if cookie_uid != bound_uid:
         raise AccountContextUnavailable(
-            f"bound account uid mismatch: expected={bound_uid}, cookie={current_uid}"
+            f"bound account uid mismatch: expected={bound_uid}, cookie={cookie_uid}"
         )
 
     proxy_url = get_proxy_url(uid=bound_uid)
-    fingerprint = hashlib.sha256(cookie.encode("utf-8")).hexdigest()[:16]
     return AccountContext(
         uid=bound_uid,
         cookie=cookie,
@@ -114,6 +110,43 @@ def capture_current_account_context(*, expected_uid: int | str) -> AccountContex
         proxy_url=proxy_url,
         cookie_source=cookie_source,
         proxy_source=_proxy_source(bound_uid, proxy_url),
-        cookie_fingerprint=fingerprint,
+        cookie_fingerprint=hashlib.sha256(cookie.encode("utf-8")).hexdigest()[:16],
         captured_at=int(time.time()),
     )
+
+
+def capture_current_account_context(*, expected_uid: int | str) -> AccountContext:
+    """Capture current cookie/proxy once and fail closed on UID mismatch.
+
+    Reads the materialized ``config/cookies.txt`` (or the ``BILI_COOKIE``
+    override), i.e. the *active* account.  Rotation must not use this path:
+    see :func:`capture_account_context_for_uid`.
+    """
+    bound_uid = _require_bound_uid(expected_uid)
+
+    from src.bilibili_client import _load_cookie_string
+
+    cookie = (_load_cookie_string() or "").strip()
+    cookie_source = "env" if os.environ.get("BILI_COOKIE", "").strip() else "cookies.txt"
+    return _build_context(bound_uid=bound_uid, cookie=cookie, cookie_source=cookie_source)
+
+
+def capture_account_context_for_uid(expected_uid: int | str) -> AccountContext:
+    """按 uid 直接从账号池取凭据，不经过 cookies.txt，也不改变活跃账号。
+
+    串行轮转用这条路径：后台轮到账号 B 时不该把 UI 顶部的身份也切成 B，
+    更不该反复重写 cookies.txt。`BILI_COOKIE` 环境变量在此**不参与**——
+    env 覆盖表达的是"所有请求都用这个身份"，与逐账号轮转互相排斥，
+    调用方（调度器）负责在 env 生效时不启用轮转。
+    """
+    bound_uid = _require_bound_uid(expected_uid)
+
+    path = app_paths.accounts_dir() / f"{bound_uid}.txt"
+    if not path.exists():
+        raise AccountContextUnavailable(f"account {bound_uid} is not in the pool")
+    try:
+        cookie = path.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError as exc:
+        raise AccountContextUnavailable(f"cannot read account {bound_uid}") from exc
+
+    return _build_context(bound_uid=bound_uid, cookie=cookie, cookie_source="account_pool")

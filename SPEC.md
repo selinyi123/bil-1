@@ -141,6 +141,29 @@ Web 控制台（仅 127.0.0.1）浏览与参与 → 定时自动参与 → 中�
 ### 4.6 LLM
 - 仅转发抽奖解析使用（forward_parser：`_strict_bool` 严格布尔、`_extract_json_object` raw_decode）；`test_llm_connection` 校验 `choices[0].message.content` 结构。
 
+### 4.7 多账号串行轮转
+- **只串行，不并行**：并行要拆掉「全机同时只有一个写者」（§8 #7），那是改地基不是加功能。
+  轮转发生在时间槽之间，`JobRunner` 单槽与写者锁语义完全不变。
+- **无记忆**：轮到谁由 `rotation_uid_for_slot()` 从槽 key 派生（`时*12 + 分//5` 对账号数取模，
+  账号按 uid 排序），**不存游标**。因此不存在"上次轮到谁""上次谁失败了"这类状态——
+  账号冷却/灰度/健康度是 `AGENTS.md` 机制判据明确拒绝的账号级 FSM。
+  代价：增删账号会让映射整体平移。轮转不承诺公平配额，只承诺每个号都会轮到。
+- **不切 active**：`capture_account_context_for_uid()` 直接读 `accounts/{uid}.txt`，
+  不经过 `cookies.txt`，UI 顶部身份不受后台任务影响，也不反复重写配置文件。
+  身份正确性由该函数自身保证（存的 cookie 解析出的 uid 必须等于请求 uid，否则 fail-closed）。
+- **轮转任务跳过"绑定 UID == 生效身份"校验**：那道校验守的是「任务创建后活跃账号被切走」，
+  与轮转要表达的意图相反。`JobRunner.try_start(capture_uid=...)` 是唯一入口，
+  UI 手动发起的任务不传它，原有 fail-closed 一字未动。
+- **开关不持久化**：`POST /api/auto/start {"rotate_accounts": true}`，仅本次运行有效，默认关闭。
+  调度器自身重启即停，开关比它活得久会造成"我以为没开轮转，一按启动就用多个号操作"。
+- **服务端可拒绝**：账号池不足 2 个、或 `BILI_COOKIE` 覆盖身份（env 表达的是"所有请求都用
+  这个身份"，与逐账号轮转互斥）时不启用，回执 `rotate_accounts=false` 并记日志。
+- **范围**：只有 `participate_triple`。`refresh_*` 写的是**共享**活动表，换个账号跑得到同一批
+  结果，纯属放大对 B 站的请求量；`clear_follows` 是破坏性动作，不进无人值守轮转。
+- **已知取舍**：各账号会参与**同一批**活动（`pick_triple_participate_targets` 按 per-uid 的
+  "未参加"筛选，A 参与过不影响 B 的候选）。产品决策为允许；多号参与同一抽奖通常违反活动规则，
+  中奖可能被取消，且是较强的账号关联信号。未配独立代理时会共用出口 IP——启动时**只警告不阻止**。
+
 ## 5. 当前状态
 
 - 测试与构建验证记录（含历史数字）见 docs/14 §6；验收不设固定测试数量门槛（ACCEPTANCE T1）。
@@ -182,7 +205,8 @@ Web 控制台（仅 127.0.0.1）浏览与参与 → 定时自动参与 → 中�
   **当前决定：不做**——本机单人控制台，2000 条时 76ms 无感知。库超过约 2000 条
   （控制台"共 N 条"）再重评。
 
-- **多账号编排**（产品决策）：已完成 Job 级 `account_uid` 绑定与执行前身份 fail-closed；当前仍是单账号槽位与显式切换，尚未实现 LAS 逐账号自动轮转。后续若做建议 `AccountContext`。
+- **多账号编排**（**串行轮转已落地**，其余仍是产品决策）：`participate_triple` 支持按时间槽
+  逐账号轮转，见 §4.7；`check_prize` 的轮转与 Context 化、并行隔离、账号健康度均未做。
 - **粉丝数线路无记忆**：`get_user_followers` 的 card → relation/stat 两线每次调用都从第一条开始，成功线路不跨调用保留。
 - **per-account 行为配置 / 通知身份上下文**：participate_enhance/notify 仍全局；多账号编排落地后需带账号身份。
 - ~~**refresh_all 有更新+部分失败时 result 缺 sources_failed**~~（**已关闭**）：三态现在都返回

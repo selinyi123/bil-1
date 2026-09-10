@@ -5868,6 +5868,39 @@ html.sidebar-init-collapsed .system-btn {
   background: color-mix(in srgb, var(--success) 45%, transparent);
 }
 
+.auto-dock-rotate {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  background: var(--surface-soft);
+  cursor: pointer;
+}
+
+.auto-dock-rotate input {
+  margin-top: 2px;
+  flex: 0 0 auto;
+}
+
+.auto-dock-rotate-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.auto-dock-rotate-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.auto-dock-rotate-hint {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--foreground-muted);
+}
+
 .auto-dock-actions {
   display: flex;
   flex-direction: column;

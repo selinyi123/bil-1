@@ -100,8 +100,9 @@ def test_wait_until_terminal_never_calls_cancel() -> None:
     with _logged_in():
         scheduler._click_and_wait("refresh_status")
     runner.cancel.assert_not_called()
+    # capture_uid=None：未启用轮转时按活跃账号取凭据，与改动前行为一致
     runner.try_start.assert_called_once_with(
-        "refresh_status", {}, source="auto", account_uid="999001"
+        "refresh_status", {}, source="auto", account_uid="999001", capture_uid=None
     )
 
 
@@ -194,7 +195,7 @@ def test_click_and_wait_treats_skipped_triple_as_success() -> None:
         outcome = scheduler._click_and_wait("participate_triple")
     assert outcome["skipped"] is True
     runner.try_start.assert_called_once_with(
-        "participate_triple", {"from_auto": True}, source="auto", account_uid="999001"
+        "participate_triple", {"from_auto": True}, source="auto", account_uid="999001", capture_uid=None
     )
     runner.cancel.assert_not_called()
 

@@ -60,6 +60,7 @@ from web.schemas import (
     ALLOWED_JOB_ACTIONS,
     AccountSwitchRequest,
     AckAtUnreadRequest,
+    AutoStartRequest,
     DiagnosticsBundleOut,
     DiagnosticsLogsOut,
     JobRequest,
@@ -461,9 +462,11 @@ def api_auto_status() -> dict[str, Any]:
 
 
 @app.post("/api/auto/start", tags=["stable"])
-def api_auto_start() -> dict[str, Any]:
+def api_auto_start(request: AutoStartRequest | None = None) -> dict[str, Any]:
     try:
-        return auto_scheduler.start()
+        return auto_scheduler.start(
+            rotate_accounts=bool(request.rotate_accounts) if request else False
+        )
     except RuntimeError as exc:
         text = str(exc)
         if "已在运行" in text:

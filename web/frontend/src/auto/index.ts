@@ -336,10 +336,19 @@ export function renderAutoSchedule(slots: AutoScheduleSlot[] | null | undefined)
 }
 
 export async function startAutoScheduler() {
-  await fetchJSON("/api/auto/start", { method: "POST" });
+  const rotate = (document.getElementById("auto-dock-rotate") as HTMLInputElement | null)?.checked ?? false;
+  const status = await fetchJSON<{ rotate_accounts?: boolean }>("/api/auto/start", {
+    method: "POST",
+    body: JSON.stringify({ rotate_accounts: rotate }),
+  });
   await fetchAutoStatus();
   ensureAutoPolling();
-  showToast("定时调度已启动", "success");
+  // 服务端可能拒绝轮转（账号不足 2 个 / BILI_COOKIE 覆盖身份），以它的回执为准
+  if (rotate && !status?.rotate_accounts) {
+    showToast("定时调度已启动，但未启用多账号轮转", "info", "详见调度日志");
+    return;
+  }
+  showToast(rotate ? "定时调度已启动（多账号轮转）" : "定时调度已启动", "success");
 }
 
 export async function stopAutoScheduler() {

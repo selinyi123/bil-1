@@ -45,6 +45,29 @@ _AUTO_SNAPSHOT_MIN_INTERVAL_SEC = 0.5
 _AUTO_SNAPSHOT_LOG_LIMIT = 30
 
 
+def rotation_uid_for_slot(slot_key: str, pool: list[int]) -> int | None:
+    """从时间槽派生本刻度轮到的账号，**不存游标**。
+
+    槽 key 形如 `2026-09-10-14-05`。序号取 `时*12 + 分//5`，同一个槽恒定映射到
+    同一账号，连续刻度依次走遍账号池——重启、崩溃、跳过刻度都不影响映射，
+    因为它压根不记得上一轮发生过什么（`AGENTS.md` 机制判据）。
+
+    代价是增删账号会让映射整体平移：轮转不承诺公平配额，只承诺每个号都会轮到。
+    池为空或 key 无法解析时返回 None，调用方回落到原有的生效身份。
+    """
+    if not pool:
+        return None
+    parts = slot_key.split("-")
+    if len(parts) < 5:
+        return None
+    try:
+        hour, minute = int(parts[3]), int(parts[4])
+    except (TypeError, ValueError):
+        return None
+    ordinal = hour * 12 + minute // 5
+    return sorted(pool)[ordinal % len(pool)]
+
+
 class CollisionError(RuntimeError):
     """本机已有写任务在跑（Web 任务或 CLI），本时间槽跳过。
 
@@ -72,6 +95,7 @@ class SchedulerStatus:
     current_phase: str = ""
     next_hint: str = ""
     last_click: dict[str, Any] | None = None
+    rotate_accounts: bool = False
     refresh_batch_key: str | None = None
     triple_slot_key: str | None = None
     refresh_pipeline: dict[str, Any] = field(default_factory=dict)
@@ -92,6 +116,7 @@ class SchedulerStatus:
             "last_tick_at": self.last_tick_at,
             "current_phase": self.current_phase,
             "next_hint": self.next_hint,
+            "rotate_accounts": self.rotate_accounts,
             "next_slot": self.next_slot,
             "last_click": self.last_click,
             "refresh_batch_key": self.refresh_batch_key,
@@ -143,7 +168,13 @@ class AutoScheduler:
                 self._status.refresh_pipeline = _idle_pipeline()
             return self._status.to_dict()
 
-    def start(self) -> dict[str, Any]:
+    def start(self, *, rotate_accounts: bool = False) -> dict[str, Any]:
+        """启动调度器。`rotate_accounts` 只作用于本次运行，不持久化。
+
+        调度器自身重启即停，开关比它活得久没有意义——那会造成"我以为没开轮转，
+        一按启动就开始用多个号操作"。默认关闭，每次启动显式勾选。
+        """
+        rotate = bool(rotate_accounts) and self._rotation_is_available()
         with self._lock:
             if self._thread and self._thread.is_alive() and self._status.state == "running":
                 raise RuntimeError("调度器已在运行")
@@ -155,13 +186,47 @@ class AutoScheduler:
             self._status.started_at = _now_iso()
             self._status.stopped_at = None
             self._status.fatal_error = None
+            self._status.rotate_accounts = rotate
             self._status.current_phase = "等待下一刻度"
             self._status.refresh_pipeline = _idle_pipeline()
             self._thread = threading.Thread(target=self._loop, name="binggo-auto-scheduler", daemon=True)
             self._thread.start()
         self._log("info", "调度器已启动（仅点击 4 个按钮，不干涉抽奖程序其它功能）")
+        if rotate:
+            self._log("info", f"多账号轮转已启用：{len(self._rotation_pool())} 个账号按刻度依次参与")
+            self._warn_if_accounts_share_exit_ip()
         self._schedule_auto_snapshot(force=True)
         return self.get_status()
+
+    def _rotation_pool(self) -> list[int]:
+        from src.account_pool import list_accounts
+
+        return [int(item["uid"]) for item in list_accounts() if item.get("uid")]
+
+    def _rotation_is_available(self) -> bool:
+        """env 覆盖身份时拒绝轮转：`BILI_COOKIE` 表达的是"所有请求都用这个身份"。"""
+        import os
+
+        if os.environ.get("BILI_COOKIE", "").strip():
+            self._log("warn", "BILI_COOKIE 环境变量覆盖身份，本次不启用多账号轮转")
+            return False
+        if len(self._rotation_pool()) < 2:
+            self._log("info", "账号池不足 2 个，本次不启用多账号轮转")
+            return False
+        return True
+
+    def _warn_if_accounts_share_exit_ip(self) -> None:
+        """未配独立代理的账号会共用出口 IP。只警告，不阻止——那是你的运维判断。"""
+        from src.account_pool import get_account_proxy
+
+        pool = self._rotation_pool()
+        without = [uid for uid in pool if not get_account_proxy(uid)]
+        if len(without) >= 2:
+            self._log(
+                "warn",
+                f"{len(without)} 个账号未配置独立代理（{', '.join(str(u) for u in without)}），"
+                "将共用同一出口 IP",
+            )
 
     def stop(self, *, reason: str = "用户停止") -> dict[str, Any]:
         """只停止本调度器，绝不取消抽奖端任务。"""
@@ -387,10 +452,14 @@ class AutoScheduler:
 
     def _run_triple_slot(self, key: str) -> None:
         self._set_pipeline(active=False)
-        self._set_phase("三连参与", f"触发三连参与 {key}")
-        self._log("info", f"三连参与刻度 {key}")
+        rotate_to_uid = None
+        if self._status.rotate_accounts:
+            rotate_to_uid = rotation_uid_for_slot(key, self._rotation_pool())
+        suffix = f"（账号 {rotate_to_uid}）" if rotate_to_uid else ""
+        self._set_phase("三连参与", f"触发三连参与 {key}{suffix}")
+        self._log("info", f"三连参与刻度 {key}{suffix}")
         try:
-            outcome = self._click_and_wait("participate_triple")
+            outcome = self._click_and_wait("participate_triple", rotate_to_uid=rotate_to_uid)
             self._done_triple.add(key)
             with self._lock:
                 self._status.triple_slot_key = key
@@ -413,7 +482,13 @@ class AutoScheduler:
             self._done_triple.add(key)
             self._set_phase("等待下一刻度", f"已跳过：{exc}")
 
-    def _click_and_wait(self, action: str, *, pipeline_index: int | None = None) -> dict[str, Any]:
+    def _click_and_wait(
+        self,
+        action: str,
+        *,
+        pipeline_index: int | None = None,
+        rotate_to_uid: int | None = None,
+    ) -> dict[str, Any]:
         if action not in ALLOWED_CLICK_ACTIONS:
             raise ValueError(f"禁止的操作：{action}")
 
@@ -433,7 +508,7 @@ class AutoScheduler:
 
         try:
             validate_job_prerequisites(action, get_account_profile())
-            effective_uid = resolve_effective_uid()
+            effective_uid = rotate_to_uid if rotate_to_uid is not None else resolve_effective_uid()
             if effective_uid is None:
                 raise AppError(ErrorCode.AUTH_REQUIRED, "未检测到当前有效账号身份")
         except AppError as exc:
@@ -446,6 +521,8 @@ class AutoScheduler:
             params,
             source="auto",
             account_uid=str(effective_uid),
+            # 轮转时按 uid 直接取该账号凭据，不切 active、不动 cookies.txt
+            capture_uid=rotate_to_uid,
         )
         if job_id is None:
             raise CollisionError(f"点击「{label}」失败：已有任务正在运行")

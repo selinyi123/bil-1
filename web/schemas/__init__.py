@@ -1,6 +1,7 @@
 """API Pydantic schemas（请求/响应边界模型）。"""
 
 from web.schemas.account import AccountSwitchRequest, AckAtUnreadRequest
+from web.schemas.auto import AutoStartRequest
 from web.schemas.common import ErrorBody, ErrorObject, OkResponse
 from web.schemas.diagnostics import DiagnosticsBundleOut, DiagnosticsLogsOut
 from web.schemas.jobs import (
@@ -17,6 +18,7 @@ __all__ = [
     "ALLOWED_JOB_ACTIONS",
     "AccountSwitchRequest",
     "AckAtUnreadRequest",
+    "AutoStartRequest",
     "DiagnosticsBundleOut",
     "DiagnosticsLogsOut",
     "ErrorBody",
