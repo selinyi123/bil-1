@@ -38,7 +38,7 @@ def test_capture_for_uid_reads_that_accounts_cookie(isolated_home: Path) -> None
         COOKIE_TMPL.format(uid=UID_A), encoding="utf-8"
     )
 
-    ctx = capture_account_context_for_uid(UID_B)
+    ctx = capture_account_context_for_uid(expected_uid=UID_B)
     assert ctx.uid == UID_B
     assert ctx.csrf == f"jct{UID_B}"
     assert ctx.cookie_source == "account_pool"
@@ -48,24 +48,24 @@ def test_capture_for_uid_fails_closed_on_uid_mismatch(isolated_home: Path) -> No
     """存的 cookie 解析出的 uid 与文件名不符时必须拒绝，不得拿错身份去请求。"""
     _write_account(isolated_home, UID_B, cookie=COOKIE_TMPL.format(uid=UID_A))
     with pytest.raises(AccountContextUnavailable):
-        capture_account_context_for_uid(UID_B)
+        capture_account_context_for_uid(expected_uid=UID_B)
 
 
 def test_capture_for_uid_fails_closed_when_account_missing(isolated_home: Path) -> None:
     with pytest.raises(AccountContextUnavailable):
-        capture_account_context_for_uid(UID_B)
+        capture_account_context_for_uid(expected_uid=UID_B)
 
 
 def test_capture_for_uid_fails_closed_on_incomplete_cookie(isolated_home: Path) -> None:
     """缺 bili_jct 就没有 CSRF，写动作必然失败——应在捕获阶段就拒绝。"""
     _write_account(isolated_home, UID_A, cookie=f"DedeUserID={UID_A}; SESSDATA=x")
     with pytest.raises(AccountContextUnavailable):
-        capture_account_context_for_uid(UID_A)
+        capture_account_context_for_uid(expected_uid=UID_A)
 
 
 def test_context_never_exposes_secrets_in_repr(isolated_home: Path) -> None:
     _write_account(isolated_home, UID_A)
-    text = repr(capture_account_context_for_uid(UID_A))
+    text = repr(capture_account_context_for_uid(expected_uid=UID_A))
     assert "SESSDATA" not in text and f"jct{UID_A}" not in text
 
 
@@ -91,6 +91,25 @@ def test_consecutive_slots_walk_the_pool() -> None:
 
     picked = [rotation_uid_for_slot(f"2026-09-10-14-{m:02d}", POOL) for m in (5, 10, 15)]
     assert sorted(picked) == sorted(POOL), picked
+
+
+def test_triple_slot_minutes_are_not_frozen_per_account() -> None:
+    """每个号的动作时刻不得永久固定在同一组「分」上。
+
+    `时*12` 里的 12 对 2/3/4/6/12 取模为 0，小时项整项消失——那些池规模下
+    每个 uid 每天每小时都落在完全相同的分钟上，构成可长期观测的时刻签名。
+    """
+    from web.auto_scheduler import rotation_uid_for_slot
+
+    minutes = list(range(5, 60, 5))
+    for size in (2, 3, 4, 6, 12):
+        pool = [100 + i for i in range(size)]
+        patterns = {
+            tuple(rotation_uid_for_slot(f"2026-09-{d}-{h:02d}-{m:02d}", pool) for m in minutes)
+            for d in (10, 11)
+            for h in (1, 2)
+        }
+        assert len(patterns) > 1, f"{size} 个账号时分钟分布恒定"
 
 
 def test_single_account_pool_always_picks_it() -> None:
@@ -217,6 +236,150 @@ def test_auto_start_passes_rotation_flag(isolated_home: Path) -> None:
     start.assert_called_once_with(rotate_accounts=True)
 
 
+def test_rotation_precheck_targets_the_rotated_account(isolated_home: Path, monkeypatch) -> None:
+    """登录前置校验必须查轮转到的号，不是活跃号。
+
+    否则两个方向都坏：活跃号退登时池里健康的号每轮被 AUTH_REQUIRED 跳过；
+    轮转号过期时活跃号照样通过校验，而按 uid 捕获只验 cookie 能否解析出
+    uid/csrf（过期 cookie 这两样都在），于是每轮白烧一个刻度。
+    """
+    import web.auto_scheduler as sched
+
+    seen: list[int | None] = []
+
+    def fake_profile(uid: int | None = None, **_kw):
+        seen.append(uid)
+        return {"logged_in": True, "expired": False}
+
+    monkeypatch.setattr(sched, "get_account_profile", fake_profile)
+    monkeypatch.setattr(sched, "validate_job_prerequisites", lambda *a, **k: None, raising=False)
+
+    scheduler = sched.AutoScheduler(job_runner=_StubRunner())
+    # stub 的 try_start 返回 None，之后必然抛撞车——本例只关心前置校验查了谁
+    with pytest.raises(sched.CollisionError):
+        scheduler._click_and_wait("check_prize", rotate_to_uid=UID_B)
+
+    assert seen == [UID_B], f"前置校验查的是 {seen}，应为 {[UID_B]}"
+
+
+def test_done_keys_are_bounded() -> None:
+    """已处理刻度集合必须有上限：key 按天递增、永不复用，长跑进程里无上限会一直涨。"""
+    from web.auto_scheduler import _RecentKeys
+
+    keys = _RecentKeys(maxlen=4)
+    for i in range(10):
+        keys.add(f"k{i}")
+    assert len(keys) == 4
+    assert "k9" in keys and "k0" not in keys
+    keys.add("k9")  # 重复添加不占额度
+    assert len(keys) == 4
+
+
+def _scheduler_with_pool(monkeypatch, pool: list[int], proxies: dict[int, str] | None = None):
+    import web.auto_scheduler as sched
+
+    scheduler = sched.AutoScheduler(job_runner=_StubRunner())
+    monkeypatch.setattr(scheduler, "_rotation_pool", lambda: pool)
+    monkeypatch.setattr(
+        "src.account_pool.get_account_proxy", lambda uid: (proxies or {}).get(uid)
+    )
+    return scheduler
+
+
+def test_rotation_refused_when_pool_too_small(isolated_home: Path, monkeypatch) -> None:
+    """SPEC §4.7 的「服务端可拒绝」之一，也是前端 toast 分支的依据。"""
+    scheduler = _scheduler_with_pool(monkeypatch, [UID_A])
+    assert scheduler.start(rotate_accounts=True)["rotate_accounts"] is False
+    scheduler.stop()
+
+
+def test_rotation_refused_when_env_cookie_overrides_identity(
+    isolated_home: Path, monkeypatch
+) -> None:
+    """BILI_COOKIE 表达"所有请求都用这个身份"，与逐账号轮转互斥。
+
+    这一支是唯一阻止轮转绕过 env 身份钉死的东西——`capture_account_context_for_uid`
+    是**故意**不看 env 的，把这件事委托给调用方。
+    """
+    monkeypatch.setenv("BILI_COOKIE", "DedeUserID=1; bili_jct=x")
+    scheduler = _scheduler_with_pool(monkeypatch, [UID_A, UID_B])
+    assert scheduler.start(rotate_accounts=True)["rotate_accounts"] is False
+    scheduler.stop()
+
+
+def test_rotation_accepted_with_two_accounts(isolated_home: Path, monkeypatch) -> None:
+    scheduler = _scheduler_with_pool(monkeypatch, [UID_A, UID_B])
+    assert scheduler.start(rotate_accounts=True)["rotate_accounts"] is True
+    scheduler.stop()
+
+
+def test_shared_exit_ip_warns_but_does_not_block(isolated_home: Path, monkeypatch) -> None:
+    """未配独立代理只警告不阻止——那是运维判断（QE=b）。"""
+    scheduler = _scheduler_with_pool(monkeypatch, [UID_A, UID_B])
+    status = scheduler.start(rotate_accounts=True)
+    scheduler.stop()
+    assert status["rotate_accounts"] is True
+    logs = " ".join(item.get("message", "") for item in status.get("logs") or [])
+    assert "未配置独立代理" in logs
+
+
+def test_no_shared_ip_warning_when_each_account_has_a_proxy(
+    isolated_home: Path, monkeypatch
+) -> None:
+    scheduler = _scheduler_with_pool(
+        monkeypatch, [UID_A, UID_B], {UID_A: "http://a", UID_B: "http://b"}
+    )
+    status = scheduler.start(rotate_accounts=True)
+    scheduler.stop()
+    logs = " ".join(item.get("message", "") for item in status.get("logs") or [])
+    assert "未配置独立代理" not in logs
+
+
+def test_check_prize_slot_catches_up_after_a_long_batch(isolated_home: Path, monkeypatch) -> None:
+    """批次跑过 :30 之后，深检刻度必须还能补跑，而不是被静默跳过。
+
+    `_run_refresh_batch` 同步阻塞整个调度线程（三次 `_wait_until_terminal`，
+    上限 6 小时）。原先用 `now.minute == 30` 精确匹配，批次跑到 :47 才返回时
+    那一刻度根本不被求值——无日志、无撞车告警、`_done_check_prize` 里也不留痕。
+    """
+    from datetime import datetime
+
+    import web.auto_scheduler as sched
+
+    scheduler = sched.AutoScheduler(job_runner=_StubRunner())
+    ran: list[str] = []
+    monkeypatch.setattr(scheduler, "_run_check_prize_slot", lambda key: ran.append(key))
+
+    # 整点小时，批次结束后已是 :47
+    late = datetime(2026, 9, 10, 9, 47, tzinfo=sched.CN_TZ)
+    assert scheduler._due_check_prize_key(late) is not None, "错过精确分钟后就补不上了"
+
+    # 同一刻度只跑一次
+    key = scheduler._due_check_prize_key(late)
+    scheduler._done_check_prize.add(key)
+    assert scheduler._due_check_prize_key(datetime(2026, 9, 10, 9, 55, tzinfo=sched.CN_TZ)) is None
+
+    # :30 之前不该触发
+    assert scheduler._due_check_prize_key(datetime(2026, 9, 10, 9, 12, tzinfo=sched.CN_TZ)) is None
+    # 非整点小时不该触发
+    assert scheduler._due_check_prize_key(datetime(2026, 9, 10, 10, 47, tzinfo=sched.CN_TZ)) is None
+
+
+class _StubRunner:
+    def is_running(self) -> bool:
+        return False
+
+    def get_status(self):
+        class _S:
+            def to_dict(self):
+                return {}
+
+        return _S()
+
+    def try_start(self, *a, **k):
+        return None
+
+
 def test_auto_start_rejects_unknown_fields(isolated_home: Path) -> None:
     """extra=forbid：拼错的字段不得被静默吞掉，否则轮转会"看起来开了但没开"。"""
     from fastapi.testclient import TestClient
@@ -295,9 +458,31 @@ def test_check_prize_slot_is_deterministic() -> None:
 
 
 def test_check_prize_slot_shifts_across_days() -> None:
-    """跨天不叠加序数的话，每天下标 0 都是同一个号，长期分布不均。"""
+    """跨天必须换号，且**对每种池规模都成立**。
+
+    第一版只用 3 个账号，恰好是会平移的那档；`yday * 8` 里的 8 对 2/4/8 取模为 0，
+    当天序数整项消失，`00:30` 永远归 uid 最小的号。参数化才守得住。
+    """
     from web.auto_scheduler import check_prize_uid_for_slot
 
-    day1 = check_prize_uid_for_slot("2026-09-10-00-30", POOL)
-    day2 = check_prize_uid_for_slot("2026-09-11-00-30", POOL)
-    assert day1 != day2
+    for size in (2, 3, 4, 5, 8):
+        pool = [100 + i for i in range(size)]
+        picked = [
+            check_prize_uid_for_slot(f"2026-09-{d}-00-30", pool) for d in (10, 11, 12, 13)
+        ]
+        assert len(set(picked)) > 1, f"{size} 个账号时 00:30 恒定归 {picked[0]}"
+
+
+def test_check_prize_daily_pattern_is_not_frozen() -> None:
+    """整天的分布模式也不能逐日重复，否则每个号的深检时刻永久固定。"""
+    from web.auto_config import REFRESH_HOURS
+    from web.auto_scheduler import check_prize_uid_for_slot
+
+    hours = sorted(REFRESH_HOURS)
+    for size in (2, 3, 4, 5, 8):
+        pool = [100 + i for i in range(size)]
+        patterns = {
+            tuple(check_prize_uid_for_slot(f"2026-09-{d}-{h:02d}-30", pool) for h in hours)
+            for d in (10, 11, 12, 13)
+        }
+        assert len(patterns) > 1, f"{size} 个账号时四天分布完全相同"

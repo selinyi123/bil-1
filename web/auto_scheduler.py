@@ -67,29 +67,67 @@ def _pick(pool: list[int], ordinal: int) -> int:
 def rotation_uid_for_slot(slot_key: str, pool: list[int]) -> int | None:
     """从时间槽派生本刻度轮到的账号，**不存游标**。
 
-    序号取 `时*12 + 分//5`，同一个槽恒定映射到同一账号，连续刻度依次走遍账号池——
-    重启、崩溃、跳过刻度都不影响映射，因为它压根不记得上一轮发生过什么
-    （`AGENTS.md` 机制判据）。
+    序号是「当年第几天 + 小时 + 本小时第几个刻度」三项**相加**。相加而非相乘是
+    关键：任何乘数 k 都会在 `k % len(pool) == 0` 的池规模上让那一项整个消失，
+    而乘 1 对每种池规模都有效（`gcd(1, n) = 1`）。原先用 `时*12`，12 的因数
+    2/3/4/6/12 个账号时小时项失效，每个 uid 的动作时刻永久固定在同一组「分」上——
+    那既不公平，也是可长期观测的关联签名。
+
+    同一个槽恒定映射到同一账号：重启、崩溃、跳过刻度都不影响映射，因为它压根
+    不记得上一轮发生过什么（`AGENTS.md` 机制判据）。
 
     代价是增删账号会让映射整体平移：轮转不承诺公平配额，只承诺每个号都会轮到。
     """
     at = _slot_datetime(slot_key) if pool else None
-    return _pick(pool, at.hour * 12 + at.minute // 5) if at else None
+    if at is None:
+        return None
+    return _pick(pool, at.timetuple().tm_yday + at.hour + at.minute // 5)
 
 
 def check_prize_uid_for_slot(slot_key: str, pool: list[int]) -> int | None:
     """中奖深检刻度轮到的账号。序号与三连**不同**，因为整点会退化。
 
-    `REFRESH_HOURS` 全是 3 的倍数，直接套三连的 `时*12` 会得到 36 的倍数，
-    而 36 能被 2/3/4/6/12 整除——2~4 个账号时一整天八次全部轮到同一个号。
-    这里改用「本日第几个整点」（0..7）并叠加当天序数，避免每天下标 0 恒定属于
-    同一个账号。仍然纯派生、无存储。
+    `REFRESH_HOURS` 全是 3 的倍数，直接套 `时*12` 会得到 36 的倍数，而 36 能被
+    2/3/4/6/12 整除——那些池规模下一整天八次全部轮到同一个号。所以用「本日第几个
+    整点」（0..7）作为小时项。
+
+    当天序数同样只能**相加**：早先写成 `yday * 8`，而 8 对 2/4/8 取模为 0，
+    那两三种最常见的池规模下当天序数整项消失，`00:30` 的深检永远归 uid 最小的号。
+    与 `rotation_uid_for_slot` 同一个教训——乘数会在它的因数上把整项抹掉。
     """
     at = _slot_datetime(slot_key) if pool else None
     hours = sorted(REFRESH_HOURS)
     if at is None or at.hour not in hours:
         return None
-    return _pick(pool, at.timetuple().tm_yday * len(hours) + hours.index(at.hour))
+    return _pick(pool, at.timetuple().tm_yday + hours.index(at.hour))
+
+
+class _RecentKeys:
+    """有上限的已处理刻度集合：只回答"这个 key 处理过吗"，超量丢最旧的。
+
+    刻度 key 按天递增，永不复用，所以旧 key 没有保留价值；无上限的 set 在长跑
+    进程里会一直涨（三类合计每天约 184 个）。
+    """
+
+    __slots__ = ("_keys", "_order")
+
+    def __init__(self, maxlen: int = 512) -> None:
+        self._keys: set[str] = set()
+        self._order: deque[str] = deque(maxlen=maxlen)
+
+    def add(self, key: str) -> None:
+        if key in self._keys:
+            return
+        if len(self._order) == self._order.maxlen:
+            self._keys.discard(self._order[0])
+        self._order.append(key)
+        self._keys.add(key)
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._keys
+
+    def __len__(self) -> int:
+        return len(self._keys)
 
 
 class CollisionError(RuntimeError):
@@ -122,6 +160,7 @@ class SchedulerStatus:
     rotate_accounts: bool = False
     refresh_batch_key: str | None = None
     triple_slot_key: str | None = None
+    check_prize_slot_key: str | None = None
     refresh_pipeline: dict[str, Any] = field(default_factory=dict)
     next_slot: dict[str, Any] | None = None
     job_probe: dict[str, Any] | None = None
@@ -145,6 +184,7 @@ class SchedulerStatus:
             "last_click": self.last_click,
             "refresh_batch_key": self.refresh_batch_key,
             "triple_slot_key": self.triple_slot_key,
+            "check_prize_slot_key": self.check_prize_slot_key,
             "refresh_pipeline": self.refresh_pipeline or _idle_pipeline(),
             "job_probe": self.job_probe,
             "server_now": self.server_now,
@@ -155,7 +195,7 @@ class SchedulerStatus:
                 "triple_minutes": sorted(TRIPLE_MINUTES),
                 "actions": [
                     {"action": key, "label": ACTION_LABELS[key]}
-                    for key in ("refresh_all", "refresh_watch", "refresh_status", "participate_triple")
+                    for key in sorted(ALLOWED_CLICK_ACTIONS)
                 ],
             },
         }
@@ -169,9 +209,11 @@ class AutoScheduler:
         self._thread: threading.Thread | None = None
         self._logs: deque[LogEntry] = deque(maxlen=200)
         self._status = SchedulerStatus(refresh_pipeline=_idle_pipeline())
-        self._done_refresh: set[str] = set()
-        self._done_triple: set[str] = set()
-        self._done_check_prize: set[str] = set()
+        # 已处理刻度：只用于同一刻度不重复触发，key 按天递增，长跑进程需设上限。
+        # 三类合计每天约 184 个 key，保留两天足够覆盖"批次跨天补跑"。
+        self._done_refresh: _RecentKeys = _RecentKeys()
+        self._done_triple: _RecentKeys = _RecentKeys()
+        self._done_check_prize: _RecentKeys = _RecentKeys()
         self._snapshot_timer: threading.Timer | None = None
         self._last_snapshot_mono = 0.0
         self._snapshot_pending = False
@@ -199,11 +241,14 @@ class AutoScheduler:
         调度器自身重启即停，开关比它活得久没有意义——那会造成"我以为没开轮转，
         一按启动就开始用多个号操作"。默认关闭，每次启动显式勾选。
         """
-        pool = self._rotation_pool() if rotate_accounts else []
-        rotate = bool(rotate_accounts) and self._rotation_is_available(pool)
         with self._lock:
             if self._thread and self._thread.is_alive() and self._status.state == "running":
                 raise RuntimeError("调度器已在运行")
+        # 轮转判定会写日志，必须在"已在运行"检查之后：否则对运行中的调度器
+        # 再点一次启动，会先往运维日志里写一条轮转结论，再抛"调度器已在运行"。
+        pool = self._rotation_pool() if rotate_accounts else []
+        rotate = bool(rotate_accounts) and self._rotation_is_available(pool)
+        with self._lock:
             if self._status.state == "fatal":
                 self._status.fatal_error = None
             self._stop_event.clear()
@@ -417,13 +462,10 @@ class AutoScheduler:
                         self._run_refresh_batch(key)
                         continue
 
-                # 中奖深检挂在整点小时的 :30——刷新批次在 :00，三连只在非整点小时，
-                # 这个位置本来就是空的，不与任何既有刻度抢单任务槽。
-                if now.hour in REFRESH_HOURS and now.minute == CHECK_PRIZE_MINUTE:
-                    key = f"{now:%Y-%m-%d-%H-%M}"
-                    if key not in self._done_check_prize:
-                        self._run_check_prize_slot(key)
-                        continue
+                key = self._due_check_prize_key(now)
+                if key is not None:
+                    self._run_check_prize_slot(key)
+                    continue
 
                 if now.hour not in REFRESH_HOURS and now.minute in TRIPLE_MINUTES:
                     key = f"{now:%Y-%m-%d-%H-%M}"
@@ -483,11 +525,9 @@ class AutoScheduler:
 
     def _run_triple_slot(self, key: str) -> None:
         self._set_pipeline(active=False)
-        rotate_to_uid = (
-            rotation_uid_for_slot(key, self._rotation_pool())
-            if self._status.rotate_accounts
-            else None
-        )
+        with self._lock:
+            rotating = self._status.rotate_accounts
+        rotate_to_uid = rotation_uid_for_slot(key, self._rotation_pool()) if rotating else None
         suffix = f"（账号 {rotate_to_uid}）" if rotate_to_uid else ""
         self._set_phase("三连参与", f"触发三连参与 {key}{suffix}")
         self._log("info", f"三连参与刻度 {key}{suffix}")
@@ -514,20 +554,36 @@ class AutoScheduler:
             self._done_triple.add(key)
             self._set_phase("等待下一刻度", f"已跳过：{exc}")
 
+    def _due_check_prize_key(self, now: datetime) -> str | None:
+        """本刻度该不该跑中奖深检；不该跑返回 None。
+
+        深检挂在整点小时的 `:30`（`:00` 是刷新批次，三连只在非整点小时）。但
+        `_run_refresh_batch` 会**同步阻塞整个调度线程**，三次 `_wait_until_terminal`
+        上限六小时——用 `minute == 30` 精确匹配的话，批次跑到 `:47` 才返回时那一
+        刻度根本不被求值，静默消失。
+
+        所以判据是「已过 `:30` 且本小时还没跑过」，槽 key 固定用 `:30` 以保证
+        补跑时选到的账号与准点跑一致。
+        """
+        if now.hour not in REFRESH_HOURS or now.minute < CHECK_PRIZE_MINUTE:
+            return None
+        key = f"{now:%Y-%m-%d-%H}-{CHECK_PRIZE_MINUTE:02d}"
+        return None if key in self._done_check_prize else key
+
     def _run_check_prize_slot(self, key: str) -> None:
         """整点 :30 的中奖深检。轮转序号与三连不同，见 check_prize_uid_for_slot。"""
         self._set_pipeline(active=False)
-        rotate_to_uid = (
-            check_prize_uid_for_slot(key, self._rotation_pool())
-            if self._status.rotate_accounts
-            else None
-        )
+        with self._lock:
+            rotating = self._status.rotate_accounts
+        rotate_to_uid = check_prize_uid_for_slot(key, self._rotation_pool()) if rotating else None
         suffix = f"（账号 {rotate_to_uid}）" if rotate_to_uid else ""
         self._set_phase("中奖深检", f"触发中奖深检 {key}{suffix}")
         self._log("info", f"中奖深检刻度 {key}{suffix}")
         try:
             self._click_and_wait("check_prize", rotate_to_uid=rotate_to_uid)
             self._done_check_prize.add(key)
+            with self._lock:
+                self._status.check_prize_slot_key = key
             self._set_phase("等待下一刻度", "中奖深检已完成")
         except CollisionError as exc:
             self._log("warn", f"中奖深检刻度 {key} 撞车已跳过：{exc}")
@@ -566,7 +622,8 @@ class AutoScheduler:
         from web.app import validate_job_prerequisites
 
         try:
-            validate_job_prerequisites(action, get_account_profile())
+            # 轮转时必须查轮转到的号：活跃号的登录态与本次要用的身份无关
+            validate_job_prerequisites(action, get_account_profile(rotate_to_uid))
             effective_uid = rotate_to_uid if rotate_to_uid is not None else resolve_effective_uid()
             if effective_uid is None:
                 raise AppError(ErrorCode.AUTH_REQUIRED, "未检测到当前有效账号身份")
@@ -767,6 +824,19 @@ def _next_slot(now: datetime) -> dict[str, Any]:
                 "hour": h,
                 "minute": m,
                 "hint": f"下次刷新批次约 {h:02d}:00（一键更新→监控→状态）",
+            }
+        if h in REFRESH_HOURS and m == CHECK_PRIZE_MINUTE:
+            return {
+                "kind": "check_prize",
+                "label": "中奖深检",
+                "action": "check_prize",
+                "action_label": ACTION_LABELS["check_prize"],
+                "actions": [{"action": "check_prize", "label": ACTION_LABELS["check_prize"]}],
+                "at": candidate.strftime("%Y-%m-%d %H:%M:%S"),
+                "at_unix": int(candidate.timestamp()),
+                "hour": h,
+                "minute": m,
+                "hint": f"下次中奖深检约 {h:02d}:{m:02d}",
             }
         if h not in REFRESH_HOURS and m in TRIPLE_MINUTES:
             return {

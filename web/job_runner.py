@@ -589,6 +589,10 @@ class JobRunner:
             progress_total = self._status.progress_total
             action_name = self._status.action
             account_uid = self._status.account_uid
+            # 任务终结即清空：它今天靠单任务槽保证不串号，但那是隐式依赖。
+            # 将来多一个槽或多一条 resume 路径时，残留值的故障形态是
+            # "请求静默地以上一个轮转账号的身份发出去"——正是身份策略要防的事。
+            self._capture_uid = None
             if progress_total:
                 progress_step = progress_total
 
@@ -732,7 +736,7 @@ class JobRunner:
                 account_context = None
                 if account_uid is not None and job_identity_policy(action) == IDENTITY_CONTEXT:
                     account_context = (
-                        capture_account_context_for_uid(capture_uid)
+                        capture_account_context_for_uid(expected_uid=capture_uid)
                         if capture_uid is not None
                         else capture_current_account_context(expected_uid=account_uid)
                     )

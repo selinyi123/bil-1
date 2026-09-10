@@ -131,7 +131,7 @@ def capture_current_account_context(*, expected_uid: int | str) -> AccountContex
     return _build_context(bound_uid=bound_uid, cookie=cookie, cookie_source=cookie_source)
 
 
-def capture_account_context_for_uid(expected_uid: int | str) -> AccountContext:
+def capture_account_context_for_uid(*, expected_uid: int | str) -> AccountContext:
     """按 uid 直接从账号池取凭据，不经过 cookies.txt，也不改变活跃账号。
 
     串行轮转用这条路径：后台轮到账号 B 时不该把 UI 顶部的身份也切成 B，
@@ -141,12 +141,10 @@ def capture_account_context_for_uid(expected_uid: int | str) -> AccountContext:
     """
     bound_uid = _require_bound_uid(expected_uid)
 
-    path = app_paths.accounts_dir() / f"{bound_uid}.txt"
-    if not path.exists():
+    from src.account_pool import read_account_cookie
+
+    cookie = read_account_cookie(bound_uid)
+    if not cookie:
         raise AccountContextUnavailable(f"account {bound_uid} is not in the pool")
-    try:
-        cookie = path.read_text(encoding="utf-8", errors="replace").strip()
-    except OSError as exc:
-        raise AccountContextUnavailable(f"cannot read account {bound_uid}") from exc
 
     return _build_context(bound_uid=bound_uid, cookie=cookie, cookie_source="account_pool")

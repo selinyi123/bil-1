@@ -5901,6 +5901,25 @@ html.sidebar-init-collapsed .system-btn {
   color: var(--foreground-muted);
 }
 
+.auto-dock-rotate-warn {
+  margin-top: 6px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.1);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--foreground-muted);
+}
+
+.auto-dock-rotate-warn b {
+  color: var(--foreground);
+}
+
+.extra-form-note {
+  color: var(--foreground-muted);
+  font-size: 11px;
+}
+
 .auto-dock-actions {
   display: flex;
   flex-direction: column;

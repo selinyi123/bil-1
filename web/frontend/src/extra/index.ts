@@ -644,7 +644,7 @@ function buildToolsPanel(): HTMLDivElement {
     </div>
     <div class="extra-tools-body">
       <div class="extra-form-grid">
-        <label class="extra-form-check"><input type="checkbox" id="check-prize-push" checked> 中奖深检命中后推送通知</label>
+        <label class="extra-form-check"><input type="checkbox" id="check-prize-push" checked> 中奖深检命中后推送通知<span class="extra-form-note">（仅手动执行；定时调度的深检命中后一律推送）</span></label>
         <div class="extra-form-field">
           <label for="cleanup-max-days">转发动态超期阈值（天）</label>
           <input type="number" id="cleanup-max-days" min="1" max="365" step="1" value="30">

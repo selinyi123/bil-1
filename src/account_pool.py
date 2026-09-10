@@ -96,6 +96,23 @@ def accounts_dir_has(uid: int) -> bool:
     return (_accounts_dir() / f"{int(uid)}.txt").exists()
 
 
+def read_account_cookie(uid: int) -> str | None:
+    """读取账号池中某个账号的 cookie；不存在或读不出返回 None。
+
+    `accounts/{uid}.txt` 这个布局归本模块所有——调用方自己拼路径会把布局知识
+    复制出去，将来改命名/加密时那些副本会静默读到旧数据，且失败会伪装成
+    "账号不在池里"。
+    """
+    path = _accounts_dir() / f"{int(uid)}.txt"
+    with _lock:
+        if not path.exists():
+            return None
+        try:
+            return path.read_text(encoding="utf-8", errors="replace").strip() or None
+        except OSError:
+            return None
+
+
 def _read_active_uid_locked() -> int | None:
     path = _active_path()
     if not path.exists():

@@ -180,13 +180,29 @@ def has_login_cookie() -> bool:
     return bool(text) and "SESSDATA" in text
 
 
-def get_account_profile() -> dict[str, Any]:
-    """快速返回账号基础信息，不阻塞在私信/@ 未读接口上。"""
-    if not has_login_cookie():
+def get_account_profile(uid: int | None = None) -> dict[str, Any]:
+    """快速返回账号基础信息，不阻塞在私信/@ 未读接口上。
+
+    `uid` 为 None 时查**活跃账号**（读 cookies.txt），这是 UI 与手动任务的语义。
+    多账号轮转必须显式传 uid：轮转到的号不是活跃号，拿活跃号的登录态去判断
+    "这个任务能不能跑"会两个方向都判错（活跃号退登→健康的号被跳过；
+    轮转号过期→照样启动并白烧一个刻度）。
+    """
+    context = None
+    if uid is not None:
+        from src.account_context import AccountContextUnavailable, capture_account_context_for_uid
+
+        try:
+            context = capture_account_context_for_uid(expected_uid=uid)
+        except AccountContextUnavailable as exc:
+            return _empty_profile(f"账号 {uid} 凭据不可用：{exc}")
+    elif not has_login_cookie():
         return _empty_profile("请使用侧边栏扫码登录")
 
     try:
-        with BilibiliClient(timeout=ACCOUNT_CLIENT_TIMEOUT, warmup=False) as client:
+        with BilibiliClient(
+            timeout=ACCOUNT_CLIENT_TIMEOUT, warmup=False, account_context=context
+        ) as client:
             nav_payload = client.request_json(
                 NAV_URL,
                 referer="https://www.bilibili.com",
