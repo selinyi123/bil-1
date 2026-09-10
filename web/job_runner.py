@@ -211,6 +211,8 @@ class JobRunner:
         self._last_db_flush_at = 0.0
         self._recovered = False
         self._run_started_mono: float | None = None
+        # 仅多账号轮转设置：决定凭据从账号池按 uid 取，还是从当前活跃 cookie 取
+        self._capture_uid: int | None = None
 
     def recover_on_startup(self) -> None:
         """启动时：残留 running → interrupted；清理过期历史；加载最近快照。"""
@@ -700,7 +702,7 @@ class JobRunner:
         with self._lock:
             job_source = str(self._status.source or "ui")
             account_uid = self._status.account_uid
-            capture_uid = getattr(self, "_capture_uid", None)
+            capture_uid = self._capture_uid
             started_mono = time.perf_counter()
             self._run_started_mono = started_mono
         with job_log_context(job_id=job_id, action=action, job_source=job_source):

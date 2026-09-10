@@ -99,7 +99,7 @@ def _account_label(account_uid: int | None) -> str:
 
         with session_scope() as session:
             row = session.get(AccountProfileCacheRow, int(account_uid))
-            name = str(getattr(row, "uname", "") or "") if row is not None else ""
+            name = str(row.uname or "") if row is not None else ""
     except Exception:
         name = ""
     return f"{name}（UID {account_uid}）" if name else f"UID {account_uid}"

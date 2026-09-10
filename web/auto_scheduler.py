@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 from collections import deque
@@ -45,30 +46,35 @@ _AUTO_SNAPSHOT_MIN_INTERVAL_SEC = 0.5
 _AUTO_SNAPSHOT_LOG_LIMIT = 30
 
 
-def rotation_uid_for_slot(slot_key: str, pool: list[int]) -> int | None:
-    """从时间槽派生本刻度轮到的账号，**不存游标**。
+CHECK_PRIZE_MINUTE = 30
 
-    槽 key 形如 `2026-09-10-14-05`。序号取 `时*12 + 分//5`，同一个槽恒定映射到
-    同一账号，连续刻度依次走遍账号池——重启、崩溃、跳过刻度都不影响映射，
-    因为它压根不记得上一轮发生过什么（`AGENTS.md` 机制判据）。
 
-    代价是增删账号会让映射整体平移：轮转不承诺公平配额，只承诺每个号都会轮到。
-    池为空或 key 无法解析时返回 None，调用方回落到原有的生效身份。
-    """
-    if not pool:
-        return None
+def _slot_datetime(slot_key: str) -> datetime | None:
+    """解析槽 key（`2026-09-10-14-05`）；解析不出来返回 None，由调用方回落。"""
     parts = slot_key.split("-")
     if len(parts) < 5:
         return None
     try:
-        hour, minute = int(parts[3]), int(parts[4])
+        return datetime(*(int(p) for p in parts[:5]), tzinfo=CN_TZ)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return None
-    ordinal = hour * 12 + minute // 5
+
+
+def _pick(pool: list[int], ordinal: int) -> int:
     return sorted(pool)[ordinal % len(pool)]
 
 
-CHECK_PRIZE_MINUTE = 30
+def rotation_uid_for_slot(slot_key: str, pool: list[int]) -> int | None:
+    """从时间槽派生本刻度轮到的账号，**不存游标**。
+
+    序号取 `时*12 + 分//5`，同一个槽恒定映射到同一账号，连续刻度依次走遍账号池——
+    重启、崩溃、跳过刻度都不影响映射，因为它压根不记得上一轮发生过什么
+    （`AGENTS.md` 机制判据）。
+
+    代价是增删账号会让映射整体平移：轮转不承诺公平配额，只承诺每个号都会轮到。
+    """
+    at = _slot_datetime(slot_key) if pool else None
+    return _pick(pool, at.hour * 12 + at.minute // 5) if at else None
 
 
 def check_prize_uid_for_slot(slot_key: str, pool: list[int]) -> int | None:
@@ -79,21 +85,11 @@ def check_prize_uid_for_slot(slot_key: str, pool: list[int]) -> int | None:
     这里改用「本日第几个整点」（0..7）并叠加当天序数，避免每天下标 0 恒定属于
     同一个账号。仍然纯派生、无存储。
     """
-    if not pool:
-        return None
-    parts = slot_key.split("-")
-    if len(parts) < 5:
-        return None
-    try:
-        day = datetime(int(parts[0]), int(parts[1]), int(parts[2]), tzinfo=CN_TZ)
-        hour = int(parts[3])
-    except (TypeError, ValueError):
-        return None
+    at = _slot_datetime(slot_key) if pool else None
     hours = sorted(REFRESH_HOURS)
-    if hour not in hours:
+    if at is None or at.hour not in hours:
         return None
-    ordinal = day.timetuple().tm_yday * len(hours) + hours.index(hour)
-    return sorted(pool)[ordinal % len(pool)]
+    return _pick(pool, at.timetuple().tm_yday * len(hours) + hours.index(at.hour))
 
 
 class CollisionError(RuntimeError):
@@ -203,7 +199,8 @@ class AutoScheduler:
         调度器自身重启即停，开关比它活得久没有意义——那会造成"我以为没开轮转，
         一按启动就开始用多个号操作"。默认关闭，每次启动显式勾选。
         """
-        rotate = bool(rotate_accounts) and self._rotation_is_available()
+        pool = self._rotation_pool() if rotate_accounts else []
+        rotate = bool(rotate_accounts) and self._rotation_is_available(pool)
         with self._lock:
             if self._thread and self._thread.is_alive() and self._status.state == "running":
                 raise RuntimeError("调度器已在运行")
@@ -222,8 +219,8 @@ class AutoScheduler:
             self._thread.start()
         self._log("info", "调度器已启动（仅点击 5 个按钮，不干涉抽奖程序其它功能）")
         if rotate:
-            self._log("info", f"多账号轮转已启用：{len(self._rotation_pool())} 个账号按刻度依次参与")
-            self._warn_if_accounts_share_exit_ip()
+            self._log("info", f"多账号轮转已启用：{len(pool)} 个账号按刻度依次参与")
+            self._warn_if_accounts_share_exit_ip(pool)
         self._schedule_auto_snapshot(force=True)
         return self.get_status()
 
@@ -232,23 +229,20 @@ class AutoScheduler:
 
         return [int(item["uid"]) for item in list_accounts() if item.get("uid")]
 
-    def _rotation_is_available(self) -> bool:
+    def _rotation_is_available(self, pool: list[int]) -> bool:
         """env 覆盖身份时拒绝轮转：`BILI_COOKIE` 表达的是"所有请求都用这个身份"。"""
-        import os
-
         if os.environ.get("BILI_COOKIE", "").strip():
             self._log("warn", "BILI_COOKIE 环境变量覆盖身份，本次不启用多账号轮转")
             return False
-        if len(self._rotation_pool()) < 2:
+        if len(pool) < 2:
             self._log("info", "账号池不足 2 个，本次不启用多账号轮转")
             return False
         return True
 
-    def _warn_if_accounts_share_exit_ip(self) -> None:
+    def _warn_if_accounts_share_exit_ip(self, pool: list[int]) -> None:
         """未配独立代理的账号会共用出口 IP。只警告，不阻止——那是你的运维判断。"""
         from src.account_pool import get_account_proxy
 
-        pool = self._rotation_pool()
         without = [uid for uid in pool if not get_account_proxy(uid)]
         if len(without) >= 2:
             self._log(
@@ -489,9 +483,11 @@ class AutoScheduler:
 
     def _run_triple_slot(self, key: str) -> None:
         self._set_pipeline(active=False)
-        rotate_to_uid = None
-        if self._status.rotate_accounts:
-            rotate_to_uid = rotation_uid_for_slot(key, self._rotation_pool())
+        rotate_to_uid = (
+            rotation_uid_for_slot(key, self._rotation_pool())
+            if self._status.rotate_accounts
+            else None
+        )
         suffix = f"（账号 {rotate_to_uid}）" if rotate_to_uid else ""
         self._set_phase("三连参与", f"触发三连参与 {key}{suffix}")
         self._log("info", f"三连参与刻度 {key}{suffix}")
@@ -510,7 +506,6 @@ class AutoScheduler:
             self._log("warn", f"三连参与刻度 {key} 撞车已跳过：{exc}")
             self._done_triple.add(key)
             self._set_phase("等待下一刻度", "已有写任务在运行，跳过本刻度")
-            return
         except Exception as exc:
             if _is_hard_failure(exc):
                 self._fatal(str(exc))
@@ -522,9 +517,11 @@ class AutoScheduler:
     def _run_check_prize_slot(self, key: str) -> None:
         """整点 :30 的中奖深检。轮转序号与三连不同，见 check_prize_uid_for_slot。"""
         self._set_pipeline(active=False)
-        rotate_to_uid = None
-        if self._status.rotate_accounts:
-            rotate_to_uid = check_prize_uid_for_slot(key, self._rotation_pool())
+        rotate_to_uid = (
+            check_prize_uid_for_slot(key, self._rotation_pool())
+            if self._status.rotate_accounts
+            else None
+        )
         suffix = f"（账号 {rotate_to_uid}）" if rotate_to_uid else ""
         self._set_phase("中奖深检", f"触发中奖深检 {key}{suffix}")
         self._log("info", f"中奖深检刻度 {key}{suffix}")
