@@ -221,7 +221,8 @@ Web 控制台（仅 127.0.0.1）浏览与参与 → 定时自动参与 → 中�
     `src/app_paths._bootstrap_user_data()`，与既有的种子灌入同处执行；
     `web/product_routes._require_local_account()` 里的第四处收养一并移除
     （它被 `GET /api/settings/proxy` 走到，仅在已登录时可达，原 gap 未记录）。
-  - 验证：`python -m pytest -q` → 690 passed / 1 skipped。
+  - 验证：全量 `python -m pytest -q` 通过。**测试数量不写进文档**——它每次改动都变，
+    写下来只会变成又一处需要维护的陈述（docs/13 已立此规则，此处此前违反过）。
 - **活动列表读取仍是全表加载**：`_filtered_activity_rows` 先把整表读进 Python 再过滤、
   排序、切页（`ACTIVITY_PAGE_SIZE = 20`），复杂度随活动量线性增长。
   实测（本机，隔离库，一半活动已过期）：
@@ -243,6 +244,46 @@ Web 控制台（仅 127.0.0.1）浏览与参与 → 定时自动参与 → 中�
 - **多账号编排**（**串行轮转已落地**，其余仍是产品决策）：`participate_triple` 与 `check_prize`
   支持按时间槽逐账号轮转，见 §4.7；并行隔离、账号健康度**已明确否决**（拆单写者不变量 /
   违反机制判据），`clear_follows` 的 Context 化与 `refresh_*` 的账号维度仍未做。
+- **身份边界只覆盖 5 / 28 个客户端构造点，调用点仍看不出区别**：传 `account_context` 的
+  5 处是 `actions.py` 的三个 `context` action 加 `account_service.get_account_profile(uid)`
+  的轮转前置校验；其余 23 处（10 个数据源、`refresh_all_pipeline` 的 shared client 与 worker
+  池、`watch_*`、`fetch_activity_info`、`clear_follows`、全部 `scripts/`）按环境身份解析。
+  **这与 `JOB_IDENTITY_POLICY` 一致，不是 bug**——`refresh_*` 与 `clear_follows` 本就是 `bound`。
+  真正的问题是 `BilibiliClient()` 与 `BilibiliClient(account_context=ctx)` 在语法上无从区分意图，
+  `check_prize` 因此漏过一次。`test_context_actions_are_plumbed.py` 已强制每个 `context`
+  action 登记接线测试，堵住了「新增 action 忘记透传」这一条路径；**尚未做**的是让
+  `account_context` 成为必填参数（显式传 `None` 表示环境身份），那才是消灭二义性本身。
+- **导入 `web.app` 有真实的 import 期副作用**（外部复审指出，**此前本节误记为"无"**）：
+  模块顶层执行 `ensure_user_dirs()`（创建目录、分发种子配置）、`setup_logging(console=False)`
+  与 `runner.recover_on_startup()`（把残留 running 任务改写为 interrupted，**写库**）。
+  这是 FastAPI 单进程应用的常见形态、也是 `_bootstrap_user_data` 得以把写入挪出 GET 路径的落点，
+  因此**不判定为缺陷**；但「import 即建目录、即写 jobs 表」必须写下来——
+  任何以 `import web.app` 为前提的脚本、测试或工具都在这个前提之下运行。
+  （前一版结论"全仓无 import 期 I/O"是错的：当时的检索只匹配 `name = call()` 形式的赋值，
+  漏掉了裸函数调用。检索方法本身是缺陷来源，记在这里。）
+- **事件总线的 protected 事件并非绝不丢**（外部复审指出，**此前本节误记为"绝不丢终态"**）：
+  队列被 256 条 protected 事件填满时，`_make_room_locked` 回填上限是
+  `queue_maxsize - reserve = 255`，`keep[:255]` 会截掉最新的那条 protected；
+  incoming 若也是 protected 则走 `put_nowait` 失败分支并记 warning。
+  正确表述是「背压优先丢进度噪声，protected 事件只在队列被 protected 自身填满时才丢，且留日志」。
+  一个 SSE 消费者要卡到积压 256 条终态事件才会触发，**当前不修**，但不得再写成无条件保证。
+- **`classify` 串行是真实的吞吐损失，并发确实有用**（外部复审纠正了前一版的论断）：
+  令牌桶的 `acquire()` 取到令牌即返回，网络等待发生在其之后，因此串行链路的实际速率是
+  `min(3 rps, 1/RTT)`——RTT 超过约 333 ms 时限速器根本没打满，令牌白白流走。
+  `enrich` 阶段的 worker client 池正是为此存在（每个 `BilibiliClient` 有自己的 `_http_lock`，
+  共享单 client 会串行化 HTTP）。所以此前「二者必有一处判断是错的」的答案是：
+  **enrich 的池子是对的，classify 的单 client 串行是那一处错**。
+  成本模型仍是「请求数 × 限速」——`classify_new_link` 每条链接 3~5 个请求，N 条约 `4N/3` 秒
+  是**下界**；降低每条链接的请求数依然是更大的杠杆，但有界并发是真实且未采摘的收益。
+- **`get_engine()` 每次调用都做一次文件系统 realpath**：`db_path().resolve()` 在全局锁内执行，
+  实测 31.5 µs/次，其中 27.7 µs 是 resolve；空 `session_scope()` 共 84.7 µs，三分之一花在解析
+  一条运行期不会变的路径上。55 个调用点，是全应用最热的路径。缓存解析结果即可，
+  重建逻辑（DATA_DIR 变化时换库）保留。
+- **覆盖率的缺口集中在副作用不可回滚的模块**：全量约 70%。
+  但 `lottery_actions` 37.8%（400 语句）、`notify` 37.7%（300）、`bilibili_client` 42.4%（467）、
+  `participation` 53.9%（267）——这四个模块合计约 1400 语句，平均覆盖不到一半，
+  而它们正是真实账号上真实动作的执行层、送达层、传输层与台账层。
+  纯逻辑模块（codec、status、time、parser）反而覆盖良好。**方向反了。**
 - **不存在「库 + JSON 双轨持久化」**（两轮外部复审各误判过一次，记在这里免得第三次）：
   `data/output/*_latest.json` 这些路径看着像第二个存储，实际**没有任何代码写它们**——
   `sources/common.save_result()` 只调 `save_ds_check_dict()` 落库，`path` 仅作返回值。
@@ -265,6 +306,10 @@ Web 控制台（仅 127.0.0.1）浏览与参与 → 定时自动参与 → 中�
 ## 7. 审计状态
 
 当前已知缺陷（A-01~C-07）的严重度、证据、修复顺序与关闭条件见 `docs/14-全量逐函数与漏洞审计-2026-08-12.md`；本文不复制审计寄存器。关闭审计项时更新底稿并附代码位置与测试证据。
+
+2026-09-11 做过一轮全项目复审（隐藏副作用 / 兼容性 / 性能 / 测试充分性 /
+胶水层 / 架构）。**结论与证据写在 docs/14 审计底稿**，不在本文重复；
+由它产生的未关闭条目已并入 §6。
 
 ## 8. 设计不变量
 
