@@ -936,7 +936,11 @@ def run_action(
         _raise_if_cancelled(cancel_event)
 
         filters = _list_filter_params(params)
-        targets = pick_triple_participate_targets(**filters)
+        # 轮转时用绑定账号的台账选目标，而不是 UI 活跃账号的（SPEC §4.7）。
+        targets = pick_triple_participate_targets(
+            viewer_uid=str(account_context.uid) if account_context else None,
+            **filters,
+        )
         from_auto = bool(params.get("from_auto"))
         # 乱序参与（源自 LAS）：防固定顺序被开奖机过滤，缺省开启
         from src.participate_enhance import load_participate_enhance

@@ -74,6 +74,7 @@ def test_pick_triple_participate_targets_skips_non_participatable() -> None:
     with patch("web.activity_service._filtered_activity_rows", return_value=rows) as mock_filter:
         targets = pick_triple_participate_targets()
     mock_filter.assert_called_once_with(
+        viewer_uid=None,
         status=None,
         lottery_type=None,
         draw=None,
@@ -90,6 +91,7 @@ def test_pick_triple_participate_targets_follows_list_filters() -> None:
     with patch("web.activity_service._filtered_activity_rows", return_value=rows) as mock_filter:
         pick_triple_participate_targets(lottery_type="转发抽奖", sort="heat", order="desc")
     mock_filter.assert_called_once_with(
+        viewer_uid=None,
         status=None,
         lottery_type="转发抽奖",
         draw=None,
@@ -108,6 +110,7 @@ def test_pick_triple_participate_targets_only_picks_not_joined() -> None:
     with patch("web.activity_service._filtered_activity_rows", return_value=rows) as mock_filter:
         targets = pick_triple_participate_targets(status="未参加")
     mock_filter.assert_called_once_with(
+        viewer_uid=None,
         status="未参加",
         lottery_type=None,
         draw=None,

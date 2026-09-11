@@ -47,7 +47,7 @@ def test_get_summary_uses_last_pipeline_persisted(
         persisted_count=7,
         synced_at=1_700_000_001,
     )
-    monkeypatch.setattr("web.activity_service.load_participations", lambda: {})
+    monkeypatch.setattr("web.activity_service.load_participations_for_uid", lambda uid: {})
 
     summary = get_summary()
     assert summary["new_count"] == 7

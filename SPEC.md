@@ -182,9 +182,16 @@ Web 控制台（仅 127.0.0.1）浏览与参与 → 定时自动参与 → 中�
   手动执行，界面上已注明。
 - **中奖通知带账号标识**：`_account_label()` 从账号资料缓存取昵称，取不到则只写 UID。
   轮转下不写清是哪个号，收到"命中 N 条"也不知道去哪个号领奖。
-- **已知取舍**：各账号会参与**同一批**活动（`pick_triple_participate_targets` 按 per-uid 的
-  "未参加"筛选，A 参与过不影响 B 的候选）。产品决策为允许；多号参与同一抽奖通常违反活动规则，
-  中奖可能被取消，且是较强的账号关联信号。未配独立代理时会共用出口 IP——启动时**只警告不阻止**。
+- **候选按执行账号的台账筛**：`pick_triple_participate_targets(viewer_uid=...)`，
+  轮转任务传绑定账号的 uid，UI 手动三连不传（落回活跃账号）。
+  **这句话此前写在规格里但代码没做**：写入端是 per-uid 的
+  （`participate_activity(account_uid=account_context.uid)` 落 `ParticipationRow(uid=B)`），
+  读取端却一路 `participation_uid()` → `get_active_uid()`。隔离只封了写路径的一半，
+  后果双向：A 参加过的活动 B 永远轮不到，B 自己参加过的下一槽仍显示「未参加」而被**重复参与**。
+  与不变量 #3 是同一形状的缺陷——都把「执行身份」误读成「当前活跃身份」。
+- **已知取舍**：各账号仍会参与**同一批**活动（活动库共享，每个号各自取自己未参加的前几条）。
+  产品决策为允许；多号参与同一抽奖通常违反活动规则，中奖可能被取消，且是较强的账号关联信号。
+  未配独立代理时会共用出口 IP——启动时**只警告不阻止**。
 
 ## 5. 当前状态
 
@@ -274,6 +281,7 @@ Web 控制台（仅 127.0.0.1）浏览与参与 → 定时自动参与 → 中�
 | 7 | 写者锁只仲裁**任务级**写者；持锁**不**代表"DB 此刻不会被改"，不得据此写 read-modify-write | `src/writer_lock.py` 模块文档 + §4.4 | `test_writer_lock.py` | — |
 | 8 | 字符串布尔值按字面量判定，不得依赖 `bool()`；`None` 表示"未知"不得被压成 `False` | `src/db/activity_codec._as_bool` / `_as_bool_strict` | `test_sqlite_data_layer.py` | ✅ `bool("false")` 为真，且 `skipped`/`status_classified` 两列原本绕过转换 |
 | 14 | **GET 端点一律不得写库**，无例外：可推导的状态读时派生，一次性引导放启动 | 派生：`src/activity_store.derive_payload_for_read`；引导：`src/app_paths._bootstrap_user_data` | `test_get_no_write.py` | ✅ 四处：`_load_activities_payload` 在 GET 里 UPDATE 过期活动（不受 #7 仲裁）、`GET /api/watch-users` 灌候选名单、`GET /api/accounts` 与 `GET /api/settings/proxy`（经 `_require_local_account`）收养遗留 cookie |
+| 15 | 选目标读的台账必须是**执行身份**的台账；轮转下活跃身份与执行身份不是同一个号 | `web/activity_service._filtered_activity_rows` 的 `viewer_uid` 参数 | `test_triple_targets_viewer_uid.py` | ✅ 候选一路读 `participation_uid()`，轮转账号据 A 的台账选目标，既漏参与又重复参与；与 #3 同形 |
 
 > #14 编号接在 §8.2 之后，但性质是跨层的（HTTP 读语义 × 锁边界），故列于本表。
 > 这条规则**没有例外**——留一个例外，下一个人就会照着例外写新端点。

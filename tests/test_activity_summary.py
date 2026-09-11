@@ -48,7 +48,7 @@ def test_get_summary_counts_are_consistent(isolated_home: Path, tmp_path, monkey
         ],
     }
     path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-    monkeypatch.setattr("web.activity_service.load_participations", lambda: {})
+    monkeypatch.setattr("web.activity_service.load_participations_for_uid", lambda uid: {})
     monkeypatch.setattr("web.activity_service.load_payload", lambda: payload)
 
     summary = get_summary()
@@ -86,7 +86,7 @@ def test_get_summary_loads_seeded_activities(
     monkeypatch.setattr("src.activity_seed.CONFIG_DIR", isolated_home / "config")
     monkeypatch.setattr("src.activity_seed.USER_SEED_PATH", seed_path)
     monkeypatch.setattr("src.activity_seed.BUNDLED_SEED_PATH", seed_path)
-    monkeypatch.setattr("web.activity_service.load_participations", lambda: {})
+    monkeypatch.setattr("web.activity_service.load_participations_for_uid", lambda uid: {})
 
     from src.activity_store import seed_activities_if_empty
 
@@ -127,7 +127,7 @@ def test_get_summary_auto_ends_expired_activity(
             },
         ]
     )
-    monkeypatch.setattr("web.activity_service.load_participations", lambda: {})
+    monkeypatch.setattr("web.activity_service.load_participations_for_uid", lambda uid: {})
 
     summary = get_summary()
     assert summary["counts"]["ended"] == 1
