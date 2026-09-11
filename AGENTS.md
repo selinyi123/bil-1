@@ -92,6 +92,11 @@ powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1
 - **schema**：未来版本 DB 在任何写操作前 hard fail，绝不自动降级；`init_db` 顺序 = 读版本→hard fail→迁移→create_all。
 - **Web mutation**：Job 运行中 fail-closed（`_reject_mutation_while_job_running`）；不得绕过 Host/Origin 校验；按资源冲突收窄的方向见 ACCEPTANCE I18。
 - **事务**：参与结果三表（actions/participations/activities）必须同一 session 事务。
+- **`BilibiliClient()` 的身份是隐式的**：裸构造 = 环境身份（按 `resolve_effective_uid()` 解析），
+  `BilibiliClient(account_context=ctx)` = 冻结身份。**两者在调用点看不出区别**，全仓 29 个构造点
+  只有 4 个传 context。所以改动执行路径时先查 `JOB_IDENTITY_POLICY`：标 `context` 的 action，
+  其执行链路上每一个 client 都必须拿到 context，漏一个就是静默用错账号。
+  `check_prize` 就这样漏过一次——策略表写着要冻结身份，代码里却是裸 client。
 - **ORM**：`session_scope` 块内读取字段，块外访问会 DetachedInstanceError（曾致台账静默空集）。
 - **测试**：新增/修改行为必须带不变量测试（见 ACCEPTANCE.md）；测试用 `isolated_home` fixture 隔离 BINGGO_HOME 与 DB。
 
@@ -137,10 +142,12 @@ powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1
 ## Notes
 
 - 版本 SSOT：`src/app_paths.__version__`（勿在 installer.iss 或文档中写死当前值）。
-- 发布仓库：https://github.com/selinyi123/bil-1（origin 为 luovicter-collab/bilibinggo）。
-- bil-1 是当前产品发布 SSOT；origin 旧上游仅用于历史对照，不得作为更新/安装入口。
+- 发布仓库与 `origin` 均为 https://github.com/selinyi123/bil-1，是唯一的更新/安装入口。
+  上游 `luovicter-collab/bilibinggo` 已不在任何 remote 中，仅存在于历史 commit 里。
 - 详见 SPEC.md（系统规格）、ACCEPTANCE.md（验收标准）、docs/13-LAS功能迁移审计.md（迁移矩阵）和 docs/14-全量逐函数与漏洞审计-2026-08-12.md（审计底稿）。
-- 多账号执行边界与 Codex↔GPT 规划循环见 docs/15-账号隔离上下文-v1.md、docs/16-Codex-GPT-规划循环.md；当前仅 `participate`/`participate_triple` 已接入不可变 AccountContext。
+- 多账号执行边界与 Codex↔GPT 规划循环见 docs/15-账号隔离上下文-v1.md、docs/16-Codex-GPT-规划循环.md；
+  已接入不可变 AccountContext 的是 `participate` / `participate_triple` / `check_prize`
+  （即 `JOB_IDENTITY_POLICY` 中标记为 `context` 的全部 action）。
 
 ## Agent skills
 
@@ -154,4 +161,8 @@ GitHub Issues（`selinyi123/bil-1`），通过 `gh` CLI 操作。见 `docs/agent
 
 ### Domain docs
 
-Single-context：仓库根 `CONTEXT.md` + `docs/adr/`。见 `docs/agents/domain.md`。
+Single-context：仓库根 `CONTEXT.md`。见 `docs/agents/domain.md`。
+
+`docs/adr/` 目前**不存在**——本仓库的设计决策记录在 SPEC.md §8（不变量 + 强制点 + 守卫测试）
+与各 PR 正文里，尚未拆成独立 ADR。`docs/agents/domain.md` 描述的是通用布局，读到 `docs/adr/`
+时按此处为准，不要因为目录缺失就去新建空目录。

@@ -208,7 +208,8 @@ Web 控制台（仅 127.0.0.1）浏览与参与 → 定时自动参与 → 中�
     `src/app_paths._bootstrap_user_data()`，与既有的种子灌入同处执行；
     `web/product_routes._require_local_account()` 里的第四处收养一并移除
     （它被 `GET /api/settings/proxy` 走到，仅在已登录时可达，原 gap 未记录）。
-  - 验证：`python -m pytest -q` → 690 passed / 1 skipped。
+  - 验证：全量 `python -m pytest -q` 通过。**测试数量不写进文档**——它每次改动都变，
+    写下来只会变成又一处需要维护的陈述（docs/13 已立此规则，此处此前违反过）。
 - **活动列表读取仍是全表加载**：`_filtered_activity_rows` 先把整表读进 Python 再过滤、
   排序、切页（`ACTIVITY_PAGE_SIZE = 20`），复杂度随活动量线性增长。
   实测（本机，隔离库，一半活动已过期）：
@@ -230,6 +231,47 @@ Web 控制台（仅 127.0.0.1）浏览与参与 → 定时自动参与 → 中�
 - **多账号编排**（**串行轮转已落地**，其余仍是产品决策）：`participate_triple` 与 `check_prize`
   支持按时间槽逐账号轮转，见 §4.7；并行隔离、账号健康度**已明确否决**（拆单写者不变量 /
   违反机制判据），`clear_follows` 的 Context 化与 `refresh_*` 的账号维度仍未做。
+- **身份边界只覆盖 5 / 29 个客户端构造点，且调用点看不出区别**：全仓 `BilibiliClient(` 构造点
+  29 处，传 `account_context` 的只有 5 处（`actions.py` 的 participate / participate_triple /
+  check_prize 路径，以及 `account_service.get_account_profile(uid)` 的轮转前置校验）。
+  其余 24 处——10 个数据源、`refresh_all_pipeline` 的 shared client 与 worker
+  池、`watch_users` / `watch_sync` / `fetch_activity_info`、`clear_follows`、全部 `scripts/`——
+  都是裸构造，按环境身份解析。**这与 `JOB_IDENTITY_POLICY` 的声明一致，不是 bug**：
+  `refresh_*` 与 `clear_follows` 本就登记为 `bound`。问题是这个二分在代码里没有任何信号，
+  `BilibiliClient()` 和 `BilibiliClient(account_context=ctx)` 在语法上无从区分意图。
+  `check_prize` 已经因此漏过一次（策略表要求冻结身份，代码是裸 client，2026-09-10 修复）。
+  **可行的强制点**：让 `account_context` 成为必填（显式传 `None` 表示环境身份），
+  或加一条守卫测试断言 `context` 策略 action 的执行链路上没有裸构造。两者都未做。
+- **MCP 整层零测试覆盖，而它是 API 的唯一外部消费者**：`mcp/binggo_mcp/` 三个文件
+  （server 298 / jobs 85 / client 79 语句）覆盖率均为 **0%**。它是独立进程，通过 HTTP
+  消费 26 个 `/api/*` 端点。PR #5 删除 `X-Api-Contract` 的理由是「前端与 MCP 都不做版本协商」——
+  这句话是对的，但它描述的是风险而不是理由：没有版本协商**又**没有测试，API 形状一变就静默断，
+  CI 不会知道。当前 26 个调用点与实际路由全部对得上（2026-09-11 核对），但这个核对不在 CI 里。
+  **成本极低**：一个遍历 `app.routes` 与 MCP 调用点做交叉比对的冒烟测试即可关闭。
+- **参与路径上有四处不可达的环境身份回退**：`run_action` 只有一个调用方
+  （`job_runner.py:750`），而 `try_start` 对非 `unbound` action 缺 `account_uid` 时直接 raise。
+  因此三个 `context` action 一定带 context，于是 `actions.py` 的裸 client 分支、两处
+  `client_kwargs ... else {}`、以及 `check_prize` 的 `if account_context else None`
+  **全部不可达**。按 PR #5 自己立的删除判据（死机制/未闭环契约一律删），这些应该去掉——
+  它们让读代码的人以为参与路径支持环境身份这一模式，而那正是 PR #4/#10/#11 关掉的东西。
+- **refresh_all 的耗时由「请求数 × 限速」决定，并发改不动**：全局令牌桶默认 3 rps
+  （`AGENTS.md` 机制判据允许的唯一节流形式）。`classify_new_link` 每条新链接串行发 3~5 个请求
+  （失效探测、additional、互动 notice、充电 notice、预约解析）。N 条新链接约 `4N/3` 秒：
+  500 条约 11 分钟，1000 条约 22 分钟。这就是「refresh_all 可能跑几十分钟」的来源，
+  也是 §4.7 深检刻度需要补跑机制的根因。**真正的杠杆是降低每条链接的请求数，不是并发度。**
+- **classify 串行、enrich 并发，两者的差异没有论证**：enrich 阶段专门写了注释论证 worker
+  client 池的必要性，而紧邻的 classify 阶段是单 client 串行。若并发确实有收益，classify 不该串行；
+  若 3 rps 才是真正的瓶颈（RTT < 333 ms 时串行已打满限速器），则 enrich 的池子是多余的。
+  二者必有一处判断是错的，代码没说是哪一处。
+- **`get_engine()` 每次调用都做一次文件系统 realpath**：`db_path().resolve()` 在全局锁内执行，
+  实测 31.5 µs/次，其中 27.7 µs 是 resolve；空 `session_scope()` 共 84.7 µs，三分之一花在解析
+  一条运行期不会变的路径上。55 个调用点，是全应用最热的路径。缓存解析结果即可，
+  重建逻辑（DATA_DIR 变化时换库）保留。
+- **覆盖率的缺口集中在副作用不可回滚的模块**：全量 69.8%（9075/12993 语句）。
+  但 `lottery_actions` 37.8%（400 语句）、`notify` 37.7%（300）、`bilibili_client` 42.4%（467）、
+  `participation` 53.9%（267）——这四个模块合计约 1400 语句，平均覆盖不到一半，
+  而它们正是真实账号上真实动作的执行层、送达层、传输层与台账层。
+  纯逻辑模块（codec、status、time、parser）反而覆盖良好。**方向反了。**
 - **粉丝数线路无记忆**：`get_user_followers` 的 card → relation/stat 两线每次调用都从第一条开始，成功线路不跨调用保留。
 - **per-account 行为配置 / 通知身份上下文**：participate_enhance/notify 仍全局；多账号编排落地后需带账号身份。
 - ~~**refresh_all 有更新+部分失败时 result 缺 sources_failed**~~（**已关闭**）：三态现在都返回
@@ -244,6 +286,20 @@ Web 控制台（仅 127.0.0.1）浏览与参与 → 定时自动参与 → 中�
 ## 7. 审计状态
 
 当前已知缺陷（A-01~C-07）的严重度、证据、修复顺序与关闭条件见 `docs/14-全量逐函数与漏洞审计-2026-08-12.md`；本文不复制审计寄存器。关闭审计项时更新底稿并附代码位置与测试证据。
+
+**2026-09-11 全项目复审**（隐藏副作用 / 兼容性 / 性能 / 测试充分性 / 胶水层 / 架构）结论摘要：
+
+| 维度 | 结论 |
+|---|---|
+| 隐藏副作用 | **干净**。GET 写库三处已于 2026-09-09 关闭，`_load_payload_unlocked` 的契约写进了 docstring，处理器里留了不变量引用。全仓无 import 期 I/O，模块级可变全局只有 `config_files._json_cache` 一处且按 mtime 失效。 |
+| 兼容性 | schema 迁移是全项目质量最高的一段：未来版本在**任何写之前** hard fail、meta 损坏 fail-closed、逐级迁移后幂等补建。唯一缺口是 MCP 这个外部消费者没有契约检查，见 §6。 |
+| 性能 | 无稳定性级问题。三处成本已量化并记入 §6：refresh_all 的限速×请求数模型、classify/enrich 的并发不对称、`get_engine()` 的 realpath。活动全表加载此前已量化并判定不修。 |
+| 测试充分性 | 全量 69.8%，但分布反了：副作用层覆盖最低，纯逻辑层覆盖最高。见 §6。 |
+| 胶水层 | `run_action` 是 950 行、9 个 `if action ==` 分支的单函数，每个分支手工接 context/progress/log/cancel。它是所有新功能的唯一落点，也是身份边界失效的直接成因。 |
+| 架构 | 承重设计（写者锁、单任务槽、事件总线背压、schema 迁移、身份策略表）都成立且互相自洽。风险不在设计，在**边界的可见性**：`BilibiliClient()` 看不出身份模式，`run_action` 看不出分支边界。 |
+
+事件总线（`web/event_hub.py`）在本轮复审中无发现：队列 256 / 订阅者 32 有界，
+按事件类型区分可丢与受保护，背压丢进度噪声但绝不丢终态。
 
 ## 8. 设计不变量
 
