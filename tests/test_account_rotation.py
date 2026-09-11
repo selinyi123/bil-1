@@ -537,3 +537,55 @@ def test_no_enhance_warning_without_rotation(isolated_home: Path, monkeypatch) -
     scheduler.stop()
     logs = " ".join(item.get("message", "") for item in status.get("logs") or [])
     assert "话术指纹" not in logs
+
+
+def test_participate_uses_bound_context_client(isolated_home: Path) -> None:
+    """单活动参与也必须用绑定上下文建客户端，理由与深检相同。
+
+    `participate` 与 `check_prize` 同为 `context` 策略，但此前只有后者有接线测试。
+    这条是 `test_context_actions_are_plumbed.py` 在第一次运行时逼出来的。
+    """
+    from unittest.mock import patch
+
+    from src.account_context import AccountContext
+    from web.actions import run_action
+
+    ctx = AccountContext(uid=UID_B, cookie="c", csrf="j", cookie_source="account_pool")
+    seen: list[int | None] = []
+
+    class FakeClient:
+        def __init__(self, *, account_context=None, **kw):
+            seen.append(getattr(account_context, "uid", None))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    class FakeResult:
+        def to_dict(self) -> dict:
+            return {
+                "status": "joined",
+                "message": "完成",
+                "actions": [
+                    {"action": name, "ok": True, "detail": ""}
+                    for name in ("like", "follow", "favorite", "repost", "comment")
+                ],
+            }
+
+    with (
+        patch("web.actions.BilibiliClient", FakeClient),
+        patch("web.actions.lookup_lottery_type", return_value="互动抽奖"),
+        patch("web.actions.ensure_activity_participatable"),
+        patch("web.actions.participate_activity", return_value=FakeResult()),
+    ):
+        payload = run_action(
+            "participate",
+            {"dynamic_id": "1220298825599549447"},
+            on_progress=lambda **_: None,
+            account_context=ctx,
+        )
+
+    assert payload["ok"] is True
+    assert seen and all(uid == UID_B for uid in seen), seen
