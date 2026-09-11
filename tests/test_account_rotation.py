@@ -486,3 +486,106 @@ def test_check_prize_daily_pattern_is_not_frozen() -> None:
             for d in (10, 11, 12, 13)
         }
         assert len(patterns) > 1, f"{size} 个账号时四天分布完全相同"
+
+
+def _enhance(monkeypatch, **overrides) -> None:
+    from src.participate_enhance import DEFAULTS
+
+    monkeypatch.setattr(
+        "src.participate_enhance.load_participate_enhance",
+        lambda: {**DEFAULTS, **overrides},
+    )
+
+
+def test_shared_enhance_fingerprint_warns_under_rotation(
+    isolated_home: Path, monkeypatch
+) -> None:
+    """participate_enhance 是全局的：轮转换 cookie，不换话术指纹。
+
+    同一批活动下 N 个账号 @ 同一群好友、带同一个话题标签，是比共用出口 IP
+    更直接的关联信号。与出口 IP 那条同样只警告不阻止——per-account 配置是
+    SPEC §6 记着的 gap，在它落地前，风险至少要出现在做决定的地方。
+    """
+    _enhance(monkeypatch, at_users=[{"uid": 1, "name": "甲"}], topic="抽奖")
+    scheduler = _scheduler_with_pool(
+        monkeypatch, [UID_A, UID_B], {UID_A: "http://a", UID_B: "http://b"}
+    )
+    status = scheduler.start(rotate_accounts=True)
+    scheduler.stop()
+
+    assert status["rotate_accounts"] is True
+    logs = " ".join(item.get("message", "") for item in status.get("logs") or [])
+    assert "@ 好友" in logs and "话题" in logs
+
+
+def test_no_enhance_warning_when_nothing_is_shared(isolated_home: Path, monkeypatch) -> None:
+    _enhance(monkeypatch)
+    scheduler = _scheduler_with_pool(
+        monkeypatch, [UID_A, UID_B], {UID_A: "http://a", UID_B: "http://b"}
+    )
+    status = scheduler.start(rotate_accounts=True)
+    scheduler.stop()
+    logs = " ".join(item.get("message", "") for item in status.get("logs") or [])
+    assert "话术指纹" not in logs
+
+
+def test_no_enhance_warning_without_rotation(isolated_home: Path, monkeypatch) -> None:
+    """单账号下这些配置没有关联含义，不该噪声。"""
+    _enhance(monkeypatch, at_users=[{"uid": 1, "name": "甲"}], topic="抽奖")
+    scheduler = _scheduler_with_pool(monkeypatch, [UID_A, UID_B])
+    status = scheduler.start()
+    scheduler.stop()
+    logs = " ".join(item.get("message", "") for item in status.get("logs") or [])
+    assert "话术指纹" not in logs
+
+
+def test_participate_uses_bound_context_client(isolated_home: Path) -> None:
+    """单活动参与也必须用绑定上下文建客户端，理由与深检相同。
+
+    `participate` 与 `check_prize` 同为 `context` 策略，但此前只有后者有接线测试。
+    这条是 `test_context_actions_are_plumbed.py` 在第一次运行时逼出来的。
+    """
+    from unittest.mock import patch
+
+    from src.account_context import AccountContext
+    from web.actions import run_action
+
+    ctx = AccountContext(uid=UID_B, cookie="c", csrf="j", cookie_source="account_pool")
+    seen: list[int | None] = []
+
+    class FakeClient:
+        def __init__(self, *, account_context=None, **kw):
+            seen.append(getattr(account_context, "uid", None))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    class FakeResult:
+        def to_dict(self) -> dict:
+            return {
+                "status": "joined",
+                "message": "完成",
+                "actions": [
+                    {"action": name, "ok": True, "detail": ""}
+                    for name in ("like", "follow", "favorite", "repost", "comment")
+                ],
+            }
+
+    with (
+        patch("web.actions.BilibiliClient", FakeClient),
+        patch("web.actions.lookup_lottery_type", return_value="互动抽奖"),
+        patch("web.actions.ensure_activity_participatable"),
+        patch("web.actions.participate_activity", return_value=FakeResult()),
+    ):
+        payload = run_action(
+            "participate",
+            {"dynamic_id": "1220298825599549447"},
+            on_progress=lambda **_: None,
+            account_context=ctx,
+        )
+
+    assert payload["ok"] is True
+    assert seen and all(uid == UID_B for uid in seen), seen

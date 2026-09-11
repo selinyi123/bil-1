@@ -93,10 +93,13 @@ powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1
 - **Web mutation**：Job 运行中 fail-closed（`_reject_mutation_while_job_running`）；不得绕过 Host/Origin 校验；按资源冲突收窄的方向见 ACCEPTANCE I18。
 - **事务**：参与结果三表（actions/participations/activities）必须同一 session 事务。
 - **`BilibiliClient()` 的身份是隐式的**：裸构造 = 环境身份（按 `resolve_effective_uid()` 解析），
-  `BilibiliClient(account_context=ctx)` = 冻结身份。**两者在调用点看不出区别**，全仓 29 个构造点
-  只有 4 个传 context。所以改动执行路径时先查 `JOB_IDENTITY_POLICY`：标 `context` 的 action，
+  `BilibiliClient(account_context=ctx)` = 冻结身份。**两者在调用点看不出区别**，全仓 28 个构造点
+  只有 5 个传 context（`actions.py` 的三个 `context` action，加 `account_service` 的轮转前置校验）。
+  所以改动执行路径时先查 `JOB_IDENTITY_POLICY`：标 `context` 的 action，
   其执行链路上每一个 client 都必须拿到 context，漏一个就是静默用错账号。
   `check_prize` 就这样漏过一次——策略表写着要冻结身份，代码里却是裸 client。
+  `test_context_actions_are_plumbed.py` 现在强制每个 `context` action 登记接线测试；
+  这个计数改动代码时会变，以该测试与 `JOB_IDENTITY_POLICY` 为准，不要以此处数字为准。
 - **ORM**：`session_scope` 块内读取字段，块外访问会 DetachedInstanceError（曾致台账静默空集）。
 - **测试**：新增/修改行为必须带不变量测试（见 ACCEPTANCE.md）；测试用 `isolated_home` fixture 隔离 BINGGO_HOME 与 DB。
 

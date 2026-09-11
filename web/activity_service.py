@@ -10,7 +10,10 @@ from src.lottery_classifier import PARTICIPATABLE_TYPES, is_charging_lottery_act
 from src.lottery_time import format_timestamp, is_activity_past_end, lottery_time_text
 from src.participation_log import load_action_entries_for_uid
 from src.db.uids import participation_uid
-from src.participation_store import ParticipationRecord, load_participations
+from src.participation_store import (
+    ParticipationRecord,
+    load_participations_for_uid,
+)
 from src.sources.common import is_valid_dynamic_id
 from src.state_store import DATA_DIR, get_last_pipeline_persisted
 
@@ -67,9 +70,9 @@ def _activity_title(item: dict) -> str:
     return _prize_summary(item) or str(item.get("dynamic_id") or "未知活动")
 
 
-def _load_participation_actions() -> dict[str, dict]:
+def _load_participation_actions(viewer_uid: str | None = None) -> dict[str, dict]:
     latest: dict[str, dict] = {}
-    for entry in load_action_entries_for_uid():
+    for entry in load_action_entries_for_uid(viewer_uid):
         if not isinstance(entry, dict):
             continue
         dynamic_id = str(entry.get("dynamic_id") or "")
@@ -249,8 +252,8 @@ def _load_activities_payload() -> dict:
 
 def get_summary() -> dict[str, Any]:
     enriched = _load_activities_payload()
-    participations = load_participations()
     viewer_uid = participation_uid()
+    participations = load_participations_for_uid(viewer_uid)
     activities = [
         item for item in (enriched.get("activities") or []) if _participatable_stored(item)
     ]
@@ -338,6 +341,7 @@ def build_triple_progress_plan(
 
 def _filtered_activity_rows(
     *,
+    viewer_uid: str | None = None,
     status: str | None = None,
     lottery_type: str | None = None,
     draw: str | None = None,
@@ -347,9 +351,10 @@ def _filtered_activity_rows(
     order: str | None = None,
 ) -> list[dict[str, Any]]:
     enriched = _load_activities_payload()
-    action_map = _load_participation_actions()
-    participations = load_participations()
-    viewer_uid = participation_uid()
+    # 轮转时执行身份不是活跃身份：候选必须按执行账号的台账筛（SPEC §4.7）。
+    viewer_uid = viewer_uid or participation_uid()
+    action_map = _load_participation_actions(viewer_uid)
+    participations = load_participations_for_uid(viewer_uid)
     items = [item for item in (enriched.get("activities") or []) if isinstance(item, dict)]
 
     normalized: list[dict[str, Any]] = []
@@ -451,6 +456,7 @@ def build_triple_target_preview(targets: list[dict[str, Any]]) -> dict[str, Any]
 
 def pick_triple_participate_targets(
     *,
+    viewer_uid: str | None = None,
     status: str | None = None,
     lottery_type: str | None = None,
     draw: str | None = None,
@@ -460,8 +466,13 @@ def pick_triple_participate_targets(
     order: str | None = None,
     limit: int = PARTICIPATE_TRIPLE_LIMIT,
 ) -> list[dict[str, Any]]:
-    """按当前列表筛选与排序，取最前面可参与的未参加活动（默认最多 3 个）。"""
+    """按当前列表筛选与排序，取最前面可参与的未参加活动（默认最多 3 个）。
+
+    `viewer_uid` 为空时按活跃账号筛（UI 手动三连）；轮转任务必须传入绑定账号的 uid，
+    否则会用 A 的台账替 B 选目标——B 重复参与、A 参加过的 B 永远轮不到。
+    """
     rows = _filtered_activity_rows(
+        viewer_uid=viewer_uid,
         status=status,
         lottery_type=lottery_type,
         draw=draw,

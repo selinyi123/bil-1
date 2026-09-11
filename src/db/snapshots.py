@@ -10,16 +10,13 @@ from sqlmodel import select
 from src.db.json_cols import dumps_json, loads_json
 from src.db.models import DsCheckSnapshotRow, WatchSyncSnapshotRow
 from src.db.session import session_scope
+from src.source_outputs import SOURCE_OUTPUTS
 
+# 从数据源登记表派生，不手写：手写的那版漏了 ds8/ds9/ds10，于是它们走文件回退，
+# 而 `save_result` 只写 DB 不写文件，回退恒定返回 None——两个源在「无变化」路径上
+# 永远报「共 0 条链接」。派生之后，新增数据源不可能再漏登记。
 FILENAME_TO_SOURCE: dict[str, str] = {
-    "ds1_latest.json": "DS-1",
-    "ds2_latest.json": "DS-2",
-    "ds3_latest.json": "DS-3",
-    "ds4_latest.json": "DS-4",
-    "ds5_latest.json": "DS-5",
-    "ds6_latest.json": "DS-6",
-    "ds7_latest.json": "DS-7",
-    "watch_latest.json": "WATCH",
+    path.name: source_id for source_id, path in SOURCE_OUTPUTS
 }
 
 

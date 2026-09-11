@@ -170,10 +170,7 @@ def _execute_participate(
 
     if client is not None:
         return _run(client)
-    if account_context is not None:
-        with BilibiliClient(account_context=account_context) as owned_client:
-            return _run(owned_client)
-    with BilibiliClient() as owned_client:
+    with BilibiliClient(account_context=account_context) as owned_client:
         return _run(owned_client)
 
 
@@ -899,8 +896,7 @@ def run_action(
             progress(step=step, total=total, message=message, log_append=message)
 
         account_uid = getattr(account_context, "uid", None)
-        client_kwargs = {"account_context": account_context} if account_context is not None else {}
-        with BilibiliClient(**client_kwargs) as client:
+        with BilibiliClient(account_context=account_context) as client:
             _raise_if_cancelled(cancel_event)
             ensure_activity_participatable(
                 client,
@@ -936,7 +932,11 @@ def run_action(
         _raise_if_cancelled(cancel_event)
 
         filters = _list_filter_params(params)
-        targets = pick_triple_participate_targets(**filters)
+        # 轮转时用绑定账号的台账选目标，而不是 UI 活跃账号的（SPEC §4.7）。
+        targets = pick_triple_participate_targets(
+            viewer_uid=str(account_context.uid) if account_context else None,
+            **filters,
+        )
         from_auto = bool(params.get("from_auto"))
         # 乱序参与（源自 LAS）：防固定顺序被开奖机过滤，缺省开启
         from src.participate_enhance import load_participate_enhance
@@ -1070,7 +1070,6 @@ def run_action(
                     task_states[other_id] = reason
 
         account_uid = getattr(account_context, "uid", None)
-        client_kwargs = {"account_context": account_context} if account_context is not None else {}
 
         def _participate_triple_target(target: dict[str, Any]) -> dict[str, Any]:
             if cancel_event and cancel_event.is_set():
@@ -1086,7 +1085,7 @@ def run_action(
                 task_states[dynamic_id] = "正在检查活动状态…"
             _emit_triple_progress(log_append=f"{title}：正在检查活动状态…")
 
-            with BilibiliClient(**client_kwargs) as client:
+            with BilibiliClient(account_context=account_context) as client:
                 ensure_activity_participatable(
                     client,
                     dynamic_id,

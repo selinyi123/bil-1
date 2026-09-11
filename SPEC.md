@@ -170,8 +170,14 @@ Web 控制台（仅 127.0.0.1）浏览与参与 → 定时自动参与 → 中�
 - **深检刻度可补跑**：`_run_refresh_batch` 同步阻塞整个调度线程（三次 `_wait_until_terminal`，
   上限六小时），用 `minute == 30` 精确匹配的话，批次跑到 `:47` 才返回时那一刻度根本不被
   求值，静默消失。判据改为「已过 `:30` 且本小时未跑过」，槽 key 固定用 `:30` 保证补跑时
-  选到的账号与准点一致。**三连刻度仍是精确匹配**，跨小时的长批次同样会吃掉它——既有行为，
-  未在本切片处理。
+  选到的账号与准点一致。
+- **三连刻度不补跑，这是结论不是遗留**：它同样是精确分钟匹配，长批次同样会吃掉跨过的刻度。
+  但两者的密度差三个数量级——三连每天 176 个刻度（16 个非刷新小时 × 11 个五分钟位），
+  深检每天 8 个、间隔 3 小时。批次结束后最多 5 分钟就有下一个三连刻度，而候选是
+  「尚未参加的活动」，它们不会因为刻度被跳过而消失，下一刻度照样选得到。**没有东西被永久漏掉，
+  只是那段时间吞吐降低**。深检不同：错过 `:30` 要等 3 小时，中奖通知与私信已读同步延迟。
+  反过来说，给三连加补跑会在长批次刚结束时立刻打一次、5 分钟后再打一次，
+  制造的正是我们在 §4.7 其余条目里小心避免的突发请求特征。
 - **`check_prize` 已升级为 `context`**：它会 `mark_dm_read()` 标记私信已读，是代表用户的写入；
   不冻结凭据的话，轮转时它会按"当前活跃 cookie"去读并标记**别的号**的私信。
   **对手动执行也有行为变化**：上下文捕获要求 cookie 同时解析出 uid 与 csrf，
@@ -182,9 +188,16 @@ Web 控制台（仅 127.0.0.1）浏览与参与 → 定时自动参与 → 中�
   手动执行，界面上已注明。
 - **中奖通知带账号标识**：`_account_label()` 从账号资料缓存取昵称，取不到则只写 UID。
   轮转下不写清是哪个号，收到"命中 N 条"也不知道去哪个号领奖。
-- **已知取舍**：各账号会参与**同一批**活动（`pick_triple_participate_targets` 按 per-uid 的
-  "未参加"筛选，A 参与过不影响 B 的候选）。产品决策为允许；多号参与同一抽奖通常违反活动规则，
-  中奖可能被取消，且是较强的账号关联信号。未配独立代理时会共用出口 IP——启动时**只警告不阻止**。
+- **候选按执行账号的台账筛**：`pick_triple_participate_targets(viewer_uid=...)`，
+  轮转任务传绑定账号的 uid，UI 手动三连不传（落回活跃账号）。
+  **这句话此前写在规格里但代码没做**：写入端是 per-uid 的
+  （`participate_activity(account_uid=account_context.uid)` 落 `ParticipationRow(uid=B)`），
+  读取端却一路 `participation_uid()` → `get_active_uid()`。隔离只封了写路径的一半，
+  后果双向：A 参加过的活动 B 永远轮不到，B 自己参加过的下一槽仍显示「未参加」而被**重复参与**。
+  与不变量 #3 是同一形状的缺陷——都把「执行身份」误读成「当前活跃身份」。
+- **已知取舍**：各账号仍会参与**同一批**活动（活动库共享，每个号各自取自己未参加的前几条）。
+  产品决策为允许；多号参与同一抽奖通常违反活动规则，中奖可能被取消，且是较强的账号关联信号。
+  未配独立代理时会共用出口 IP——启动时**只警告不阻止**。
 
 ## 5. 当前状态
 
@@ -231,47 +244,54 @@ Web 控制台（仅 127.0.0.1）浏览与参与 → 定时自动参与 → 中�
 - **多账号编排**（**串行轮转已落地**，其余仍是产品决策）：`participate_triple` 与 `check_prize`
   支持按时间槽逐账号轮转，见 §4.7；并行隔离、账号健康度**已明确否决**（拆单写者不变量 /
   违反机制判据），`clear_follows` 的 Context 化与 `refresh_*` 的账号维度仍未做。
-- **身份边界只覆盖 5 / 29 个客户端构造点，且调用点看不出区别**：全仓 `BilibiliClient(` 构造点
-  29 处，传 `account_context` 的只有 5 处（`actions.py` 的 participate / participate_triple /
-  check_prize 路径，以及 `account_service.get_account_profile(uid)` 的轮转前置校验）。
-  其余 24 处——10 个数据源、`refresh_all_pipeline` 的 shared client 与 worker
-  池、`watch_users` / `watch_sync` / `fetch_activity_info`、`clear_follows`、全部 `scripts/`——
-  都是裸构造，按环境身份解析。**这与 `JOB_IDENTITY_POLICY` 的声明一致，不是 bug**：
-  `refresh_*` 与 `clear_follows` 本就登记为 `bound`。问题是这个二分在代码里没有任何信号，
-  `BilibiliClient()` 和 `BilibiliClient(account_context=ctx)` 在语法上无从区分意图。
-  `check_prize` 已经因此漏过一次（策略表要求冻结身份，代码是裸 client，2026-09-10 修复）。
-  **可行的强制点**：让 `account_context` 成为必填（显式传 `None` 表示环境身份），
-  或加一条守卫测试断言 `context` 策略 action 的执行链路上没有裸构造。两者都未做。
-- **MCP 整层零测试覆盖，而它是 API 的唯一外部消费者**：`mcp/binggo_mcp/` 三个文件
-  （server 298 / jobs 85 / client 79 语句）覆盖率均为 **0%**。它是独立进程，通过 HTTP
-  消费 26 个 `/api/*` 端点。PR #5 删除 `X-Api-Contract` 的理由是「前端与 MCP 都不做版本协商」——
-  这句话是对的，但它描述的是风险而不是理由：没有版本协商**又**没有测试，API 形状一变就静默断，
-  CI 不会知道。当前 26 个调用点与实际路由全部对得上（2026-09-11 核对），但这个核对不在 CI 里。
-  **成本极低**：一个遍历 `app.routes` 与 MCP 调用点做交叉比对的冒烟测试即可关闭。
-- **参与路径上有四处不可达的环境身份回退**：`run_action` 只有一个调用方
-  （`job_runner.py:750`），而 `try_start` 对非 `unbound` action 缺 `account_uid` 时直接 raise。
-  因此三个 `context` action 一定带 context，于是 `actions.py` 的裸 client 分支、两处
-  `client_kwargs ... else {}`、以及 `check_prize` 的 `if account_context else None`
-  **全部不可达**。按 PR #5 自己立的删除判据（死机制/未闭环契约一律删），这些应该去掉——
-  它们让读代码的人以为参与路径支持环境身份这一模式，而那正是 PR #4/#10/#11 关掉的东西。
-- **refresh_all 的耗时由「请求数 × 限速」决定，并发改不动**：全局令牌桶默认 3 rps
-  （`AGENTS.md` 机制判据允许的唯一节流形式）。`classify_new_link` 每条新链接串行发 3~5 个请求
-  （失效探测、additional、互动 notice、充电 notice、预约解析）。N 条新链接约 `4N/3` 秒：
-  500 条约 11 分钟，1000 条约 22 分钟。这就是「refresh_all 可能跑几十分钟」的来源，
-  也是 §4.7 深检刻度需要补跑机制的根因。**真正的杠杆是降低每条链接的请求数，不是并发度。**
-- **classify 串行、enrich 并发，两者的差异没有论证**：enrich 阶段专门写了注释论证 worker
-  client 池的必要性，而紧邻的 classify 阶段是单 client 串行。若并发确实有收益，classify 不该串行；
-  若 3 rps 才是真正的瓶颈（RTT < 333 ms 时串行已打满限速器），则 enrich 的池子是多余的。
-  二者必有一处判断是错的，代码没说是哪一处。
+- **身份边界只覆盖 5 / 28 个客户端构造点，调用点仍看不出区别**：传 `account_context` 的
+  5 处是 `actions.py` 的三个 `context` action 加 `account_service.get_account_profile(uid)`
+  的轮转前置校验；其余 23 处（10 个数据源、`refresh_all_pipeline` 的 shared client 与 worker
+  池、`watch_*`、`fetch_activity_info`、`clear_follows`、全部 `scripts/`）按环境身份解析。
+  **这与 `JOB_IDENTITY_POLICY` 一致，不是 bug**——`refresh_*` 与 `clear_follows` 本就是 `bound`。
+  真正的问题是 `BilibiliClient()` 与 `BilibiliClient(account_context=ctx)` 在语法上无从区分意图，
+  `check_prize` 因此漏过一次。`test_context_actions_are_plumbed.py` 已强制每个 `context`
+  action 登记接线测试，堵住了「新增 action 忘记透传」这一条路径；**尚未做**的是让
+  `account_context` 成为必填参数（显式传 `None` 表示环境身份），那才是消灭二义性本身。
+- **导入 `web.app` 有真实的 import 期副作用**（外部复审指出，**此前本节误记为"无"**）：
+  模块顶层执行 `ensure_user_dirs()`（创建目录、分发种子配置）、`setup_logging(console=False)`
+  与 `runner.recover_on_startup()`（把残留 running 任务改写为 interrupted，**写库**）。
+  这是 FastAPI 单进程应用的常见形态、也是 `_bootstrap_user_data` 得以把写入挪出 GET 路径的落点，
+  因此**不判定为缺陷**；但「import 即建目录、即写 jobs 表」必须写下来——
+  任何以 `import web.app` 为前提的脚本、测试或工具都在这个前提之下运行。
+  （前一版结论"全仓无 import 期 I/O"是错的：当时的检索只匹配 `name = call()` 形式的赋值，
+  漏掉了裸函数调用。检索方法本身是缺陷来源，记在这里。）
+- **事件总线的 protected 事件并非绝不丢**（外部复审指出，**此前本节误记为"绝不丢终态"**）：
+  队列被 256 条 protected 事件填满时，`_make_room_locked` 回填上限是
+  `queue_maxsize - reserve = 255`，`keep[:255]` 会截掉最新的那条 protected；
+  incoming 若也是 protected 则走 `put_nowait` 失败分支并记 warning。
+  正确表述是「背压优先丢进度噪声，protected 事件只在队列被 protected 自身填满时才丢，且留日志」。
+  一个 SSE 消费者要卡到积压 256 条终态事件才会触发，**当前不修**，但不得再写成无条件保证。
+- **`classify` 串行是真实的吞吐损失，并发确实有用**（外部复审纠正了前一版的论断）：
+  令牌桶的 `acquire()` 取到令牌即返回，网络等待发生在其之后，因此串行链路的实际速率是
+  `min(3 rps, 1/RTT)`——RTT 超过约 333 ms 时限速器根本没打满，令牌白白流走。
+  `enrich` 阶段的 worker client 池正是为此存在（每个 `BilibiliClient` 有自己的 `_http_lock`，
+  共享单 client 会串行化 HTTP）。所以此前「二者必有一处判断是错的」的答案是：
+  **enrich 的池子是对的，classify 的单 client 串行是那一处错**。
+  成本模型仍是「请求数 × 限速」——`classify_new_link` 每条链接 3~5 个请求，N 条约 `4N/3` 秒
+  是**下界**；降低每条链接的请求数依然是更大的杠杆，但有界并发是真实且未采摘的收益。
 - **`get_engine()` 每次调用都做一次文件系统 realpath**：`db_path().resolve()` 在全局锁内执行，
   实测 31.5 µs/次，其中 27.7 µs 是 resolve；空 `session_scope()` 共 84.7 µs，三分之一花在解析
   一条运行期不会变的路径上。55 个调用点，是全应用最热的路径。缓存解析结果即可，
   重建逻辑（DATA_DIR 变化时换库）保留。
-- **覆盖率的缺口集中在副作用不可回滚的模块**：全量 69.8%（9075/12993 语句）。
+- **覆盖率的缺口集中在副作用不可回滚的模块**：全量约 70%。
   但 `lottery_actions` 37.8%（400 语句）、`notify` 37.7%（300）、`bilibili_client` 42.4%（467）、
   `participation` 53.9%（267）——这四个模块合计约 1400 语句，平均覆盖不到一半，
   而它们正是真实账号上真实动作的执行层、送达层、传输层与台账层。
   纯逻辑模块（codec、status、time、parser）反而覆盖良好。**方向反了。**
+- **不存在「库 + JSON 双轨持久化」**（两轮外部复审各误判过一次，记在这里免得第三次）：
+  `data/output/*_latest.json` 这些路径看着像第二个存储，实际**没有任何代码写它们**——
+  `sources/common.save_result()` 只调 `save_ds_check_dict()` 落库，`path` 仅作返回值。
+  读侧 `load_previous_output(path)` 也不读文件，它拿**文件名当键**去查快照表。
+  即路径是 DB 行的寻址方式，不是落盘位置。唯一真实的取舍是这个寻址方式本身：
+  它曾让 ds8/ds9/ds10 漏登记而静默回退到不存在的文件（已修，映射改为从
+  `SOURCE_OUTPUTS` 派生，守卫 `test_snapshot_filename_registry.py`）。
+  彻底的修法是让快照按 source_id 寻址、废掉文件名，需改 10 个数据源模块，**未做**。
 - **粉丝数线路无记忆**：`get_user_followers` 的 card → relation/stat 两线每次调用都从第一条开始，成功线路不跨调用保留。
 - **per-account 行为配置 / 通知身份上下文**：participate_enhance/notify 仍全局；多账号编排落地后需带账号身份。
 - ~~**refresh_all 有更新+部分失败时 result 缺 sources_failed**~~（**已关闭**）：三态现在都返回
@@ -287,19 +307,9 @@ Web 控制台（仅 127.0.0.1）浏览与参与 → 定时自动参与 → 中�
 
 当前已知缺陷（A-01~C-07）的严重度、证据、修复顺序与关闭条件见 `docs/14-全量逐函数与漏洞审计-2026-08-12.md`；本文不复制审计寄存器。关闭审计项时更新底稿并附代码位置与测试证据。
 
-**2026-09-11 全项目复审**（隐藏副作用 / 兼容性 / 性能 / 测试充分性 / 胶水层 / 架构）结论摘要：
-
-| 维度 | 结论 |
-|---|---|
-| 隐藏副作用 | **干净**。GET 写库三处已于 2026-09-09 关闭，`_load_payload_unlocked` 的契约写进了 docstring，处理器里留了不变量引用。全仓无 import 期 I/O，模块级可变全局只有 `config_files._json_cache` 一处且按 mtime 失效。 |
-| 兼容性 | schema 迁移是全项目质量最高的一段：未来版本在**任何写之前** hard fail、meta 损坏 fail-closed、逐级迁移后幂等补建。唯一缺口是 MCP 这个外部消费者没有契约检查，见 §6。 |
-| 性能 | 无稳定性级问题。三处成本已量化并记入 §6：refresh_all 的限速×请求数模型、classify/enrich 的并发不对称、`get_engine()` 的 realpath。活动全表加载此前已量化并判定不修。 |
-| 测试充分性 | 全量 69.8%，但分布反了：副作用层覆盖最低，纯逻辑层覆盖最高。见 §6。 |
-| 胶水层 | `run_action` 是 950 行、9 个 `if action ==` 分支的单函数，每个分支手工接 context/progress/log/cancel。它是所有新功能的唯一落点，也是身份边界失效的直接成因。 |
-| 架构 | 承重设计（写者锁、单任务槽、事件总线背压、schema 迁移、身份策略表）都成立且互相自洽。风险不在设计，在**边界的可见性**：`BilibiliClient()` 看不出身份模式，`run_action` 看不出分支边界。 |
-
-事件总线（`web/event_hub.py`）在本轮复审中无发现：队列 256 / 订阅者 32 有界，
-按事件类型区分可丢与受保护，背压丢进度噪声但绝不丢终态。
+2026-09-11 做过一轮全项目复审（隐藏副作用 / 兼容性 / 性能 / 测试充分性 /
+胶水层 / 架构）。**结论与证据写在 docs/14 审计底稿**，不在本文重复；
+由它产生的未关闭条目已并入 §6。
 
 ## 8. 设计不变量
 
@@ -327,9 +337,11 @@ Web 控制台（仅 127.0.0.1）浏览与参与 → 定时自动参与 → 中�
 | 4 | Job 启动时绑定的执行身份在运行中不得改变；`context` 策略的 Cookie/CSRF/UID/Proxy 是冻结快照 | `account_context.capture_current_account_context`、`BilibiliClient.__init__` | `test_account_context.py` | ✅ 注释写着"不要重新解析"，三行后的 `if proxy is None` 就在重新解析 |
 | 5 | 每个 Job action 必须显式登记身份策略；**未登记者默认拒绝**，不是默认放行 | `web/job_runner.JOB_IDENTITY_POLICY` | `test_job_identity_policy.py` | ✅ 原 `try_start` 允许 `account_uid=None` 并静默跳过身份守卫 |
 | 6 | 对外部集合分页遍历时不得边遍历边修改；先读完再执行 | `src/clear_follows.PARTITION_PAGE_SIZE` 附近的两段式实现 | `test_clear_follows_partition.py` | ✅ 120 人分区只取关 70 人，且**预演与真实执行数字不一致** |
-| 7 | 写者锁只仲裁**任务级**写者；持锁**不**代表"DB 此刻不会被改"，不得据此写 read-modify-write | `src/writer_lock.py` 模块文档 + §4.4 | `test_writer_lock.py` | — |
+| 7 | 写者锁只仲裁**任务级**写者；持锁**不**代表"DB 此刻不会被改"，不得据此写 read-modify-write；也**不**约束平台侧并发——一个 `participate_triple` 任务自己就开 3 个 B 站会话 | `src/writer_lock.py` 模块文档 + §4.4 | `test_writer_lock.py` | — |
 | 8 | 字符串布尔值按字面量判定，不得依赖 `bool()`；`None` 表示"未知"不得被压成 `False` | `src/db/activity_codec._as_bool` / `_as_bool_strict` | `test_sqlite_data_layer.py` | ✅ `bool("false")` 为真，且 `skipped`/`status_classified` 两列原本绕过转换 |
 | 14 | **GET 端点一律不得写库**，无例外：可推导的状态读时派生，一次性引导放启动 | 派生：`src/activity_store.derive_payload_for_read`；引导：`src/app_paths._bootstrap_user_data` | `test_get_no_write.py` | ✅ 四处：`_load_activities_payload` 在 GET 里 UPDATE 过期活动（不受 #7 仲裁）、`GET /api/watch-users` 灌候选名单、`GET /api/accounts` 与 `GET /api/settings/proxy`（经 `_require_local_account`）收养遗留 cookie |
+| 15 | 选目标读的台账必须是**执行身份**的台账；轮转下活跃身份与执行身份不是同一个号 | `web/activity_service._filtered_activity_rows` 的 `viewer_uid` 参数 | `test_triple_targets_viewer_uid.py` | ✅ 候选一路读 `participation_uid()`，轮转账号据 A 的台账选目标，既漏参与又重复参与；与 #3 同形 |
+| 16 | MCP 只经 HTTP 消费控制面：不得 import `src.*` / `web.*`，且它调用的每个 `/api` 路径必须是真实路由 | `mcp/binggo_mcp/client.py`（唯一出口） | `test_mcp_api_contract.py` | — |
 
 > #14 编号接在 §8.2 之后，但性质是跨层的（HTTP 读语义 × 锁边界），故列于本表。
 > 这条规则**没有例外**——留一个例外，下一个人就会照着例外写新端点。
