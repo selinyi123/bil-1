@@ -170,10 +170,7 @@ def _execute_participate(
 
     if client is not None:
         return _run(client)
-    if account_context is not None:
-        with BilibiliClient(account_context=account_context) as owned_client:
-            return _run(owned_client)
-    with BilibiliClient() as owned_client:
+    with BilibiliClient(account_context=account_context) as owned_client:
         return _run(owned_client)
 
 
@@ -899,8 +896,7 @@ def run_action(
             progress(step=step, total=total, message=message, log_append=message)
 
         account_uid = getattr(account_context, "uid", None)
-        client_kwargs = {"account_context": account_context} if account_context is not None else {}
-        with BilibiliClient(**client_kwargs) as client:
+        with BilibiliClient(account_context=account_context) as client:
             _raise_if_cancelled(cancel_event)
             ensure_activity_participatable(
                 client,
@@ -1074,7 +1070,6 @@ def run_action(
                     task_states[other_id] = reason
 
         account_uid = getattr(account_context, "uid", None)
-        client_kwargs = {"account_context": account_context} if account_context is not None else {}
 
         def _participate_triple_target(target: dict[str, Any]) -> dict[str, Any]:
             if cancel_event and cancel_event.is_set():
@@ -1090,7 +1085,7 @@ def run_action(
                 task_states[dynamic_id] = "正在检查活动状态…"
             _emit_triple_progress(log_append=f"{title}：正在检查活动状态…")
 
-            with BilibiliClient(**client_kwargs) as client:
+            with BilibiliClient(account_context=account_context) as client:
                 ensure_activity_participatable(
                     client,
                     dynamic_id,

@@ -170,8 +170,14 @@ Web 控制台（仅 127.0.0.1）浏览与参与 → 定时自动参与 → 中�
 - **深检刻度可补跑**：`_run_refresh_batch` 同步阻塞整个调度线程（三次 `_wait_until_terminal`，
   上限六小时），用 `minute == 30` 精确匹配的话，批次跑到 `:47` 才返回时那一刻度根本不被
   求值，静默消失。判据改为「已过 `:30` 且本小时未跑过」，槽 key 固定用 `:30` 保证补跑时
-  选到的账号与准点一致。**三连刻度仍是精确匹配**，跨小时的长批次同样会吃掉它——既有行为，
-  未在本切片处理。
+  选到的账号与准点一致。
+- **三连刻度不补跑，这是结论不是遗留**：它同样是精确分钟匹配，长批次同样会吃掉跨过的刻度。
+  但两者的密度差三个数量级——三连每天 176 个刻度（16 个非刷新小时 × 11 个五分钟位），
+  深检每天 8 个、间隔 3 小时。批次结束后最多 5 分钟就有下一个三连刻度，而候选是
+  「尚未参加的活动」，它们不会因为刻度被跳过而消失，下一刻度照样选得到。**没有东西被永久漏掉，
+  只是那段时间吞吐降低**。深检不同：错过 `:30` 要等 3 小时，中奖通知与私信已读同步延迟。
+  反过来说，给三连加补跑会在长批次刚结束时立刻打一次、5 分钟后再打一次，
+  制造的正是我们在 §4.7 其余条目里小心避免的突发请求特征。
 - **`check_prize` 已升级为 `context`**：它会 `mark_dm_read()` 标记私信已读，是代表用户的写入；
   不冻结凭据的话，轮转时它会按"当前活跃 cookie"去读并标记**别的号**的私信。
   **对手动执行也有行为变化**：上下文捕获要求 cookie 同时解析出 uid 与 csrf，
@@ -278,10 +284,11 @@ Web 控制台（仅 127.0.0.1）浏览与参与 → 定时自动参与 → 中�
 | 4 | Job 启动时绑定的执行身份在运行中不得改变；`context` 策略的 Cookie/CSRF/UID/Proxy 是冻结快照 | `account_context.capture_current_account_context`、`BilibiliClient.__init__` | `test_account_context.py` | ✅ 注释写着"不要重新解析"，三行后的 `if proxy is None` 就在重新解析 |
 | 5 | 每个 Job action 必须显式登记身份策略；**未登记者默认拒绝**，不是默认放行 | `web/job_runner.JOB_IDENTITY_POLICY` | `test_job_identity_policy.py` | ✅ 原 `try_start` 允许 `account_uid=None` 并静默跳过身份守卫 |
 | 6 | 对外部集合分页遍历时不得边遍历边修改；先读完再执行 | `src/clear_follows.PARTITION_PAGE_SIZE` 附近的两段式实现 | `test_clear_follows_partition.py` | ✅ 120 人分区只取关 70 人，且**预演与真实执行数字不一致** |
-| 7 | 写者锁只仲裁**任务级**写者；持锁**不**代表"DB 此刻不会被改"，不得据此写 read-modify-write | `src/writer_lock.py` 模块文档 + §4.4 | `test_writer_lock.py` | — |
+| 7 | 写者锁只仲裁**任务级**写者；持锁**不**代表"DB 此刻不会被改"，不得据此写 read-modify-write；也**不**约束平台侧并发——一个 `participate_triple` 任务自己就开 3 个 B 站会话 | `src/writer_lock.py` 模块文档 + §4.4 | `test_writer_lock.py` | — |
 | 8 | 字符串布尔值按字面量判定，不得依赖 `bool()`；`None` 表示"未知"不得被压成 `False` | `src/db/activity_codec._as_bool` / `_as_bool_strict` | `test_sqlite_data_layer.py` | ✅ `bool("false")` 为真，且 `skipped`/`status_classified` 两列原本绕过转换 |
 | 14 | **GET 端点一律不得写库**，无例外：可推导的状态读时派生，一次性引导放启动 | 派生：`src/activity_store.derive_payload_for_read`；引导：`src/app_paths._bootstrap_user_data` | `test_get_no_write.py` | ✅ 四处：`_load_activities_payload` 在 GET 里 UPDATE 过期活动（不受 #7 仲裁）、`GET /api/watch-users` 灌候选名单、`GET /api/accounts` 与 `GET /api/settings/proxy`（经 `_require_local_account`）收养遗留 cookie |
 | 15 | 选目标读的台账必须是**执行身份**的台账；轮转下活跃身份与执行身份不是同一个号 | `web/activity_service._filtered_activity_rows` 的 `viewer_uid` 参数 | `test_triple_targets_viewer_uid.py` | ✅ 候选一路读 `participation_uid()`，轮转账号据 A 的台账选目标，既漏参与又重复参与；与 #3 同形 |
+| 16 | MCP 只经 HTTP 消费控制面：不得 import `src.*` / `web.*`，且它调用的每个 `/api` 路径必须是真实路由 | `mcp/binggo_mcp/client.py`（唯一出口） | `test_mcp_api_contract.py` | — |
 
 > #14 编号接在 §8.2 之后，但性质是跨层的（HTTP 读语义 × 锁边界），故列于本表。
 > 这条规则**没有例外**——留一个例外，下一个人就会照着例外写新端点。

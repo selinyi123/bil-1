@@ -486,3 +486,54 @@ def test_check_prize_daily_pattern_is_not_frozen() -> None:
             for d in (10, 11, 12, 13)
         }
         assert len(patterns) > 1, f"{size} 个账号时四天分布完全相同"
+
+
+def _enhance(monkeypatch, **overrides) -> None:
+    from src.participate_enhance import DEFAULTS
+
+    monkeypatch.setattr(
+        "src.participate_enhance.load_participate_enhance",
+        lambda: {**DEFAULTS, **overrides},
+    )
+
+
+def test_shared_enhance_fingerprint_warns_under_rotation(
+    isolated_home: Path, monkeypatch
+) -> None:
+    """participate_enhance 是全局的：轮转换 cookie，不换话术指纹。
+
+    同一批活动下 N 个账号 @ 同一群好友、带同一个话题标签，是比共用出口 IP
+    更直接的关联信号。与出口 IP 那条同样只警告不阻止——per-account 配置是
+    SPEC §6 记着的 gap，在它落地前，风险至少要出现在做决定的地方。
+    """
+    _enhance(monkeypatch, at_users=[{"uid": 1, "name": "甲"}], topic="抽奖")
+    scheduler = _scheduler_with_pool(
+        monkeypatch, [UID_A, UID_B], {UID_A: "http://a", UID_B: "http://b"}
+    )
+    status = scheduler.start(rotate_accounts=True)
+    scheduler.stop()
+
+    assert status["rotate_accounts"] is True
+    logs = " ".join(item.get("message", "") for item in status.get("logs") or [])
+    assert "@ 好友" in logs and "话题" in logs
+
+
+def test_no_enhance_warning_when_nothing_is_shared(isolated_home: Path, monkeypatch) -> None:
+    _enhance(monkeypatch)
+    scheduler = _scheduler_with_pool(
+        monkeypatch, [UID_A, UID_B], {UID_A: "http://a", UID_B: "http://b"}
+    )
+    status = scheduler.start(rotate_accounts=True)
+    scheduler.stop()
+    logs = " ".join(item.get("message", "") for item in status.get("logs") or [])
+    assert "话术指纹" not in logs
+
+
+def test_no_enhance_warning_without_rotation(isolated_home: Path, monkeypatch) -> None:
+    """单账号下这些配置没有关联含义，不该噪声。"""
+    _enhance(monkeypatch, at_users=[{"uid": 1, "name": "甲"}], topic="抽奖")
+    scheduler = _scheduler_with_pool(monkeypatch, [UID_A, UID_B])
+    status = scheduler.start()
+    scheduler.stop()
+    logs = " ".join(item.get("message", "") for item in status.get("logs") or [])
+    assert "话术指纹" not in logs

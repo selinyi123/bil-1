@@ -266,6 +266,7 @@ class AutoScheduler:
         if rotate:
             self._log("info", f"多账号轮转已启用：{len(pool)} 个账号按刻度依次参与")
             self._warn_if_accounts_share_exit_ip(pool)
+            self._warn_if_enhance_is_shared()
         self._schedule_auto_snapshot(force=True)
         return self.get_status()
 
@@ -294,6 +295,30 @@ class AutoScheduler:
                 "warn",
                 f"{len(without)} 个账号未配置独立代理（{', '.join(str(u) for u in without)}），"
                 "将共用同一出口 IP",
+            )
+
+    def _warn_if_enhance_is_shared(self) -> None:
+        """参与增强是全局配置：轮转换 cookie，不换话术指纹。
+
+        同一批活动下 N 个账号 @ 同一群好友、带同一个话题标签，比共用出口 IP
+        更直接地表明这些号属于同一个人。per-account 配置是 SPEC §6 的 gap；
+        在它落地前，风险至少要出现在做决定的地方，而不是只躺在文档里。
+        与出口 IP 同样**只警告不阻止**——那是你的判断。
+        """
+        from src.participate_enhance import load_participate_enhance
+
+        config = load_participate_enhance()
+        shared: list[str] = []
+        at_users = config.get("at_users") or []
+        if at_users:
+            shared.append(f"@ 好友 {len(at_users)} 个")
+        if str(config.get("topic") or "").strip():
+            shared.append("话题标签")
+        if shared:
+            self._log(
+                "warn",
+                f"参与增强为全局配置，所有轮转账号共用同一份{'、'.join(shared)}，"
+                "是话术指纹层面的账号关联信号",
             )
 
     def stop(self, *, reason: str = "用户停止") -> dict[str, Any]:

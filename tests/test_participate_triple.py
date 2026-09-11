@@ -183,6 +183,9 @@ def test_run_action_participate_triple_concurrent(monkeypatch: pytest.MonkeyPatc
     client_instances: list[object] = []
 
     class FakeClient:
+        def __init__(self, *, account_context=None) -> None:
+            self.account_context = account_context
+
         def __enter__(self):
             client_instances.append(self)
             return self
