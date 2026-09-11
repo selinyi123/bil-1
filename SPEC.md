@@ -243,6 +243,14 @@ Web 控制台（仅 127.0.0.1）浏览与参与 → 定时自动参与 → 中�
 - **多账号编排**（**串行轮转已落地**，其余仍是产品决策）：`participate_triple` 与 `check_prize`
   支持按时间槽逐账号轮转，见 §4.7；并行隔离、账号健康度**已明确否决**（拆单写者不变量 /
   违反机制判据），`clear_follows` 的 Context 化与 `refresh_*` 的账号维度仍未做。
+- **不存在「库 + JSON 双轨持久化」**（两轮外部复审各误判过一次，记在这里免得第三次）：
+  `data/output/*_latest.json` 这些路径看着像第二个存储，实际**没有任何代码写它们**——
+  `sources/common.save_result()` 只调 `save_ds_check_dict()` 落库，`path` 仅作返回值。
+  读侧 `load_previous_output(path)` 也不读文件，它拿**文件名当键**去查快照表。
+  即路径是 DB 行的寻址方式，不是落盘位置。唯一真实的取舍是这个寻址方式本身：
+  它曾让 ds8/ds9/ds10 漏登记而静默回退到不存在的文件（已修，映射改为从
+  `SOURCE_OUTPUTS` 派生，守卫 `test_snapshot_filename_registry.py`）。
+  彻底的修法是让快照按 source_id 寻址、废掉文件名，需改 10 个数据源模块，**未做**。
 - **粉丝数线路无记忆**：`get_user_followers` 的 card → relation/stat 两线每次调用都从第一条开始，成功线路不跨调用保留。
 - **per-account 行为配置 / 通知身份上下文**：participate_enhance/notify 仍全局；多账号编排落地后需带账号身份。
 - ~~**refresh_all 有更新+部分失败时 result 缺 sources_failed**~~（**已关闭**）：三态现在都返回
