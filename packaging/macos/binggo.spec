@@ -9,13 +9,12 @@ block_cipher = None
 root = Path(SPECPATH).resolve().parents[1]
 icon_path = Path(SPECPATH).resolve().parent / "binggo.icns"
 
-# 与 Windows 同等 datas（仅 example / sources，不含密钥与预填种子）
+# 与 Windows 同等 datas（仅 example，不含密钥与预填种子）
 datas = [
     (str(root / "web" / "static" / "dist"), "web/static/dist"),
     (str(root / "web" / "static" / "favicon.svg"), "web/static"),
     (str(root / "config" / "cookies.txt.example"), "config"),
     (str(root / "config" / "llm.env.example"), "config"),
-    (str(root / "config" / "sources.yaml"), "config"),
 ]
 
 hiddenimports = [

@@ -83,7 +83,6 @@ python scripts/run_dashboard.py        # 或 python binggo_launcher.py
 | 文件 | 用途 |
 | --- | --- |
 | `cookies.txt` | 登录凭据（扫码登录自动写入，**请勿提交**） |
-| `sources.yaml` | 数据源注册表（DS-1~10） |
 | `participate_enhance.json` | 参与增强：抄热评 / @好友 / 话题 / 乱序 / 随机延迟 / 分区 |
 | `notify.json` | 15 渠道推送凭据 + 中奖关键词 |
 | `manual_dyids.txt` / `topic_tags.txt` / `api_sources.txt` | DS-8 / DS-9 / DS-10 数据源清单 |
