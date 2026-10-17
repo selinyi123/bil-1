@@ -13,7 +13,6 @@ datas = [
     (str(root / "web" / "static" / "favicon.svg"), "web/static"),
     (str(root / "config" / "cookies.txt.example"), "config"),
     (str(root / "config" / "llm.env.example"), "config"),
-    (str(root / "config" / "sources.yaml"), "config"),
     (str(root / "config" / "manual_dyids.txt.example"), "config"),
     (str(root / "config" / "topic_tags.txt.example"), "config"),
     (str(root / "config" / "api_sources.txt.example"), "config"),
